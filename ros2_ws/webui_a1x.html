@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A1X Cartesian Control</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --line:#272c36; --ink:#e6e9ef; --dim:#8b93a3;
+    --accent:#4da3ff; --ok:#3ddc84; --warn:#ffb340; --bad:#ff5c5c; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+         padding:14px 18px;border-bottom:1px solid var(--line)}
+  h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.02em}
+  .sub{color:var(--dim);font-size:12px}
+  .wrap{display:grid;grid-template-columns:minmax(320px,1fr) minmax(300px,380px);
+        gap:16px;padding:16px;align-items:start}
+  @media(max-width:820px){.wrap{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
+            color:var(--dim);margin:0 0 10px;font-weight:600}
+  canvas{width:100%;height:auto;display:block;border-radius:8px;
+         background:#10131a;border:1px solid var(--line);touch-action:none;cursor:crosshair}
+  .views{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:600px){.views{grid-template-columns:1fr}}
+  .row{display:flex;gap:8px;align-items:center;margin:8px 0}
+  label{font-size:12px;color:var(--dim);width:auto}
+  input[type=number]{width:100%;background:#0d1016;color:var(--ink);font-family:var(--mono);
+    border:1px solid var(--line);border-radius:6px;padding:7px 8px;font-size:13px}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  button{background:#222735;color:var(--ink);border:1px solid var(--line);
+    border-radius:7px;padding:9px 12px;font-size:13px;cursor:pointer;font-weight:500}
+  button:hover:not(:disabled){background:#2b3243;border-color:#3a4355}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.go{background:#17406b;border-color:#245d99}
+  button.go:hover:not(:disabled){background:#1d5089}
+  button.stop{background:#5e1f1f;border-color:#8d2f2f;font-weight:700}
+  button.stop:hover{background:#7a2828}
+  button.on{background:#1d5c3a;border-color:#2b8455}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .stat{display:flex;justify-content:space-between;gap:10px;
+        font-family:var(--mono);font-size:12px;padding:3px 0}
+  .stat span:first-child{color:var(--dim)}
+  .jbar{display:grid;grid-template-columns:58px 1fr 62px;gap:8px;align-items:center;
+        font-family:var(--mono);font-size:11px;margin:5px 0}
+  .track{height:7px;background:#0d1016;border-radius:4px;position:relative;overflow:hidden}
+  .fill{position:absolute;top:0;bottom:0;background:var(--accent);opacity:.75}
+  .tick{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--warn)}
+  .note{margin-top:10px;padding:9px 10px;border-radius:7px;font-size:12px;
+        background:#0d1016;border:1px solid var(--line);min-height:36px;
+        font-family:var(--mono);color:var(--dim);word-break:break-word}
+  .note.bad{color:var(--bad);border-color:#5e2626}
+  .note.ok{color:var(--ok);border-color:#245f42}
+  .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;
+        font-family:var(--mono);border:1px solid var(--line);color:var(--dim)}
+  .pill.live{color:var(--ok);border-color:#245f42}
+  .pill.moving{color:var(--warn);border-color:#6b4d1d}
+  .pill.off{color:var(--bad);border-color:#5e2626}
+  .warnpill{color:#101319;background:var(--warn);border-color:var(--warn);font-weight:700}
+  .badpill{color:#fff;background:#a32020;border-color:#c93131;font-weight:700}
+  .hint{color:var(--dim);font-size:11px;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>A1X Cartesian control</h1>
+  <span class="sub">click a view to place the tip &middot; joints are solved by IK</span>
+  <span style="flex:1"></span>
+  <span class="pill" id="pill-state">connecting</span>
+  <span class="pill warnpill" id="pill-dry" style="display:none">DRY RUN &mdash; nothing is sent</span>
+  <span class="pill badpill" id="pill-nolisten" style="display:none">driver not listening</span>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>Workspace</h2>
+    <div class="views">
+      <div>
+        <canvas id="xy" width="420" height="420"></canvas>
+        <div class="hint">top view &mdash; X right, Y up. Click to set X/Y.</div>
+      </div>
+      <div>
+        <canvas id="xz" width="420" height="420"></canvas>
+        <div class="hint">side view &mdash; radius right, Z up. Click to set Z.</div>
+      </div>
+    </div>
+    <div class="note" id="note">&nbsp;</div>
+  </div>
+
+  <div class="panel">
+    <h2>Target</h2>
+    <div class="grid3">
+      <div><label>X (m)</label><input type="number" id="tx" step="0.01" value="0.30"></div>
+      <div><label>Y (m)</label><input type="number" id="ty" step="0.01" value="0.00"></div>
+      <div><label>Z (m)</label><input type="number" id="tz" step="0.01" value="0.30"></div>
+    </div>
+    <div class="row"><label style="width:52px">Z</label>
+      <input type="range" id="zslide" min="0" max="0.70" step="0.005" value="0.30"></div>
+
+    <div class="btns">
+      <button class="go" id="go">Go to XYZ</button>
+      <button id="home">Home</button>
+      <button class="stop" id="stop">STOP</button>
+    </div>
+    <div class="btns">
+      <button id="engage">Engage</button>
+      <span class="hint" style="align-self:center">nothing moves until engaged</span>
+    </div>
+
+    <h2 style="margin-top:18px">Tip</h2>
+    <div class="stat"><span>measured</span><span id="tip">--</span></div>
+    <div class="stat"><span>target</span><span id="goal">--</span></div>
+    <div class="stat"><span>reach |p|</span><span id="reach">--</span></div>
+    <div class="stat"><span>feedback age</span><span id="stale">--</span></div>
+
+    <h2 style="margin-top:18px">Joints</h2>
+    <div id="joints"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const NAMES = ["J1 yaw","J2 shldr","J3 elbow","J4 wpitch","J5 wyaw","J6 wroll"];
+let S = null, guards = {min_reach:0.15,max_reach:0.60,z_floor:0.05,axis_guard:0.12};
+let busy = false;
+
+const target = () => ({x:+$("tx").value, y:+$("ty").value, z:+$("tz").value});
+function setTarget(x, y, z){
+  if(x !== null) $("tx").value = x.toFixed(3);
+  if(y !== null) $("ty").value = y.toFixed(3);
+  if(z !== null){ $("tz").value = z.toFixed(3); $("zslide").value = z; }
+  draw(); preview();
+}
+
+function note(msg, kind){
+  const n = $("note");
+  n.textContent = msg || " ";
+  n.className = "note" + (kind ? " " + kind : "");
+}
+
+async function post(path, body){
+  try{
+    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                                body: JSON.stringify(body||{})});
+    return await r.json();
+  }catch(e){ return {ok:false, note:"lost the server"}; }
+}
+
+// The Go button is gated on BOTH a reachable target and being engaged. Say
+// which one is missing -- a silently greyed button reads as "it's broken".
+let lastPreviewOk = true;
+function updateGo(){
+  const engaged = !!(S && S.engaged);
+  const b = $("go");
+  b.disabled = !engaged || !lastPreviewOk;
+  b.textContent = !engaged ? "Engage first"
+                : !lastPreviewOk ? "Target refused"
+                : "Go to XYZ";
+}
+
+let previewTimer = null;
+function preview(){
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const r = await post("/preview", target());
+    note(r.note, r.ok ? "ok" : "bad");
+    lastPreviewOk = !!r.ok;
+    updateGo();
+  }, 180);
+}
+
+// ---- drawing ---------------------------------------------------------------
+function fitXY(c){
+  const R = guards.max_reach * 1.12;
+  return {cx:c.width/2, cy:c.height/2, s:(c.width/2 - 22)/R};
+}
+function drawXY(){
+  const c = $("xy"), g = c.getContext("2d"), f = fitXY(c);
+  g.clearRect(0,0,c.width,c.height);
+  const P = (x,y) => [f.cx + x*f.s, f.cy - y*f.s];
+
+  // reachable annulus
+  g.fillStyle = "#151a24";
+  g.beginPath(); g.arc(f.cx, f.cy, guards.max_reach*f.s, 0, 7); g.fill();
+  g.fillStyle = "#10131a";
+  g.beginPath(); g.arc(f.cx, f.cy, guards.min_reach*f.s, 0, 7); g.fill();
+  // singularity guard
+  g.fillStyle = "rgba(255,92,92,.16)";
+  g.beginPath(); g.arc(f.cx, f.cy, guards.axis_guard*f.s, 0, 7); g.fill();
+
+  g.strokeStyle = "#272c36"; g.lineWidth = 1;
+  for(const r of [0.2,0.4,0.6]){
+    g.beginPath(); g.arc(f.cx, f.cy, r*f.s, 0, 7); g.stroke();
+  }
+  g.beginPath(); g.moveTo(0,f.cy); g.lineTo(c.width,f.cy);
+  g.moveTo(f.cx,0); g.lineTo(f.cx,c.height); g.stroke();
+  g.fillStyle = "#8b93a3"; g.font = "11px ui-monospace,monospace";
+  g.fillText("+X", c.width-26, f.cy-6); g.fillText("+Y", f.cx+6, 14);
+
+  if(S && S.tip){
+    const [px,py] = P(S.tip[0], S.tip[1]);
+    g.strokeStyle = "#3ddc84"; g.lineWidth = 2;
+    g.beginPath(); g.arc(px, py, 7, 0, 7); g.stroke();
+    g.beginPath(); g.moveTo(f.cx,f.cy); g.lineTo(px,py); g.globalAlpha=.35; g.stroke(); g.globalAlpha=1;
+  }
+  const t = target(), [tx,ty] = P(t.x, t.y);
+  g.strokeStyle = "#4da3ff"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(tx-9,ty); g.lineTo(tx+9,ty);
+  g.moveTo(tx,ty-9); g.lineTo(tx,ty+9); g.stroke();
+}
+function drawXZ(){
+  const c = $("xz"), g = c.getContext("2d");
+  const R = guards.max_reach*1.12, s = (c.width - 44)/R, x0 = 30, y0 = c.height - 34;
+  g.clearRect(0,0,c.width,c.height);
+  const P = (r,z) => [x0 + r*s, y0 - z*s];
+
+  g.fillStyle = "#151a24";
+  g.beginPath(); g.arc(x0, y0, guards.max_reach*s, -Math.PI, 0); g.fill();
+  g.fillStyle = "#10131a";
+  g.beginPath(); g.arc(x0, y0, guards.min_reach*s, -Math.PI, 0); g.fill();
+  // floor guard
+  const [,zf] = P(0, guards.z_floor);
+  g.fillStyle = "rgba(255,92,92,.16)"; g.fillRect(0, zf, c.width, c.height-zf);
+  g.strokeStyle = "#ff5c5c"; g.globalAlpha=.5;
+  g.beginPath(); g.moveTo(0,zf); g.lineTo(c.width,zf); g.stroke(); g.globalAlpha=1;
+
+  g.strokeStyle = "#272c36"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x0,0); g.lineTo(x0,c.height);
+  g.moveTo(0,y0); g.lineTo(c.width,y0); g.stroke();
+  g.fillStyle = "#8b93a3"; g.font = "11px ui-monospace,monospace";
+  g.fillText("radius", c.width-52, y0+16); g.fillText("+Z", x0+6, 14);
+  g.fillText("floor", 6, zf-5);
+
+  if(S && S.tip){
+    const r = Math.hypot(S.tip[0], S.tip[1]);
+    const [px,py] = P(r, S.tip[2]);
+    g.strokeStyle = "#3ddc84"; g.lineWidth = 2;
+    g.beginPath(); g.arc(px,py,7,0,7); g.stroke();
+  }
+  const t = target(), [tx,ty] = P(Math.hypot(t.x,t.y), t.z);
+  g.strokeStyle = "#4da3ff"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(tx-9,ty); g.lineTo(tx+9,ty);
+  g.moveTo(tx,ty-9); g.lineTo(tx,ty+9); g.stroke();
+}
+function draw(){ drawXY(); drawXZ(); }
+
+$("xy").addEventListener("pointerdown", e => {
+  const c = $("xy"), b = c.getBoundingClientRect(), f = fitXY(c);
+  const sx = c.width/b.width;
+  setTarget(((e.clientX-b.left)*sx - f.cx)/f.s, (f.cy - (e.clientY-b.top)*sx)/f.s, null);
+});
+$("xz").addEventListener("pointerdown", e => {
+  const c = $("xz"), b = c.getBoundingClientRect();
+  const s = (c.width - 44)/(guards.max_reach*1.12), sx = c.width/b.width;
+  const y0 = c.height - 34;
+  setTarget(null, null, Math.max(0, (y0 - (e.clientY-b.top)*sx)/s));
+});
+
+for(const id of ["tx","ty","tz"]) $(id).addEventListener("input", () => {
+  $("zslide").value = $("tz").value; draw(); preview();
+});
+$("zslide").addEventListener("input", () => { $("tz").value = (+$("zslide").value).toFixed(3); draw(); preview(); });
+
+$("go").onclick = async () => {
+  if(busy) return; busy = true;
+  const r = await post("/goto", target());
+  note(r.note, r.ok ? "ok" : "bad");
+  busy = false;
+};
+$("stop").onclick = () => post("/stop").then(() => note("stopped", "ok"));
+$("home").onclick = () => post("/home").then(r => note(r.note, r.ok ? "ok" : "bad"));
+$("engage").onclick = async () => {
+  const on = !(S && S.engaged);
+  await post("/engage", {on});
+};
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape" || e.key === " "){ e.preventDefault(); $("stop").click(); }
+});
+
+// ---- joints ----------------------------------------------------------------
+function drawJoints(){
+  const host = $("joints");
+  if(!S || !S.q_deg){ host.textContent = "--"; return; }
+  if(host.children.length !== 6){
+    host.innerHTML = NAMES.map(n =>
+      `<div class="jbar"><span>${n}</span>
+        <div class="track"><div class="fill"></div><div class="tick"></div></div>
+        <span class="val"></span></div>`).join("");
+  }
+  S.q_deg.forEach((v,i) => {
+    const [lo,hi] = S.limits_deg[i];
+    const row = host.children[i];
+    const frac = Math.min(1, Math.max(0, (v-lo)/(hi-lo)));
+    row.querySelector(".fill").style.width = (frac*100).toFixed(1) + "%";
+    const c = S.cmd_deg ? S.cmd_deg[i] : v;
+    const cf = Math.min(1, Math.max(0, (c-lo)/(hi-lo)));
+    row.querySelector(".tick").style.left = (cf*100).toFixed(1) + "%";
+    row.querySelector(".val").textContent = v.toFixed(1) + "°";
+  });
+}
+
+// ---- poll ------------------------------------------------------------------
+async function poll(){
+  try{
+    const r = await fetch("/state", {cache:"no-store"});
+    S = await r.json();
+    if(S.guards) guards = S.guards;
+    const p = $("pill-state");
+    if(!S.ok){ p.textContent = "no feedback"; p.className = "pill off"; }
+    else if(!S.engaged){ p.textContent = "idle - not engaged"; p.className = "pill"; }
+    else if(S.state === "moving"){ p.textContent = "MOVING"; p.className = "pill moving"; }
+    else { p.textContent = "engaged - holding"; p.className = "pill live"; }
+    $("pill-dry").style.display = S.dry_run ? "" : "none";
+    // listeners == 0 means driver_node is absent or was launched read-only, so
+    // commands would go nowhere. Say so before the user wonders why it is dead.
+    $("pill-nolisten").style.display = (S.listeners === 0) ? "" : "none";
+    $("engage").textContent = S.engaged ? "Disengage" : "Engage";
+    $("engage").className = S.engaged ? "on" : "";
+    updateGo();
+
+    if(S.tip){
+      $("tip").textContent = S.tip.map(v => v.toFixed(3)).join("  ");
+      $("reach").textContent = Math.hypot(S.tip[0],S.tip[1],S.tip[2]).toFixed(3) + " m";
+    }
+    $("goal").textContent = S.goal_p ? S.goal_p.map(v=>v.toFixed(3)).join("  ") : "--";
+    $("stale").textContent = S.stale === null ? "--" : (S.stale*1000).toFixed(0)+" ms";
+    if(S.note) note(S.note, S.state === "moving" ? "ok" : null);
+    drawJoints(); draw();
+  }catch(e){
+    const p = $("pill-state"); p.textContent = "server gone"; p.className = "pill off";
+  }
+  setTimeout(poll, 200);
+}
+draw(); poll(); preview();
+</script>
+</body>
+</html>

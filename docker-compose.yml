@@ -32,6 +32,9 @@ services:
       - ./ros2_ws:/home/${CONTAINER_USER:-ros}/ros2_ws:rw
       # Galaxea ATC host SDK (x86_64) -- the real HDAS/ARM_APP for the A1XY.
       - ./a1xy:/home/${CONTAINER_USER:-ros}/a1xy:rw
+      # FK/Jacobian/IK, used by webui_a1x.py. Mounted rather than copied into
+      # ros2_ws so the container and the host tools share one implementation.
+      - ./kinematics.py:/home/${CONTAINER_USER:-ros}/ros2_ws/kinematics.py:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev/dri:/dev/dri:rw
       # Persist apt/rosdep/colcon caches across container rebuilds.

@@ -1,5 +1,9 @@
 # GALAXEO — an open driver for the Galaxea A1X arm
 
+> **For keyboard control:** Keyboard control custom script description
+> [ros2_ws/KEYBOARD_CTRL.md](ros2_ws/KEYBOARD_CTRL.md) leading step by step for controlling the 
+> manipulator from the keyboard. 
+
 A working SDK for the **Galaxea A1X** 6-DOF arm, plus the documentation needed
 to actually drive one.
 
