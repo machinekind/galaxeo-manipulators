@@ -63,17 +63,22 @@
                     <inertial pos="-0.0311072323899603 1.17979991887118E-08 7.93394685505433E-08" mass="0.604" fullinertia="0.000175881544189539 9.86379407701341E-05 0.000165121280580029 -6.06026450851008E-11 5.30643405624365E-10 -8.18686692495892E-08"/>
                     <geom class="visual" mesh="gripper_link" rgba="0.807843137254902 0.843137254901961 0.905882352941176 1"/>
                     <geom class="collision" mesh="gripper_link"/>
+                    <site name="tcp" pos="0.045 0 0" size="0.005" rgba="1 0 0 0.5" group="4"/>
                     <body name="gripper_finger_link1" pos="0.03689 0.013453 0.00012059">
                       <joint name="gripper_finger_joint1" type="slide" axis="0 1 0" range="0 0.05"/>
                       <inertial pos="-0.0195895895552112 -0.0151136845490034 0.00542254359093075" mass="0.027" fullinertia="2.40569358477209E-06 5.71079298307516E-06 6.48482183930358E-06 3.9898459609048E-07 5.12152762183641E-08 6.19467902008363E-08"/>
                       <geom class="visual" mesh="gripper_finger_link1" rgba="0.807843137254902 0.843137254901961 0.905882352941176 1"/>
-                      <geom class="collision" mesh="gripper_finger_link1"/>
+                      <geom class="collision" type="box" pos="-0.047 -0.0385 0.017" size="0.007 0.027 0.006"/>
+                      <geom class="collision" type="box" pos="0.017 -0.0015 0" size="0.024 0.0015 0.01"/>
+                      <geom class="collision" type="box" pos="0.038 -0.0085 0" size="0.004 0.0035 0.006"/>
                     </body>
                     <body name="gripper_finger_link2" pos="0.03689 -0.013453 -0.00012059">
                       <joint name="gripper_finger_joint2" type="slide" axis="0 1 0" range="-0.05 0"/>
                       <inertial pos="-0.0195895857999098 0.0151136893508115 -0.00542254357246619" mass="0.027" fullinertia="2.40569340151687E-06 5.71079321589929E-06 6.48482187274222E-06 -3.98983784827124E-07 -5.12152683073981E-08 6.19467953006536E-08"/>
                       <geom class="visual" mesh="gripper_finger_link2" rgba="0.807843137254902 0.843137254901961 0.905882352941176 1"/>
-                      <geom class="collision" mesh="gripper_finger_link2"/>
+                      <geom class="collision" type="box" pos="-0.047 0.0385 -0.017" size="0.007 0.027 0.006"/>
+                      <geom class="collision" type="box" pos="0.017 0.0015 -0" size="0.024 0.0015 0.01"/>
+                      <geom class="collision" type="box" pos="0.038 0.0085 -0" size="0.004 0.0035 0.006"/>
                     </body>
                   </body>
                 </body>
@@ -91,7 +96,7 @@
     <position name="arm4" joint="arm_joint4" kp="150" kv="7.5" ctrlrange="-1.5708 1.5708" forcerange="-14 14"/>
     <position name="arm5" joint="arm_joint5" kp="100" kv="5.0" ctrlrange="-1.5708 1.5708" forcerange="-14 14"/>
     <position name="arm6" joint="arm_joint6" kp="60" kv="3.0" ctrlrange="-2.8798 2.8798" forcerange="-14 14"/>
-    <position name="gripper_finger1" joint="gripper_finger_joint1" kp="400" kv="20.0" ctrlrange="0 0.05" forcerange="-100 100"/>
+    <position name="gripper_finger1" joint="gripper_finger_joint1" kp="1000" kv="50.0" ctrlrange="0 0.05" forcerange="-100 100"/>
   </actuator>
   <equality>
     <joint joint1="gripper_finger_joint2" joint2="gripper_finger_joint1" polycoef="0 -1 0 0 0"/>

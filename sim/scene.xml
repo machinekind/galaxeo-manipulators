@@ -2,7 +2,7 @@
      The arm itself lives in a1x.xml, generated from the URDF by urdf2mjcf.py.
        sim/.venv/bin/python sim/view.py -->
 <mujoco model="a1x_scene">
-  <option timestep="0.002" integrator="implicitfast"/>
+  <option timestep="0.002" integrator="implicitfast" noslip_iterations="5"/>
 
   <visual>
     <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
@@ -31,10 +31,18 @@
     <body name="follower_mount" pos="0 -0.3 0.7">
       <attach model="a1x" body="base_link" prefix="follower/"/>
     </body>
+
+    <body name="ball" pos="0.25 0.3 0.73">
+      <freejoint name="ball"/>
+      <geom name="ball" type="sphere" size="0.03" mass="0.05" rgba="0.9 0.3 0.2 1"
+            friction="1.5 0.02 0.002" condim="4" priority="1"
+            solref="0.005 1" solimp="0.98 0.995 0.001"/>
+      <!-- priority + stiff solref: a 50 g ball would otherwise sink millimetres into the fingers -->
+    </body>
   </worldbody>
 
   <!-- Scene-level home pose: the arms' own keyframes only cover one arm each. -->
   <keyframe>
-    <key name="home" qpos="0 1 -1.6 0.6 0 0 0.03 -0.03  0 1 -1.6 0.6 0 0 0.03 -0.03" ctrl="0 1 -1.6 0.6 0 0 0.03  0 1 -1.6 0.6 0 0 0.03"/>
+    <key name="home" qpos="0 1 -1.6 0.6 0 0 0.03 -0.03  0 1 -1.6 0.6 0 0 0.03 -0.03  0.25 0.3 0.73 1 0 0 0"  ctrl="0 1 -1.6 0.6 0 0 0.03  0 1 -1.6 0.6 0 0 0.03"/>
   </keyframe>
 </mujoco>

@@ -21,7 +21,22 @@ MESHDIR = os.path.relpath(os.path.join(PKG, "meshes"), HERE)
 # Position-servo gains. Roughly "stiff enough to hold pose under gravity".
 KP = {"arm_joint1": 300, "arm_joint2": 600, "arm_joint3": 400,
       "arm_joint4": 150, "arm_joint5": 100, "arm_joint6": 60}
-KP_GRIPPER = 400
+KP_GRIPPER = 1000
+# Collision primitives that replace the finger meshes. MuJoCo collides meshes
+# as convex hulls, and each L-shaped finger (slide carriage + thin plate) hulls
+# into a wedge whose inner face is slanted -- anything grasped gets squeezed out
+# along it. These boxes trace the real parts, in the finger body frame:
+# the carriage behind the palm face, the plate that runs parallel to the other
+# finger, and the inward-curled tip. Finger 2 is the mirror image (y, z -> -y, -z).
+FINGER1_BOXES = [   # (pos, half-size)
+    ((-0.047, -0.0385, 0.017), (0.007, 0.027, 0.006)),    # carriage, behind the palm face
+    ((0.017, -0.0015, 0.0), (0.024, 0.0015, 0.010)),      # plate
+    ((0.038, -0.0085, 0.0), (0.004, 0.0035, 0.006)),      # curled tip
+]
+FINGER_COLLISION = {
+    "gripper_finger_link1": FINGER1_BOXES,
+    "gripper_finger_link2": [((x, -y, -z), hs) for (x, y, z), hs in FINGER1_BOXES],
+}
 HOME = {"arm_joint2": 1.0, "arm_joint3": -1.6, "arm_joint4": 0.6,
         "gripper_finger_joint1": 0.03}
 
@@ -91,6 +106,11 @@ def main():
                                                ("ixx", "iyy", "izz", "ixy", "ixz", "iyz")))
 
         for tag, cls in (("visual", "visual"), ("collision", "collision")):
+            if cls == "collision" and link_name in FINGER_COLLISION:
+                for pos, half in FINGER_COLLISION[link_name]:
+                    ET.SubElement(body, "geom", {"class": "collision"}, type="box",
+                                  pos=fmt(pos), size=fmt(half))
+                continue
             for el in link.findall(tag):
                 mesh = el.find("geometry/mesh")
                 if mesh is None:
@@ -109,6 +129,13 @@ def main():
                 color = el.find("material/color")
                 if cls == "visual" and color is not None:
                     g.set("rgba", color.get("rgba"))
+
+        if link_name == "gripper_link":
+            # Tool centre point: between the finger plates where they run parallel.
+            # The plates span x = 0.03..0.06 in this frame and curl inward at the
+            # tips (x = 0.078), so an object grasped here is caged by the tips.
+            ET.SubElement(body, "site", name="tcp", pos="0.045 0 0", size="0.005",
+                          rgba="1 0 0 0.5", group="4")
 
         for cj in children.get(link_name, []):
             o = cj.find("origin")
