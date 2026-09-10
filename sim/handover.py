@@ -211,6 +211,7 @@ if __name__ == "__main__":
     if args.gif or args.headless:
         run_headless(args.gif)
     else:
-        if sys.platform == "darwin" and "mjpython" not in sys.executable:
-            sys.exit("On macOS the live viewer needs mjpython:  sim/.venv/bin/mjpython sim/handover.py")
-        run_viewer()
+        try:
+            run_viewer()
+        except RuntimeError as e:          # launch_passive on macOS outside mjpython
+            sys.exit(f"{e}\nOn macOS run:  sim/.venv/bin/mjpython sim/handover.py")
