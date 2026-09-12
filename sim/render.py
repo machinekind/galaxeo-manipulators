@@ -7,7 +7,6 @@ import os
 import sys
 
 import mujoco
-import numpy as np
 
 out = sys.argv[1] if len(sys.argv) > 1 else "a1x_scene.png"
 model = mujoco.MjModel.from_xml_path(os.path.join(os.path.dirname(__file__), "scene.xml"))
