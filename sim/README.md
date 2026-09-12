@@ -63,6 +63,7 @@ sets it on the dog's back.
 ```bash
 sim/.venv/bin/python sim/planner/run_episodes.py --n 20 --seed 0
 sim/.venv/bin/python sim/planner/run_episodes.py --n 1 --seed 4 --gif pickplace.gif
+sim/.venv/bin/mjpython sim/planner/run_episodes.py --view --seed 4        # live, loops seeds
 sim/.venv/bin/python sim/planner/run_episodes.py --n 20 --record /tmp/pp   # .npz per episode
 sim/.venv/bin/python sim/pickplace_scene.py 4 scene.png   # build one episode, still render
 ```
