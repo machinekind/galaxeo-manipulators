@@ -29,3 +29,5 @@ diag/*.csv
 
 # --- MuJoCo sim ---------------------------------------------------------------
 sim/.venv/
+sim/.venv-lerobot/
+data/
