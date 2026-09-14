@@ -31,3 +31,10 @@ diag/*.csv
 sim/.venv/
 sim/.venv-lerobot/
 data/
+sim/runs/
+
+# --- GPU dispatcher ------------------------------------------------------------
+# Personal values (paths, names, host settings) for the out-of-tree job
+# dispatcher. Copy .gpu-ops.example to .gpu-ops and edit it.
+.gpu-ops
+sim/datasets/

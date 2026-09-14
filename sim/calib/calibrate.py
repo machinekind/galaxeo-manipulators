@@ -159,6 +159,19 @@ def session(robot, K, dist, tag_size, tag_mounts, home, base, table_top, fk=None
     if len(obs) < 6:
         raise RuntimeError(f"only {len(obs)} tag observations in {n_poses} poses; cannot calibrate")
     fit = solve(obs, K, dist, tag_size, refine_tags=refine_tags)
+    # On a thin session Levenberg-Marquardt can settle in a mirrored minimum
+    # with a residual of hundreds of pixels. The gate would refuse it, but a
+    # few restarts from a jittered start usually find the real one.
+    if fit.rms_px > MAX_PX:
+        rng = np.random.default_rng(seed)
+        for _ in range(5):
+            T = fit.T_cam2base.copy()
+            T[:3, 3] += rng.normal(0, 0.05, 3)
+            alt = solve(obs, K, dist, tag_size, refine_tags=refine_tags, init=T)
+            if alt.rms_px < fit.rms_px:
+                fit = alt
+            if fit.rms_px <= MAX_PX:
+                break
     fit.K, fit.dist = np.asarray(K), dist
     return fit, obs, seen, n_poses
 

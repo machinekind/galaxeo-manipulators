@@ -3,7 +3,8 @@
     from bottle import sample_bottle, bottle_xml, add_bottle_meshes, glass_xml
 
 A bottle is a surface of revolution: a body, a shoulder curve, a neck and a
-lip. The visual is one revolved mesh plus a label band; the collision is a
+lip. The visual is one revolved mesh, clear to opaque, plus one or two label
+bands of random colour and placement; the collision is a
 stack of cylinders (body, three shoulder steps, neck) so the neck stays
 graspable -- a convex hull of the whole bottle would fill the shoulder in.
 Only the body cylinder carries mass. Every bottle gets a `mouth` site at the
@@ -23,7 +24,13 @@ LABEL_RGBA = "0.92 0.92 0.88 1"
 COLLISION_GROUP = 3           # not drawn by the default renderer
 
 
-def sample_bottle(rng, name="bottle"):
+def sample_bottle(rng, name="bottle", arng=None):
+    """One bottle. `rng` draws the shape, the mass and the first label exactly
+    as it always has; `arng`, the scene's appearance stream, only adds the
+    opaque override and the second band on top. Splitting the two streams is
+    what keeps a seed's *task* -- the bottle it has to pick up -- fixed while
+    what the camera sees around it is randomised."""
+    arng = rng if arng is None else arng
     body_r = float(rng.uniform(0.030, 0.042))
     body_h = float(rng.uniform(0.12, 0.20))
     shoulder_h = float(rng.uniform(0.02, 0.05))
@@ -33,13 +40,36 @@ def sample_bottle(rng, name="bottle"):
     height = body_h + shoulder_h + neck_h + 0.006
     tint = rng.uniform(0.15, 0.9, 3)
     alpha = float(rng.uniform(0.55, 0.95))         # glass ranges from clear to opaque
+    mass = float(rng.uniform(0.3, 1.0))
+    labels = [dict(z0=float(body_h * rng.uniform(0.25, 0.4)),
+                   z1=float(body_h * rng.uniform(0.6, 0.85)),
+                   rgba=np.concatenate([rng.uniform(0.1, 0.95, 3), [1.0]]))]
+    if arng.random() < OPAQUE_P:                   # ... and one in three is painted solid
+        alpha = 1.0
+    if arng.random() < SECOND_BAND_P:
+        second = _second_band(arng, labels[0], body_h)
+        if second is not None:
+            labels = sorted(labels + [second], key=lambda b: b["z0"])
     return dict(name=name, body_r=body_r, body_h=body_h, shoulder_h=shoulder_h,
-                neck_r=neck_r, neck_h=neck_h, lip=lip, height=height,
-                mass=float(rng.uniform(0.3, 1.0)),
-                rgba=np.array([*tint, alpha]),
-                label=dict(z0=float(body_h * rng.uniform(0.25, 0.4)),
-                           z1=float(body_h * rng.uniform(0.6, 0.85)),
-                           rgba=np.concatenate([rng.uniform(0.1, 0.95, 3), [1.0]])))
+                neck_r=neck_r, neck_h=neck_h, lip=lip, height=height, mass=mass,
+                rgba=np.array([*tint, alpha]), opaque=bool(alpha >= 1.0), labels=labels)
+
+
+OPAQUE_P = 1 / 3              # chance the bottle is painted solid rather than see-through
+SECOND_BAND_P = 0.5           # chance of a narrow band above or below the main label
+
+
+def _second_band(arng, first, body_h):
+    """A narrow band in whatever room the main label leaves on the body."""
+    z0, z1 = first["z0"] / body_h, first["z1"] / body_h
+    gaps = [(a, b) for a, b in ((0.04, z0 - 0.03), (z1 + 0.03, 0.95)) if b - a > 0.07]
+    if not gaps:
+        return None
+    a, b = gaps[arng.integers(len(gaps))]
+    t0 = float(arng.uniform(a, b - 0.05))
+    t1 = min(b, t0 + float(arng.uniform(0.04, 0.12)))
+    return dict(z0=float(body_h * t0), z1=float(body_h * t1),
+                rgba=np.concatenate([arng.uniform(0.1, 0.95, 3), [1.0]]))
 
 
 def profile(b):
@@ -83,13 +113,16 @@ def bottle_xml(b, pos, yaw):
     contact = " ".join(f'{k}="{v}"' for k, v in CONTACT.items())
     top = b["body_h"] + b["shoulder_h"] + b["neck_h"]
     rgba = " ".join(f"{x:.3f}" for x in b["rgba"])
-    lab = b["label"]
     geoms = [
         f'<geom name="{b["name"]}/vis" type="mesh" mesh="{b["name"]}_vis" rgba="{rgba}" '
         f'contype="0" conaffinity="0" mass="0" group="1"/>',
-        f'<geom name="{b["name"]}/label" type="cylinder" size="{b["body_r"] + 0.0006:.4f} '
-        f'{(lab["z1"] - lab["z0"]) / 2:.4f}" pos="0 0 {(lab["z0"] + lab["z1"]) / 2:.4f}" '
-        f'rgba="{" ".join(f"{x:.3f}" for x in lab["rgba"])}" contype="0" conaffinity="0" mass="0" group="1"/>',
+    ]
+    for i, lab in enumerate(b["labels"]):
+        geoms.append(
+            f'<geom name="{b["name"]}/label{i}" type="cylinder" size="{b["body_r"] + 0.0006:.4f} '
+            f'{(lab["z1"] - lab["z0"]) / 2:.4f}" pos="0 0 {(lab["z0"] + lab["z1"]) / 2:.4f}" '
+            f'rgba="{" ".join(f"{x:.3f}" for x in lab["rgba"])}" contype="0" conaffinity="0" mass="0" group="1"/>')
+    geoms += [
         # collision: body carries all the mass
         f'<geom name="{b["name"]}/body" type="cylinder" size="{b["body_r"]:.4f} {b["body_h"] / 2:.4f}" '
         f'pos="0 0 {b["body_h"] / 2:.4f}" mass="{b["mass"]:.4f}" group="{COLLISION_GROUP}" {contact}/>',

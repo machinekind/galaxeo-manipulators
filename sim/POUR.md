@@ -12,7 +12,8 @@ sim/.venv/bin/python sim/calib/calibrate.py --sim --n 20            # calibratio
 sim/.venv/bin/python sim/planner/run_pour.py --n 20 --seed 0        # planner success rate
 sim/.venv/bin/python sim/planner/run_pour.py --n 1 --seed 1 --gif pour.gif
 sim/.venv/bin/mjpython sim/planner/run_pour.py --view --seed 1      # live (macOS needs mjpython)
-sim/.venv-lerobot/bin/python sim/planner/run_pour.py --n 100 --lerobot data/pour_sim   # dataset
+sim/.venv/bin/python sim/gen_dataset.py --root sim/datasets/pour_sim --episodes 300   # dataset, parallel
+sim/.venv-lerobot/bin/python sim/planner/eval_policy.py --ckpt sim/runs/pour_act_0 --n 20  # policy in the loop
 ```
 
 | | |
@@ -24,6 +25,9 @@ sim/.venv-lerobot/bin/python sim/planner/run_pour.py --n 100 --lerobot data/pour
 | `calib/calibrate.py` | the automated session: the arm waves, tags are detected, the fit is scored and written |
 | `planner/pour.py` | the pick-and-pour state machine |
 | `planner/run_pour.py` | seeded episodes, GIF, `.npz`, or a LeRobot v3 dataset |
+| `gen_dataset.py` | N worker processes, disjoint seeds, parts merged into one dataset |
+| `planner/eval_policy.py` | a trained lerobot checkpoint driving the scene, judged like the planner |
+| `jobs/` | GPU payloads: `preflight.sh`, `train_pour.sh`; `pyproject.toml` + `uv.lock` is the training env |
 
 ## The plan
 
@@ -41,11 +45,12 @@ sim/.venv-lerobot/bin/python sim/planner/run_pour.py --n 100 --lerobot data/pour
 4. **Data in one schema.** Sim and real episodes both go into LeRobot v3 with
    the features `record_a1x.py` uses, plus the session's camera intrinsics and
    extrinsics per frame, so viewpoint is never lost. Done.
-5. **Model.** Train ACT or a diffusion policy with `lerobot` on the sim set,
-   evaluate it in this harness, then add real autonomous episodes and
-   co-train; a VLA fine-tune once the real count reaches the hundreds. An
-   LLM/VLM can guide and judge real episodes where the sim's ground truth is
-   not available (the verify stages are the hook). Not started.
+5. **Model.** Train ACT with `lerobot` on the sim set, evaluate it in this
+   harness, then add real autonomous episodes and co-train; a VLA fine-tune
+   once the real count reaches the hundreds. An LLM/VLM can guide and judge
+   real episodes where the sim's ground truth is not available (the verify
+   stages are the hook). Payloads, training env and the closed-loop
+   evaluation exist; see Training below.
 
 ## Scene
 
@@ -60,6 +65,19 @@ The laptop camera is drawn 0.5 to 0.85 m from the workspace at any bearing in
 the front half plane, 12 to 38 cm above the table, looking at the workspace
 with jitter. `info["cam"]` holds `K` and `T_cam2base` so calibration can be
 scored; the planner never reads them.
+
+The arm will be set up on different tables, so nothing about one table may
+be learnt. Per seed the scene also draws the table's extents and where the
+arm sits on it (10 to 40 cm from each edge, the top always at the mount),
+table and floor materials (flat colour or a builtin checker, gradient or flat
+texture with random colours and repeat), the skybox and haze, one to three
+lights of random kind, position and strength within a budget that keeps the
+tags decodable, and zero to two distractor primitives on the table, kept
+12 cm clear of the bottle-to-glass corridor. Bottles get one or two label
+bands and are opaque one time in three. Appearance comes from a second random
+stream, so a seed's task (bottle, glass, placement, camera pose) is the same
+as before the randomisation was added; the planner still scores 18/20 on
+seeds 0 to 19 and calibration 20/20 on seeds 10 to 29.
 
 Two things in the scene are not in the URDF and matter:
 
@@ -100,6 +118,10 @@ untrusted, which is the point of the gate. With `--refine` the mounts are
 solved too and the median comes back to 0.4 mm; the remaining outliers are
 sessions where the cap on poses was hit before the gripper had shown enough
 orientations, which is why refinement asks for twice the views.
+
+On a thin session the fit can settle in a mirrored minimum with a residual of
+hundreds of pixels; the gate would refuse it, and `session` now restarts the
+fit from a few jittered starts when that happens.
 
 On the real arm: print the four gripper tags and the base tag at 45 mm
 plate size (`assets/tags/`), glue the cube on top of the gripper body,
@@ -163,17 +185,46 @@ one after real perception exists.
 ## Data
 
 `run_pour.py --lerobot ROOT` streams successful episodes into a LeRobot v3
-dataset at 20 Hz (needs `sim/.venv-lerobot`: `uv venv --python 3.12
-sim/.venv-lerobot && uv pip install --python sim/.venv-lerobot/bin/python
-'lerobot[dataset]' mujoco`). Features match `record_a1x.py`:
+dataset at 20 Hz. `sim/.venv-lerobot` is that environment: `uv venv --python
+3.12 sim/.venv-lerobot && uv pip install --python sim/.venv-lerobot/bin/python
+'lerobot[dataset,training]' mujoco`, or sync it from `sim/pyproject.toml`.
+Features match `record_a1x.py`:
 
-    action                       (7,)  commanded joint targets + gripper, 0 closed .. 0.05 open
-    observation.state            (7,)  measured joints + finger position
-    observation.images.laptop    640 x 480 from the random webcam
-    observation.cam_K, cam_T     (9,) (16,)  the session's camera calibration
+    action                        (7,)  commanded joint targets + gripper, 0 closed .. 0.05 open
+    observation.state             (7,)  measured joints + finger position
+    observation.images.laptop     640 x 480 from the random webcam
+    observation.cam_K, cam_T      (9,) (16,)  the session's camera calibration, for provenance
+    observation.environment_state (25,) the same two concatenated
 
-Failed episodes are dropped from the dataset but counted in the run's
-report. A training run is then the stock lerobot command on that root.
+The last one is there because ACT reads exactly one non-image state key
+besides `observation.state`, and that is it: the policy is conditioned on the
+calibration, which every session has anyway. Failed episodes are dropped from
+the dataset but counted in the run's report.
+
+`gen_dataset.py` runs N `run_pour.py` processes on disjoint seed ranges, each
+into its own part, and merges the parts with `lerobot-edit-dataset`. Eight
+workers make about 300 successful episodes in under an hour on a laptop, at
+roughly 6.5 MB and 750 frames per episode. The first full run, seeds 1000 to 1374 on eight workers: 330 successful episodes out of 376 seeds, 247,100 frames, 1.9 GB, 57 minutes.
+
+## Training
+
+`sim/jobs/` holds two payloads for an out-of-tree GPU dispatcher (plain bash,
+parameters from environment variables, no machine names; the contract is in
+`sim/jobs/README.md`). `preflight.sh` proves a node can train: CUDA, imports,
+video decoding through PyAV (torchcodec would need a system ffmpeg), the
+ResNet18 backbone download, and five real training steps. `train_pour.sh` is
+one ACT run: chunk 50, batch 32, lr 1e-5, photometric image augmentation only
+(the default set includes an affine jitter, which would break the image's
+relation to the calibration the frames carry), checkpoints ten times, resumes
+from the last one. `sim/pyproject.toml` with its lock is the environment the
+node syncs.
+
+Training does not evaluate. `planner/eval_policy.py` loads a checkpoint, feeds
+it exactly the features its config lists at the dataset's rate, writes the
+seven actions to the servos with the recorder's gripper mapping inverted, and
+judges from ground truth the way the planner is judged: mouth in the rim past
+the tilt threshold for 1.2 s cumulative, glass standing, bottle not on the
+floor. Results of the first run go here once it has been evaluated.
 
 ## Known limits
 

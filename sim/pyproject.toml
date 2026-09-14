@@ -1,0 +1,28 @@
+[project]
+name = "galaxeo-sim"
+version = "0.1.0"
+description = "MuJoCo pour scene, scripted planner, and LeRobot training/eval for the A1X arm"
+requires-python = ">=3.12,<3.13"
+
+# Pinned to the versions that are known to work together for both dataset
+# recording (sim/planner/run_pour.py --lerobot) and training (sim/jobs/).
+# torch comes in through lerobot: on linux the PyPI wheel is the CUDA build,
+# which is what the training box wants, and no extra index is needed.
+dependencies = [
+    # [dataset] for reading/writing LeRobot v3 datasets, [training] for
+    # lerobot-train itself (it needs accelerate, and wandb when WANDB=true).
+    "lerobot[dataset,training]==0.6.1",
+    "mujoco==3.13.0",
+    # lerobot already requires opencv-python-headless (<4.14,>=4.9); the
+    # contrib wheel would install a second, conflicting cv2. aruco lives in
+    # the main package since 4.7, so calib/ works with this one.
+    "opencv-python-headless==4.13.0.92",
+    "numpy==2.2.6",
+    "pillow==12.3.0",
+    # PyAV explicitly: video decoding uses the pyav backend, because
+    # torchcodec needs a matching system ffmpeg that we cannot assume.
+    "av==15.1.0",
+]
+
+[tool.uv]
+package = false

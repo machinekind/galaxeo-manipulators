@@ -16,7 +16,10 @@ schema `record_a1x.py` writes on the real arm:
     action                       (7,) commanded joint targets + gripper, 0 closed .. 0.05 open
     observation.state            (7,) measured joints + finger position
     observation.images.laptop    the webcam
-    observation.cam_K, cam_T     (9,) (16,) the session's camera calibration
+    observation.cam_K, cam_T     (9,) (16,) the session's camera calibration, for provenance
+    observation.environment_state (25,) the same two concatenated: the one key ACT
+                                 reads as an environment state, so the policy is
+                                 conditioned on the calibration it will have anyway
 
     sim/.venv-lerobot/bin/python sim/planner/run_pour.py --n 100 --lerobot data/pour_sim --fps 20
 """
@@ -61,6 +64,7 @@ class LeRobotRecorder:
         self.n = 0
         self.K = np.asarray(info["cam"]["K"], np.float32).ravel()
         self.T = np.asarray(info["cam"]["T_cam2base"], np.float32).ravel()
+        self.env = np.concatenate([self.K, self.T])
 
     def __call__(self, pp):
         d = pp.d
@@ -74,6 +78,7 @@ class LeRobotRecorder:
                            "observation.state": np.concatenate([q, [g]]).astype(np.float32),
                            "observation.images.laptop": self.r.render().copy(),
                            "observation.cam_K": self.K, "observation.cam_T": self.T,
+                           "observation.environment_state": self.env,
                            "task": TASK})
 
 
@@ -86,6 +91,7 @@ def open_lerobot(root, repo_id, fps, W, H):
         "observation.images.laptop": {"dtype": "video", "shape": (H, W, 3), "names": ["height", "width", "channels"]},
         "observation.cam_K": {"dtype": "float32", "shape": (9,), "names": None},
         "observation.cam_T": {"dtype": "float32", "shape": (16,), "names": None},
+        "observation.environment_state": {"dtype": "float32", "shape": (25,), "names": None},
     }
     if os.path.exists(root):
         return LeRobotDataset(repo_id, root=root)
