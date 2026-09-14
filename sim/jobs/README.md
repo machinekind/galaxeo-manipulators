@@ -30,6 +30,20 @@ ResNet18 backbone weights are downloaded once per checkout instead of once per
 job, and survive a node with an empty home directory. Training does no
 rendering, so no `MUJOCO_GL` is needed.
 
+## The dataset travels as an archive
+
+Both payloads source `dataset.sh` first. A checkout sync uses exclude
+patterns that belong to whoever runs it, and a pattern such as `*.mp4` strips
+a dataset's videos on the way without a word. So the dataset is also packed
+as one tar of its root's last directory component, named by
+`DATASET_ARCHIVE`; when the root is missing or incomplete and the archive is
+present, it is unpacked next to the root. The loader is forced offline so a
+dataset that is still missing fails right there instead of asking the Hub for
+a repository of the same name.
+
+    tar -C sim/datasets/pour_sim -cf sim/datasets/pour_sim.tar merged
+    DATASET_ROOT=sim/datasets/pour_sim/merged DATASET_ARCHIVE=sim/datasets/pour_sim.tar bash sim/jobs/preflight.sh
+
 ## preflight.sh
 
 Proves a node can actually train, in the order things usually break: python and
@@ -42,6 +56,7 @@ and finally a real short `lerobot-train`. Run it once on a new node.
 | input | |
 | --- | --- |
 | `DATASET_ROOT` | **required**, repository-relative path of the dataset |
+| `DATASET_ARCHIVE` | optional tar of the dataset root, unpacked when the root is missing or incomplete |
 | `STEPS` | training steps for the smoke test, default 5 |
 | `JOB_ID` | names the output directory `sim/runs/preflight_<JOB_ID>`, default `local` |
 | `REPO_ID` | dataset id, default `galaxeo/a1x_pour_sim` |
@@ -67,6 +82,7 @@ each frame carries.
 | input | |
 | --- | --- |
 | `DATASET_ROOT` | **required**, repository-relative path of the dataset |
+| `DATASET_ARCHIVE` | optional tar of the dataset root, unpacked when the root is missing or incomplete |
 | `RUN_NAME` | output name, default `pour_act_<JOB_ID>` |
 | `REPO_ID` | dataset id, default `galaxeo/a1x_pour_sim` |
 | `STEPS` | default 100000 |

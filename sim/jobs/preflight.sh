@@ -5,6 +5,7 @@
 set -euo pipefail
 
 : "${DATASET_ROOT:?repository-relative path of the LeRobot dataset to check}"
+: "${DATASET_ARCHIVE:=}"          # optional tar of the dataset, unpacked if the root is incomplete
 : "${STEPS:=5}"
 : "${JOB_ID:=local}"
 : "${REPO_ID:=galaxeo/a1x_pour_sim}"
@@ -15,7 +16,9 @@ set -euo pipefail
 # Cache the ResNet18 backbone weights inside the checkout so a node without a
 # warm home directory downloads them once and every later job reuses them.
 export TORCH_HOME="${TORCH_HOME:-sim/runs/torch_home}"
-export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}"
+
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/dataset.sh"
 
 OUT="sim/runs/preflight_${JOB_ID}"
 mkdir -p "$TORCH_HOME" "$(dirname "$OUT")"
