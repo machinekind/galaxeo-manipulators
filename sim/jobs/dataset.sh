@@ -20,6 +20,9 @@ if ! dataset_complete "$DATASET_ROOT"; then
         rm -rf "$DATASET_ROOT"
         mkdir -p "$(dirname "$DATASET_ROOT")"
         tar -C "$(dirname "$DATASET_ROOT")" -xf "$DATASET_ARCHIVE"
+        # An archive made on macOS can carry AppleDouble sidecars (._name);
+        # on Linux they land as junk files a parquet reader chokes on.
+        find "$DATASET_ROOT" -name '._*' -delete 2>/dev/null || true
     fi
 fi
 if ! dataset_complete "$DATASET_ROOT"; then
