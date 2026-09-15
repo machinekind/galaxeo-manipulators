@@ -224,7 +224,25 @@ it exactly the features its config lists at the dataset's rate, writes the
 seven actions to the servos with the recorder's gripper mapping inverted, and
 judges from ground truth the way the planner is judged: mouth in the rim past
 the tilt threshold for 1.2 s cumulative, glass standing, bottle not on the
-floor. Results of the first run go here once it has been evaluated.
+floor. ### First run
+
+ACT, chunk 50, batch 32, lr 1e-5, 40,000 steps on a rented RTX 4090 (about
+2 h 20 min at 5 steps/s, 0.45 USD/h). The L1 action loss fell from 0.73 at
+step 100 to 0.117 at 40,000 and was still falling. Closed loop, the
+checkpoint fails: **0/20** on unseen seeds 2000 to 2019, 0/20 with temporal
+ensembling, and **1/20** on seeds from the training range, where seed 1002
+is a clean ten-second pour. The recording shows the failure mode: the arm
+reaches the bottle and sweeps it over on the approach, then carries on with
+an empty hand.
+
+Two checks separate harness from policy. Replaying a recorded episode's
+actions open loop through the same actuator path pours successfully, so the
+pathway is right. The policy's own first-step predictions on recorded frames
+are off by 0.7 to 3.5 degrees per joint, worse than simply holding the current
+state, and a couple of degrees at half a metre of reach is a couple of
+centimetres at the gripper, which is enough to knock a bottle over. That is
+underfitting, not memorisation. The second run resumes the same checkpoint to
+100,000 steps; RESULTS_V2
 
 ## Known limits
 
