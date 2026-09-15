@@ -246,8 +246,15 @@ pathway is right. The policy's own first-step predictions on recorded frames
 are off by 0.7 to 3.5 degrees per joint, worse than simply holding the current
 state, and a couple of degrees at half a metre of reach is a couple of
 centimetres at the gripper, which is enough to knock a bottle over. That is
-underfitting, not memorisation. The second run resumes the same checkpoint to
-100,000 steps; RESULTS_V2
+underfitting, not memorisation. The second run resumed the same checkpoint to
+100,000 steps (another 2 h 45 min on a 4090, dataset fetched from the Hub in
+minutes). The L1 loss reached 0.101 and was flat from step 80,000 on. The
+result is the same regime: **0/20** unseen and **1/20** training-range
+(seed 1010, an eight-second pour), with more tilts past horizontal that miss
+the glass. More gradient steps do not buy the missing precision, so the next
+levers are structural: drop the per-frame calibration input, a larger action
+chunk, more episodes, a lower-resolution or cropped image, or a diffusion
+policy head.
 
 ## Known limits
 
