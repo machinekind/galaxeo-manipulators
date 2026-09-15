@@ -5,6 +5,7 @@
 set -euo pipefail
 
 : "${DATASET_ROOT:?repository-relative path of the LeRobot dataset to check}"
+: "${DATASET_REPO:=}"             # optional Hub dataset repo, downloaded if the root is incomplete
 : "${DATASET_ARCHIVE:=}"          # optional tar of the dataset, unpacked if the root is incomplete
 : "${STEPS:=5}"
 : "${JOB_ID:=local}"

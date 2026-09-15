@@ -4,9 +4,10 @@
 #
 # The checkout is synced with exclude patterns that belong to whoever runs the
 # sync, and a floor pattern such as *.mp4 silently strips a dataset's videos
-# on the way. So the dataset also travels as one archive, DATASET_ARCHIVE,
-# holding the root's last directory component; when the root is missing or
-# incomplete and the archive is here, it is unpacked next to it.
+# on the way. So the dataset comes from elsewhere when the root is missing or
+# incomplete: from a Hub dataset repository, DATASET_REPO, when one is named,
+# else from one archive, DATASET_ARCHIVE, holding the root's last directory
+# component, unpacked next to it.
 
 dataset_complete() {
     [ -f "$1/meta/info.json" ] || return 1
@@ -14,6 +15,15 @@ dataset_complete() {
     [ -n "$(find "$1/videos" -name '*.mp4' -print -quit 2>/dev/null)" ] || return 1
 }
 
+if ! dataset_complete "$DATASET_ROOT" && [ -n "${DATASET_REPO:-}" ]; then
+    # A Hub copy downloads at datacenter speed, which beats shipping the
+    # archive from a laptop. Private repos need HF_TOKEN in the environment.
+    echo "dataset at $DATASET_ROOT is missing or incomplete; downloading $DATASET_REPO from the Hub"
+    rm -rf "$DATASET_ROOT"
+    mkdir -p "$DATASET_ROOT"
+    HF_HUB_OFFLINE=0 hf download "$DATASET_REPO" --repo-type dataset --local-dir "$DATASET_ROOT" >/dev/null \
+        || echo "WARN: the Hub download failed; trying the archive next" >&2
+fi
 if ! dataset_complete "$DATASET_ROOT"; then
     if [ -n "${DATASET_ARCHIVE:-}" ] && [ -f "$DATASET_ARCHIVE" ]; then
         echo "dataset at $DATASET_ROOT is missing or incomplete; unpacking $DATASET_ARCHIVE"
