@@ -56,7 +56,8 @@ and finally a real short `lerobot-train`. Run it once on a new node.
 | input | |
 | --- | --- |
 | `DATASET_ROOT` | **required**, repository-relative path of the dataset |
-| `DATASET_REPO` | optional Hub dataset repository, downloaded when the root is missing or incomplete (`HF_TOKEN` for a private one) |
+| `DATASET_REPO` | optional Hub dataset repository, downloaded when the root is missing or incomplete |
+| `HF_TOKEN` | Hub token, only for a private `DATASET_REPO`; exported for the download |
 | `DATASET_ARCHIVE` | optional tar of the dataset root, unpacked when the root is missing or incomplete |
 | `STEPS` | training steps for the smoke test, default 5 |
 | `JOB_ID` | names the output directory `sim/runs/preflight_<JOB_ID>`, default `local` |
@@ -83,7 +84,8 @@ each frame carries.
 | input | |
 | --- | --- |
 | `DATASET_ROOT` | **required**, repository-relative path of the dataset |
-| `DATASET_REPO` | optional Hub dataset repository, downloaded when the root is missing or incomplete (`HF_TOKEN` for a private one) |
+| `DATASET_REPO` | optional Hub dataset repository, downloaded when the root is missing or incomplete |
+| `HF_TOKEN` | Hub token, only for a private `DATASET_REPO`; exported for the download |
 | `DATASET_ARCHIVE` | optional tar of the dataset root, unpacked when the root is missing or incomplete |
 | `RUN_NAME` | output name, default `pour_act_<JOB_ID>` |
 | `REPO_ID` | dataset id, default `galaxeo/a1x_pour_sim` |

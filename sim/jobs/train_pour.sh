@@ -5,6 +5,7 @@ set -euo pipefail
 
 : "${DATASET_ROOT:?repository-relative path of the LeRobot dataset to train on}"
 : "${DATASET_REPO:=}"             # optional Hub dataset repo, downloaded if the root is incomplete
+export HF_TOKEN="${HF_TOKEN:-}"    # only needed when DATASET_REPO is private
 : "${DATASET_ARCHIVE:=}"          # optional tar of the dataset, unpacked if the root is incomplete
 : "${JOB_ID:=local}"
 : "${RUN_NAME:=pour_act_${JOB_ID}}"

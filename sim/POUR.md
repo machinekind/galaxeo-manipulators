@@ -201,6 +201,11 @@ besides `observation.state`, and that is it: the policy is conditioned on the
 calibration, which every session has anyway. Failed episodes are dropped from
 the dataset but counted in the run's report.
 
+The generated set also lives on the Hub as the private dataset
+`marcinwysocki/a1x_pour_sim`, which is where a training box fetches it from
+(`DATASET_REPO`); shipping the 1.9 GB archive from a laptop took hours per
+rental.
+
 `gen_dataset.py` runs N `run_pour.py` processes on disjoint seed ranges, each
 into its own part, and merges the parts with `lerobot-edit-dataset`. Eight
 workers make about 300 successful episodes in under an hour on a laptop, at
