@@ -15,6 +15,7 @@ set -euo pipefail
 : "${SEED:=0}"
 : "${WORKERS:=4}"
 : "${RESUME:=false}"
+: "${RESUME_ARCHIVE:=}"           # optional tar of checkpoints/ to resume from when the run dir is absent
 : "${WANDB:=false}"
 : "${GPUS:=1}"
 : "${ON_FAILURE:=ACT training stopped; the last checkpoint under sim/runs is still there and RESUME=true picks it up.}"
@@ -47,8 +48,16 @@ TFS='{"brightness":{"weight":1.0,"type":"ColorJitter","kwargs":{"brightness":[0.
 if [ "$RESUME" = "true" ]; then
     # Resuming reads everything back from the checkpoint's own train_config.json
     # -- lerobot refuses --resume=true without it -- so only the knobs that may
-    # legitimately change on a restart are passed again.
+    # legitimately change on a restart are passed again. Run directories do
+    # not travel with a checkout sync, so a checkpoint to resume from arrives
+    # the way the dataset does: as one archive, unpacked into the run dir.
     CKPT="$OUT/checkpoints/last/pretrained_model/train_config.json"
+    if [ ! -f "$CKPT" ] && [ -n "$RESUME_ARCHIVE" ] && [ -f "$RESUME_ARCHIVE" ]; then
+        echo "no checkpoint under $OUT; unpacking $RESUME_ARCHIVE"
+        mkdir -p "$OUT"
+        tar -C "$OUT" -xf "$RESUME_ARCHIVE"
+        find "$OUT" -name '._*' -delete 2>/dev/null || true
+    fi
     [ -f "$CKPT" ] || { echo "nothing to resume: no checkpoint under $OUT"; exit 1; }
     ARGS=(
         --config_path="$CKPT"

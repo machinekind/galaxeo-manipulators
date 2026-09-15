@@ -38,3 +38,4 @@ sim/runs/
 # dispatcher. Copy .gpu-ops.example to .gpu-ops and edit it.
 .gpu-ops
 sim/datasets/
+sim/resume/
