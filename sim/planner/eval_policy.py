@@ -11,8 +11,11 @@ training job wrote, in which case the last checkpoint is used.
 Each episode is a freshly compiled `pour_scene.build(seed)` -- the same
 generator the demonstrations came from -- driven at `--fps` (which must match
 the dataset, because that is the rate the actions were recorded at). Every tick
-renders `laptop_cam`, hands the policy exactly the features its config lists as
-inputs, and writes the returned 7-vector to the actuators: six joint targets
+renders `laptop_cam` once at its native size, hands the policy exactly the
+features its config lists as inputs -- the raw frame downscaled to the shape
+the config asks for, and, if the config asks for it, the top-down table map
+`planner.topdown` warps out of the same frame with the session's calibration --
+and writes the returned 7-vector to the actuators: six joint targets
 straight into `data.ctrl[arm.acts]`, and the gripper through the same mapping
 the recorder inverted -- anything under 20 mm means "closed", which on this
 model is a command 30 mm past the stop so the fingers squeeze with a set force.
@@ -29,6 +32,7 @@ import argparse
 import os
 import sys
 
+import cv2
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,7 +43,8 @@ import mujoco  # noqa: E402
 from a1x_control import Arm  # noqa: E402
 from planner.pour import POUR_MIN_SECS, POUR_MIN_TILT  # noqa: E402
 from planner.run_episodes import write_gif  # noqa: E402
-from pour_scene import GRIP_CMD, build  # noqa: E402
+from planner.topdown import SIDE as TD_SIDE, topdown  # noqa: E402
+from pour_scene import GRIP_CMD, WORKSPACE, build, cam_intrinsics  # noqa: E402
 
 GLASS_MARGIN = 0.004      # mouth must be this far inside the rim [m]
 MOUTH_ABOVE = 0.08        # ... and no higher than this above it [m]
@@ -98,13 +103,29 @@ def observation(cfg, renderer, data, arm, info, torch):
 
     Values go in raw: the preprocessor pipeline normalises them. A batch
     dimension is added here for every key, because lerobot only adds one
-    automatically for `observation.state` and the image keys."""
-    obs = {}
+    automatically for `observation.state` and the image keys.
+
+    `renderer` is at the scene camera's native size and is run once per tick;
+    every image key is derived from that one frame, the way the recorder
+    derives them -- `observation.images.laptop` by an area downscale to the
+    size the config lists, `observation.images.topdown` by the table-plane warp
+    at the config's map size."""
+    obs, frame = {}, None
     for key in cfg.input_features:
         if key.startswith("observation.images."):
-            renderer.update_scene(data, camera="laptop_cam")
-            img = renderer.render().copy()                       # HWC uint8
-            t = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+            if frame is None:
+                renderer.update_scene(data, camera="laptop_cam")
+                frame = renderer.render().copy()                 # HWC uint8, native size
+            H, W = cfg.input_features[key].shape[1:]
+            if key == "observation.images.topdown":
+                K = cam_intrinsics(info["cam"]["W"], info["cam"]["H"], info["cam"]["fovy"])
+                img = topdown(frame, K, info["cam"]["T_cam2world"], WORKSPACE[:2],
+                              side=TD_SIDE, n=H)
+            elif (H, W) != frame.shape[:2]:
+                img = cv2.resize(frame, (W, H), interpolation=cv2.INTER_AREA)
+            else:
+                img = frame
+            t = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float() / 255.0
             obs[key] = t.unsqueeze(0)
         elif key == "observation.state":
             q = data.qpos[arm.qadr]
@@ -180,10 +201,10 @@ def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None):
     policy.reset()
     model, data, info = build(seed)
     arm = Arm(model, "arm/")
-    H, W = cfg.input_features["observation.images.laptop"].shape[1:]
-    if (H, W) != (info["cam"]["H"], info["cam"]["W"]):
-        print(f"  note: policy wants {W}x{H}, the scene camera is "
-              f"{info['cam']['W']}x{info['cam']['H']}; rendering at the policy's size")
+    # Always render at the camera's native size: the top-down warp wants the
+    # full frame, and the raw stream is downscaled from it, which is what the
+    # recorder did when the dataset was written.
+    W, H = info["cam"]["W"], info["cam"]["H"]
     judge = Judge(model, data, info)
     n_sub = max(1, int(round((1.0 / fps) / model.opt.timestep)))
     dt = n_sub * model.opt.timestep

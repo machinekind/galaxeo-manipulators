@@ -15,11 +15,16 @@ schema `record_a1x.py` writes on the real arm:
 
     action                       (7,) commanded joint targets + gripper, 0 closed .. 0.05 open
     observation.state            (7,) measured joints + finger position
-    observation.images.laptop    the webcam
-    observation.cam_K, cam_T     (9,) (16,) the session's camera calibration, for provenance
-    observation.environment_state (25,) the same two concatenated: the one key ACT
-                                 reads as an environment state, so the policy is
-                                 conditioned on the calibration it will have anyway
+    observation.images.laptop    (240, 320, 3) the webcam, downscaled from its 640x480 render
+    observation.images.topdown   (256, 256, 3) that same frame warped onto the table
+                                 plane: a 0.7 m square about the workspace, world +y up
+                                 and +x right, 2.73 mm per pixel. See planner/topdown.py
+    observation.cam_K, cam_T     (9,) (16,) the session's camera calibration, for
+                                 provenance only. `cam_K` is the intrinsics of the
+                                 *640x480 render*, not of the stored 320x240 frame
+
+The policy is no longer handed the calibration as a state vector: the top-down
+map is what consumes it, and the frames arrive already in the arm's frame.
 
     sim/.venv-lerobot/bin/python sim/planner/run_pour.py --n 100 --lerobot data/pour_sim --fps 20
 """
@@ -28,6 +33,7 @@ import os
 import sys
 from collections import Counter
 
+import cv2
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +44,10 @@ import mujoco  # noqa: E402
 from planner.perception import SimPourPerception  # noqa: E402
 from planner.pour import Pour  # noqa: E402
 from planner.run_episodes import Recorder, write_gif  # noqa: E402
-from pour_scene import build  # noqa: E402
+from planner.topdown import N as TD_N, SIDE as TD_SIDE, topdown  # noqa: E402
+from pour_scene import WORKSPACE, build  # noqa: E402
+
+STORE_W, STORE_H = 320, 240        # stored size of the raw webcam stream
 
 
 class PourRecorder(Recorder):
@@ -57,14 +66,24 @@ TASK = "pick up the bottle and pour it into the glass"
 
 
 class LeRobotRecorder:
-    """Streams one episode into an open LeRobotDataset at `fps`."""
+    """Streams one episode into an open LeRobotDataset at `fps`.
 
-    def __init__(self, ds, renderer, info, fps, arm):
+    The webcam is rendered at its native 640x480, because that is the
+    resolution the top-down warp gets its detail from; the map is computed from
+    the full-size frame and only then is the raw frame downscaled to the
+    (`W`, `H`) that goes into the dataset."""
+
+    def __init__(self, ds, renderer, info, fps, arm, wh=(STORE_W, STORE_H),
+                 td_n=TD_N, td_side=TD_SIDE):
         self.ds, self.r, self.info, self.fps, self.arm = ds, renderer, info, fps, arm
+        self.wh, self.td_n, self.td_side = wh, td_n, td_side
         self.n = 0
+        # K of the 640x480 render, kept for provenance; the warp uses it too.
         self.K = np.asarray(info["cam"]["K"], np.float32).ravel()
         self.T = np.asarray(info["cam"]["T_cam2base"], np.float32).ravel()
-        self.env = np.concatenate([self.K, self.T])
+        self.K3 = np.asarray(info["cam"]["K"], float).reshape(3, 3)
+        self.T_cam2world = np.asarray(info["cam"]["T_cam2world"], float)
+        self.centre = np.asarray(WORKSPACE[:2], float)
 
     def __call__(self, pp):
         d = pp.d
@@ -72,26 +91,32 @@ class LeRobotRecorder:
             return
         self.n += 1
         self.r.update_scene(d, camera="laptop_cam")
+        full = self.r.render().copy()
+        td = topdown(full, self.K3, self.T_cam2world, self.centre, self.td_side, self.td_n)
+        img = cv2.resize(full, self.wh, interpolation=cv2.INTER_AREA)
         q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
         act = np.concatenate([d.ctrl[self.arm.acts], [np.clip(d.ctrl[self.arm.grip], 0.0, 0.05)]])
         self.ds.add_frame({"action": act.astype(np.float32),
                            "observation.state": np.concatenate([q, [g]]).astype(np.float32),
-                           "observation.images.laptop": self.r.render().copy(),
+                           "observation.images.laptop": img,
+                           "observation.images.topdown": td,
                            "observation.cam_K": self.K, "observation.cam_T": self.T,
-                           "observation.environment_state": self.env,
                            "task": TASK})
 
 
-def open_lerobot(root, repo_id, fps, W, H):
+def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N):
+    """Open or create the dataset. `W`, `H` is the stored size of the raw
+    webcam stream; `td_n` the side of the square top-down map."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     names7 = [f"arm_joint{i}" for i in range(1, 7)] + ["gripper"]
+    hwc = ["height", "width", "channels"]
     features = {
         "action": {"dtype": "float32", "shape": (7,), "names": names7},
         "observation.state": {"dtype": "float32", "shape": (7,), "names": names7},
-        "observation.images.laptop": {"dtype": "video", "shape": (H, W, 3), "names": ["height", "width", "channels"]},
+        "observation.images.laptop": {"dtype": "video", "shape": (H, W, 3), "names": hwc},
+        "observation.images.topdown": {"dtype": "video", "shape": (td_n, td_n, 3), "names": hwc},
         "observation.cam_K": {"dtype": "float32", "shape": (9,), "names": None},
         "observation.cam_T": {"dtype": "float32", "shape": (16,), "names": None},
-        "observation.environment_state": {"dtype": "float32", "shape": (25,), "names": None},
     }
     if os.path.exists(root):
         return LeRobotDataset(repo_id, root=root)
@@ -184,8 +209,7 @@ def main():
         os.makedirs(args.record, exist_ok=True)
     ds = None
     if args.lerobot:
-        from pour_scene import CAM
-        ds = open_lerobot(args.lerobot, args.repo_id, args.fps, CAM["W"], CAM["H"])
+        ds = open_lerobot(args.lerobot, args.repo_id, args.fps, STORE_W, STORE_H, TD_N)
         print(f"lerobot dataset at {args.lerobot}: {ds.num_episodes} episode(s) so far")
     outcomes, n_ok = Counter(), 0
     for i in range(args.n):
