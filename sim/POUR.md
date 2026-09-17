@@ -265,6 +265,44 @@ levers are structural: drop the per-frame calibration input, a larger action
 chunk, more episodes, a lower-resolution or cropped image, or a diffusion
 policy head.
 
+### The redraw run
+
+The random camera per episode was the leading suspect: with 330 episodes the
+network has to learn 3D localisation from every viewpoint at once. The
+calibration is known per session, so the third run spends it before the
+network instead of beside it. `planner/topdown.py` warps each frame onto the
+table plane, a 0.7 m square about the workspace at 2.7 mm per pixel, world +y
+up; an object standing on the table lands at its true (x, y) in that map
+whatever the camera angle, and anything above the plane smears away from the
+camera consistently per pose. The policy sees the map at 256 x 256 next to the
+raw frame at 320 x 240; the calibration vector is dropped. The dataset was
+regenerated with the same generator (363 episodes, seeds 1000 to 1415, 271,792
+frames, 1.4 GB, private Hub copy `marcinwysocki/a1x_pour_sim_td`).
+
+Training was 80,000 steps in two rentals: the first box was stopped by its host
+at step 40,000 (the GPU was re-rented under the run), and since only the
+weights travel, not the optimizer state, the second rental warm-started from
+the step-36,000 weights for the remaining 44,000 steps with a fresh optimizer
+(`INIT_FROM`, see `sim/jobs/README.md`). The L1 loss reached 0.099, just under
+the first policy's floor of 0.101, and was still drifting down.
+
+Closed loop, the final checkpoint scores **0/20** on unseen seeds 2000 to 2019
+and **3/20** on training-range seeds 1000 to 1019 (seeds 1000, 1007 and 1010;
+14.9 s, 12.8 s and 4.1 s of pour), against 0/20 and 1/20 before. The failure
+mix has moved, though. Of the 20 unseen episodes, five never touch the bottle,
+five nudge it, six sweep it flat as the first policy did, and four grasp it,
+lift it, tip it and hold it beside or above the glass without the mouth ever
+crossing the rim; one of those drops it off the table. On the training seeds
+seven of the 17 failures are that lifted-and-tipped kind, and twice the glass
+is knocked over. So the map buys the policy the grasp on a good fraction of
+scenes, but not the last few centimetres that put the mouth in a 6 cm glass.
+
+That failure is exactly what a teacher can correct: the planner knows the
+right joint targets from any state the policy reaches, so the next run should
+be a DAgger loop, rolling the policy out, relabelling its visited states with
+the planner's actions, and retraining on the union. A wrist camera is the
+lever after that; the photorealism step waits until a sim policy pours in sim.
+
 ## Known limits
 
 No liquid, so the pour is verified geometrically. Bottles are round; flat
