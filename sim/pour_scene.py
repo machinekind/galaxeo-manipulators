@@ -23,10 +23,12 @@ pose is drawn from `CAM` (distance, bearing and height about the workspace)
 and is *not* given to the planner. `info["cam"]` keeps the ground truth so the
 calibration in `calib/` can be scored against it.
 
-AprilTags (36h11) are rendered on four faces of the gripper body and on a
-plate beside the arm base, with a site at each tag centre in the tag frame
-(x right, y up, z out of the face -- OpenCV's marker convention), so the same
-detector and hand-eye solver run in sim and on the real arm.
+The default scene carries **no fiducials at all**, so every training frame is
+marker free. `build(seed, calib_card=True)` adds the one marker the system
+uses: a thin card pinched in the gripper, with an AprilTag 36h11 on each face,
+which a human puts in before calibration and takes out afterwards. Its pose in
+the gripper is drawn per seed and is *not* given to the solver; `info["calib"]`
+keeps it as ground truth to score the recovered mount against.
 """
 import os
 import sys
@@ -37,7 +39,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from a1x_control import Arm, rot                                             # noqa: E402
+from a1x_control import TIP_AHEAD, Arm, rot                                  # noqa: E402
 from bottle import add_bottle_meshes, bottle_xml, glass_xml, sample_bottle, sample_glass  # noqa: E402
 from pickplace_scene import ARM_BASE, CONTACT, TABLE_TOP, Q_HOME, look_at    # noqa: E402
 
@@ -49,23 +51,35 @@ CAM = dict(W=640, H=480, fovy=(44.0, 54.0),         # laptop webcam, 4:3
 WORKSPACE = np.array([0.0, 0.10, TABLE_TOP + 0.10])
 GRASP_PITCH = 0.9                                   # approach pitch below level [rad]
 POUR_TILT, POUR_ABOVE = 1.95, 0.03                 # rad past upright; mouth height over the rim [m]
-TAG_PLATE = 0.045                                   # printed plate side [m]; marker is 160/200 of it
-TAG_SIZE = TAG_PLATE * 160 / 200
 TAGS_DIR = os.path.join(HERE, "assets", "tags")
-
-# A 40 mm printed cube sits on top of the gripper body (x toward the fingers,
-# y the closing axis, z up at home) with a tag on its top and three sides.
-# tag id -> (position, rotation) of the tag frame in the gripper_link frame.
-CUBE_C, CUBE_H = np.array([0.0, 0.011, 0.0556 + 0.020]), 0.020
-_GRIPPER_TAGS = {
-    0: (CUBE_C + [0, 0, CUBE_H + 0.0005], rot([1, 0, 0], [0, 1, 0])),          # top (+z)
-    1: (CUBE_C + [-CUBE_H - 0.0005, 0, 0], rot([0, -1, 0], [0, 0, 1])),        # back (-x)
-    2: (CUBE_C + [0, CUBE_H + 0.0005, 0], rot([1, 0, 0], [0, 0, -1])),         # +y side
-    3: (CUBE_C + [0, -CUBE_H - 0.0005, 0], rot([1, 0, 0], [0, 0, 1])),         # -y side
-}
-BASE_TAG_ID, BASE_TAG_POS = 4, np.array([-0.13, 0.0, 0.035])                 # upright plate by the mount, facing +y
-BASE_TAG_R = rot([-1, 0, 0], [0, 0, 1])
+TAG_MARGIN = 160 / 200              # marker side / printed plate side in assets/tags/*.png
 GRIP_KP, GRIP_CMD = 1500.0, -0.03   # finger servo gain and the 'closed' command, see build()
+
+# ------------------------------------------------------- calibration card
+# The only fiducial in the system, and it is in the scene only while
+# calibrating. A thin rigid rectangle is pinched at one end between the finger
+# pads, so its normal is the closing axis and it sticks out past the fingertips
+# along the approach axis. The protruding half carries one 36h11 tag per face,
+# back to back, so whichever side the laptop ended up on, one face is readable.
+#
+# Card frame: x out along the approach, y across the card (gripper -z at the
+# nominal pose), z the card normal, origin at the tag centre in the mid plane.
+# `CARD["out"]` is how far the card protrudes past the fingertips; the pinched
+# part carries no tag. A human puts the card in, so the nominal pose below is
+# only a starting guess: `sample_card_pose` perturbs it per seed and the solver
+# in `calib/` has to recover the truth from the images.
+CARD = dict(L=0.130, W=0.090, T=0.002,      # card length, width, thickness [m]
+            tag=0.070, out=0.090,           # marker side [m]; protrusion past the fingertips [m]
+            pad=0.008,                      # collision margin around the card [m]
+            gap=0.0006,                     # drawn card thinner than this, so the tags are proud
+            dpos=0.012, drot=np.radians(10.0))   # per-session misplacement, uniform per axis
+TIP_X = 0.045 + TIP_AHEAD                   # fingertip plane in the gripper_link frame [m]
+CARD_R_NOM = np.column_stack([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+CARD_T_NOM = np.array([TIP_X + CARD["out"] / 2, 0.0, 0.0])
+# tag id -> pose in the card frame, exact from the card's geometry: same centre
+# in the card plane, opposite normals, the thickness apart.
+CARD_TAGS = {0: (np.array([0.0, 0.0, CARD["T"] / 2]), np.eye(3)),
+             1: (np.array([0.0, 0.0, -CARD["T"] / 2]), np.diag([-1.0, 1.0, -1.0]))}
 _ARM = None
 
 # ------------------------------------------------------------ randomisation
@@ -94,7 +108,7 @@ def _arm_spec():
     return _ARM
 
 
-def _add_tag_assets(spec, ids):
+def _add_tag_assets(spec, ids, plate):
     for i in ids:
         t = spec.add_texture()
         t.name, t.type = f"tag{i}", mujoco.mjtTexture.mjTEXTURE_2D
@@ -107,7 +121,7 @@ def _add_tag_assets(spec, ids):
     m = spec.add_mesh()
     m.name = "tag_plate"
     m.inertia = mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL
-    h = TAG_PLATE / 2
+    h = plate / 2
     m.uservert = np.array([-h, -h, 0, h, -h, 0, h, h, 0, -h, h, 0], np.float32)
     m.userface = np.array([0, 1, 2, 0, 2, 3], np.int32)
     m.usertexcoord = np.array([0, 1, 1, 1, 1, 0, 0, 0], np.float32)
@@ -126,6 +140,71 @@ def _add_tag(spec, body, tag_id, pos, R, prefix):
     s = body.add_site()
     s.name, s.pos, s.quat, s.size = f"{prefix}tag{tag_id}", pos, q, [0.003, 0, 0]
     s.group = 4
+
+
+def card_nominal():
+    """The card's nominal pose in the gripper_link frame, 4x4.
+
+    This is all the solver is allowed to know: the card square to the hand,
+    sticking `CARD['out']` past the fingertips with its normal along the
+    closing axis, so the tag centre is half of that beyond the tips. What a
+    hand actually does with it is `sample_card_pose`."""
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = CARD_R_NOM, CARD_T_NOM
+    return T
+
+
+def sample_card_pose(rng, extreme=False):
+    """Where the card really ended up: the nominal pose times a per-session
+    misplacement, uniform in +-`CARD['dpos']` on each card axis and
+    +-`CARD['drot']` about each. `extreme` draws at the limits instead."""
+    def draw(lim):
+        if not extreme:
+            return rng.uniform(-lim, lim, 3)
+        return np.sign(rng.uniform(-1, 1, 3)) * lim * rng.uniform(0.95, 1.0, 3)
+
+    d = np.eye(4)
+    rv = draw(CARD["drot"])
+    n = float(np.linalg.norm(rv))
+    q, R = np.zeros(4), np.zeros(9)
+    mujoco.mju_axisAngle2Quat(q, rv / (n + 1e-12), n)
+    mujoco.mju_quat2Mat(R, q)
+    d[:3, :3] = R.reshape(3, 3)
+    d[:3, 3] = draw(CARD["dpos"])
+    return card_nominal() @ d
+
+
+def card_tag_poses():
+    """{tag id: 4x4 pose of the tag frame in the card frame}, exact geometry."""
+    out = {}
+    for tid, (p, R) in CARD_TAGS.items():
+        T = np.eye(4); T[:3, :3], T[:3, 3] = R, p
+        out[tid] = T
+    return out
+
+
+def _add_card(spec, body, T_card2frame):
+    """The pinched card: a visible box, a padded invisible collider so the wave
+    keeps real clearance, and one tag plate per face."""
+    _add_tag_assets(spec, list(CARD_TAGS), CARD["tag"] / TAG_MARGIN)
+    Rc, tc = np.asarray(T_card2frame)[:3, :3], np.asarray(T_card2frame)[:3, 3]
+    qc = np.zeros(4); mujoco.mju_mat2Quat(qc, Rc.ravel())
+    # the box centre sits back from the tag centre: only `out` of the card
+    # protrudes past the fingertips, the rest is between the pads.
+    centre = tc + Rc @ [CARD["out"] / 2 - CARD["L"] / 2, 0.0, 0.0]
+    half = np.array([CARD["L"] / 2, CARD["W"] / 2, CARD["T"] / 2])
+    # The tag plates sit on the card's two faces, so the drawn card is made a
+    # shade thinner than the real one: coplanar surfaces z-fight, and the card
+    # wins often enough that the detector sees a white rectangle.
+    for name, grow, rgba, group, con in (("calib_card", -CARD["gap"], [0.97, 0.97, 0.97, 1], 1, 0),
+                                         ("calib_card_pad", CARD["pad"], [0, 0, 0, 0], 3, 1)):
+        g = body.add_geom()
+        g.name, g.type = f"arm/{name}", mujoco.mjtGeom.mjGEOM_BOX
+        g.size = half + [0.0, 0.0, grow] if grow < 0 else half + grow
+        g.pos, g.quat, g.rgba, g.group, g.mass = centre, qc, rgba, group, 0.0
+        g.contype = g.conaffinity = con
+    for tid, T in card_tag_poses().items():
+        _add_tag(spec, body, tid, tc + Rc @ T[:3, 3], Rc @ T[:3, :3], "arm/")
 
 
 def _split_finger_pads(spec):
@@ -397,8 +476,14 @@ def pour_orientations(R_g, tilt=POUR_TILT, n=8):
     return [tilt_about((np.cos(a), np.sin(a)), tilt) @ R_g for a in np.linspace(0, 2 * np.pi, n, endpoint=False)]
 
 
-def build(seed=0, max_tries=60):
-    """Compile one randomised episode. Returns (model, data, info)."""
+def build(seed=0, max_tries=60, calib_card=False, card_extreme=False):
+    """Compile one randomised episode. Returns (model, data, info).
+
+    `calib_card` pinches the calibration card in the gripper; with it the scene
+    also carries `info["calib"]`. Without it the scene has no fiducial of any
+    kind, which is what the planner, the dataset recorder and the policy
+    evaluator build. `card_extreme` puts the card at the limits of the
+    misplacement instead of anywhere inside them."""
     rng = np.random.default_rng(seed)
     drng, table, base_xml, rand = sample_scene(seed)
     stats = {"grasp": 0, "pour": 0}
@@ -427,17 +512,12 @@ def build(seed=0, max_tries=60):
             base_xml.replace("</worldbody>", "".join(extra) + "</worldbody>"))
         spec.visual.global_.offwidth, spec.visual.global_.offheight = max(1600, cam["W"]), max(1000, cam["H"])
         add_bottle_meshes(spec, b)
-        _add_tag_assets(spec, list(_GRIPPER_TAGS) + [BASE_TAG_ID])
-        _add_tag(spec, spec.body("arm_mount"), BASE_TAG_ID, BASE_TAG_POS, BASE_TAG_R, "base/")
         spec.attach(_arm_spec().copy(), prefix="arm/", frame=spec.body("arm_mount").add_frame())
         _split_finger_pads(spec)
-        cube = spec.body("arm/gripper_link").add_geom()
-        cube.name, cube.type, cube.size = "arm/tag_cube", mujoco.mjtGeom.mjGEOM_BOX, [CUBE_H] * 3
-        cube.pos, cube.rgba = CUBE_C, [0.95, 0.95, 0.95, 1]
-        cube.contype = cube.conaffinity = 0
-        cube.mass, cube.group = 0.0, 1
-        for tid, (pos, R) in _GRIPPER_TAGS.items():
-            _add_tag(spec, spec.body("arm/gripper_link"), tid, pos, R, "arm/")
+        T_card = None
+        if calib_card:
+            T_card = sample_card_pose(np.random.default_rng([int(seed), 0xCA1D]), card_extreme)
+            _add_card(spec, spec.body("arm/gripper_link"), T_card)
         model = spec.compile()
         # The URDF gives no gripper force, and a position servo commanded to
         # "closed" squeezes with kp times the travel left: 13 N on a 30 mm neck,
@@ -477,12 +557,10 @@ def build(seed=0, max_tries=60):
         T_base2world = np.eye(4); T_base2world[:3, 3] = base
         cam.update(K=cam_intrinsics(cam["W"], cam["H"], cam["fovy"]),
                    T_cam2world=T_cam2world, T_cam2base=np.linalg.inv(T_base2world) @ T_cam2world)
-        tags = {tid: dict(body="arm/gripper_link", pos=pos, R=R) for tid, (pos, R) in _GRIPPER_TAGS.items()}
-        tags[BASE_TAG_ID] = dict(body="arm_mount", pos=BASE_TAG_POS, R=BASE_TAG_R)
         info = dict(seed=int(seed), attempt=attempt, rejected=stats, bottle=b, glass=g,
                     bottle_pos=np.array([bp[0], bp[1], TABLE_TOP]), bottle_yaw=float(b_yaw),
                     glass_pos=np.array([gp[0], gp[1], TABLE_TOP]),
-                    cam=cam, tags=tags, tag_size=TAG_SIZE,
+                    cam=cam,
                     arm_base=base, table_top=TABLE_TOP, q_home=Q_HOME.copy(),
                     randomisation=dict(
                         rand,
@@ -491,6 +569,12 @@ def build(seed=0, max_tries=60):
                         distractors=[dict(name=o["name"], kind=o["kind"], size=o["size"],
                                           pos=o["pos"].round(4).tolist(),
                                           rgba=o["rgba"].round(3).tolist()) for o in distractors]))
+        if calib_card:
+            # Everything the solver may read is in `nominal`, `tag_size` and
+            # `tags`; `T_card2gripper` is ground truth, for scoring only.
+            info["calib"] = dict(frame="arm/gripper_link", nominal=card_nominal(),
+                                 T_card2gripper=T_card, tag_size=CARD["tag"],
+                                 tags=card_tag_poses())
         return model, data, info
     raise RuntimeError(f"could not build a valid scene for seed {seed} in {max_tries} tries: {stats}")
 

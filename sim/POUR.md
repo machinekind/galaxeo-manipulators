@@ -19,10 +19,10 @@ sim/.venv-lerobot/bin/python sim/planner/eval_policy.py --ckpt sim/runs/pour_act
 | | |
 | --- | --- |
 | `bottle.py` | procedural bottles (revolved mesh, cylinder-stack collision) and a hollow glass |
-| `pour_scene.py` | `build(seed)`: arm, bottle, glass, random laptop camera, AprilTags on the gripper and base |
+| `pour_scene.py` | `build(seed)`: arm, bottle, glass, random laptop camera, no markers; `build(seed, calib_card=True)` adds the calibration card |
 | `calib/tags.py` | AprilTag 36h11 detection and single-tag pose (OpenCV aruco) |
-| `calib/handeye.py` | camera pose in the arm base frame by reprojection, optional tag-mount refinement |
-| `calib/calibrate.py` | the automated session: the arm waves, tags are detected, the fit is scored and written |
+| `calib/handeye.py` | camera pose in the arm base frame and the card's pose in the gripper, jointly, by reprojection |
+| `calib/calibrate.py` | the automated session: the arm waves the card, tags are detected, the fit is scored and written |
 | `planner/pour.py` | the pick-and-pour state machine |
 | `planner/run_pour.py` | seeded episodes, GIF, `.npz`, or a LeRobot v3 dataset |
 | `gen_dataset.py` | N worker processes, disjoint seeds, parts merged into one dataset |
@@ -33,8 +33,9 @@ sim/.venv-lerobot/bin/python sim/planner/eval_policy.py --ckpt sim/runs/pour_act
 
 1. **Sim first.** Bottles and glasses are procedural, the camera pose is
    random, and every episode is a fresh compile. Done; below.
-2. **Calibration that runs itself.** A tag cube on the gripper, one upright
-   tag by the base, an arm wave, a reprojection fit with a residual gate.
+2. **Calibration that runs itself.** One printed card pinched in the gripper,
+   an arm wave, a reprojection fit that solves the camera pose and the card's
+   pose in the hand together, with a residual gate and a conditioning gate.
    Done in sim, with ground truth to score against; the real arm needs a
    `Robot` with three methods (`q`, `move`, `image`) on top of the CAN driver.
 3. **Scripted planner as the demonstrator.** No teleop, so every
@@ -71,13 +72,24 @@ be learnt. Per seed the scene also draws the table's extents and where the
 arm sits on it (10 to 40 cm from each edge, the top always at the mount),
 table and floor materials (flat colour or a builtin checker, gradient or flat
 texture with random colours and repeat), the skybox and haze, one to three
-lights of random kind, position and strength within a budget that keeps the
-tags decodable, and zero to two distractor primitives on the table, kept
-12 cm clear of the bottle-to-glass corridor. Bottles get one or two label
+lights of random kind, position and strength within a budget that keeps a
+calibration tag decodable, and zero to two distractor primitives on the table,
+kept 12 cm clear of the bottle-to-glass corridor. Bottles get one or two label
 bands and are opaque one time in three. Appearance comes from a second random
 stream, so a seed's task (bottle, glass, placement, camera pose) is the same
 as before the randomisation was added; the planner still scores 18/20 on
-seeds 0 to 19 and calibration 20/20 on seeds 10 to 29.
+seeds 0 to 19.
+
+**The default scene has no markers in it.** `build(seed)` is arm, bottle,
+glass, table and clutter, so every recorded frame is marker free. The one
+fiducial in the system, the calibration card, appears only for
+`build(seed, calib_card=True)`, which is what `calib/calibrate.py` asks for.
+There used to be a 40 mm AprilTag cube glued on the gripper and an upright tag
+plate beside the mount; both are gone. They had `contype = conaffinity = 0` and
+zero mass, so they never touched the task: the planner scores the same 18/20 on
+seeds 0 to 19 with the same two failures (seeds 6 and 9, no reachable pour
+path) as it did with them in the scene. Checkpoints trained before this change
+saw the cube in their frames, which is accepted.
 
 Two things in the scene are not in the URDF and matter:
 
@@ -95,38 +107,86 @@ Two things in the scene are not in the URDF and matter:
 
 ## Calibration
 
-`calib/calibrate.py` visits random poses over the table, each with a wrist
-roll so the tag cube shows a different face, until 14 tag observations from
-at least 4 poses are in hand (28 from 8 when tag mounts are being refined).
-Forward kinematics comes from `a1x.xml` at the *measured* joint angles, so
-servo error is in the fit. The solver minimises reprojection error over every
-corner of every tag in every image with Levenberg-Marquardt, and reports the
-residual in pixels; a session above 1.5 px is written as untrusted.
+The fiducial is **one card, pinched in the gripper, removed afterwards**. It is
+a 90 x 130 x 2 mm rectangle held at one end between the finger pads, so its
+normal is the closing axis and it sticks out 90 mm past the fingertips along
+the approach. The pinched end carries nothing; the protruding end carries one
+AprilTag 36h11 per face, 70 mm side, ids 0 and 1 back to back. Two faces
+because the laptop can be on either side of the arm and a wrist cannot always
+roll a single face round to it; their relative pose is exact printed geometry
+(same centre in the card plane, opposite normals, the card thickness apart), so
+the pair costs the solver no parameters.
 
-Against ground truth over 20 random camera placements, with exact tag mounts:
+A human puts the card in, so **its pose in the gripper is unknown** and is
+solved for. The scene draws a misplacement per seed, up to 12 mm on each card
+axis and 10 degrees about each, and never shows it to the solver, which sees
+only the nominal ("square to the hand, sticking `CARD['out']` past the tips").
+`handeye.solve` estimates the camera pose in the base frame and the card's pose
+in the gripper *jointly*, 12 dof, by minimising the reprojection error of every
+corner of every tag in every image with Levenberg-Marquardt. It starts from
+whichever is better of a closed-form eye-to-hand solution and the nominal, and
+restarts from jittered starts if the residual fails the gate. The closed form
+is Park and Martin's AX = XB written out in `handeye.solve_axxb`: OpenCV 5
+dropped `calibrateHandEye`. Forward kinematics comes from `a1x.xml` at the
+*measured* joint angles, so servo error is in the fit.
 
-| | median | max |
+The wave has two phases. A **search** phase draws poses over the table with the
+wrist rolled anywhere in the circle, until a tag is seen at all; that one
+detection, with the nominal card, locates the lens well enough to aim. The
+**collect** phase then points the card's normal at that estimate, plus or minus
+0.75 rad of jitter and optionally a half turn onto the other face, so the tag
+stays readable while the hand keeps turning. Diversity is enforced, not hoped
+for: `handeye.rotation_spread_R` stacks the rotation vectors of every pair of
+accepted orientations and reports the smallest singular value of that (3, N)
+matrix, which is the rotation available about the *least* covered axis. Each
+step scores a batch of candidates by how much they would raise that number and
+solves IK in that order, and the wave stops only once 14 observations from at
+least 8 poses are in hand *and* the spread is at least 8 degrees. The gate
+repeats all three at the end, so a session that ran out of poses, or that
+turned about one axis only, comes back `trusted = False` with a reason instead
+of a confident wrong pose. Moves are also capped at 1.2 rad of travel and timed
+to a peak joint speed of 0.8 rad/s: the servos trail the commanded ramp by
+0.05 s of travel, and a 2 rad swing in 1.5 s trails far enough to put the card
+through a bottle the collision check had cleared.
+
+The bottle and glass **are** on the table during calibration, and the wave
+plans around them through the ordinary collision check (the card has a padded
+collider for clearance); nothing in the fit reads them. `--empty-table` runs
+the same sessions with the table cleared, and the numbers are the same, so the
+calibration does not depend on what is standing there.
+
+Against ground truth over 20 random camera placements at 640 x 480, each with a
+fresh random card misplacement, all 20 trusted:
+
+| | median | worst |
 | --- | --- | --- |
-| translation | 0.4 mm | 4.3 mm |
-| rotation | 0.07 deg | 0.39 deg |
-| residual | 0.3 px | 0.55 px |
+| camera translation | 0.21 mm | 0.99 mm |
+| camera rotation | 0.06 deg | 0.12 deg |
+| residual | 0.11 px | 0.65 px |
+| card pose (diagnostic) | 0.05 mm, 0.06 deg | 0.26 mm, 0.40 deg |
 
-Tag mounts measured with a ruler will be off by a few millimetres. With 4 mm
-of noise on every gripper tag mount and no refinement the error is 7 to
-22 mm, and the residual (1 to 8 px) flags most of those sessions as
-untrusted, which is the point of the gate. With `--refine` the mounts are
-solved too and the median comes back to 0.4 mm; the remaining outliers are
-sessions where the cap on poses was hit before the gripper had shown enough
-orientations, which is why refinement asks for twice the views.
+Robustness, same 20 seeds: with the card at the limits of the misplacement
+(`--card-extreme`) 20/20 and 0.18 mm median, 0.52 mm worst. With 0.5 px of
+Gaussian noise on every detected corner (`--corner-noise 0.5`) 20/20 and
+1.00 mm median, 2.08 mm worst, rotation 0.25 deg worst, residual 0.68 px
+median: pixel noise is what the accuracy is limited by, and the residual moves
+with it, which is what makes the gate meaningful. With the table cleared,
+20/20 and 0.22 mm median, 0.81 mm worst.
 
-On a thin session the fit can settle in a mirrored minimum with a residual of
-hundreds of pixels; the gate would refuse it, and `session` now restarts the
-fit from a few jittered starts when that happens.
+### On the real arm
 
-On the real arm: print the four gripper tags and the base tag at 45 mm
-plate size (`assets/tags/`), glue the cube on top of the gripper body,
-measure the mounts, implement `Robot` on the CAN driver, and run the same
-script. Intrinsics come once from a checkerboard.
+1. Print one sheet with the two tags at **70 mm marker side** (the images in
+   `assets/tags/` already carry a one-cell white quiet zone; keep it).
+2. Fold it over a piece of stiff cardboard so the two tags end up back to back,
+   about 90 x 130 mm with roughly 90 mm of tagged card past one end.
+3. **Measure the printed marker side with a ruler and pass that number in.**
+   Printers scale, and the tag size sets the whole solution's scale; this is
+   the one thing the sim cannot check for you.
+4. Pinch the card in the gripper at the untagged end, anywhere roughly square
+   to the hand. Its exact pose does not matter and is not measured.
+5. Implement `Robot` (`q`, `move`, `image`) on the CAN driver and run
+   `calibrate.py`. Intrinsics come once from a checkerboard.
+6. Take the card out. Nothing else in the system has a marker on it.
 
 ## Planner
 
