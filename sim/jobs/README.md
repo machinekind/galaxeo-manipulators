@@ -97,6 +97,7 @@ each frame carries.
 | `WORKERS` | dataloader workers, default 4 |
 | `RESUME` | default false |
 | `RESUME_ARCHIVE` | optional tar of `checkpoints/` (with its `last` link), unpacked into the run dir when it has no checkpoint; run dirs do not travel with a sync |
+| `INIT_FROM` | optional `pretrained_model` directory (repository-relative) or Hub model id; a new run starts from those weights and their config with a fresh optimizer, so `CHUNK` and `LR` are ignored. `HF_TOKEN` is exported for a private model repo |
 | `WANDB` | default false; `true` adds `--wandb.enable=true`. `WANDB_MODE`, `WANDB_DIR` and `WANDB_API_KEY` come from the caller |
 | `SAVE_FREQ`, `LOG_FREQ` | default `STEPS/10` (min 1000) and 100 |
 | `GPUS`, `ON_FAILURE` | for the dispatcher |

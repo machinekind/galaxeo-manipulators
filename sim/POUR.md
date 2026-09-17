@@ -192,19 +192,26 @@ Features match `record_a1x.py`:
 
     action                        (7,)  commanded joint targets + gripper, 0 closed .. 0.05 open
     observation.state             (7,)  measured joints + finger position
-    observation.images.laptop     640 x 480 from the random webcam
-    observation.cam_K, cam_T      (9,) (16,)  the session's camera calibration, for provenance
-    observation.environment_state (25,) the same two concatenated
+    observation.images.laptop     320 x 240, downscaled from the 640 x 480 render
+    observation.images.topdown    256 x 256, that frame warped onto the table plane
+    observation.cam_K, cam_T      (9,) (16,)  the session's camera calibration, for
+                                  provenance (`cam_K` is the 640 x 480 intrinsics)
 
-The last one is there because ACT reads exactly one non-image state key
-besides `observation.state`, and that is it: the policy is conditioned on the
-calibration, which every session has anyway. Failed episodes are dropped from
-the dataset but counted in the run's report.
+Instead of conditioning the policy on the calibration vector, the calibration
+is spent redrawing each frame as a top-down map of the table
+(`planner/topdown.py`): a 0.7 m square about the workspace, world +y up, so an
+object standing on the table lands at its true (x, y) whatever the camera
+angle. Anything above the plane smears away from the camera, consistently per
+pose. The first dataset (`marcinwysocki/a1x_pour_sim`) predates this: it
+stored the raw 640 x 480 frame and a 25-vector `observation.environment_state`
+(K and T concatenated, the one non-image state key ACT reads) in place of the
+map. Failed episodes are dropped from the dataset but counted in the run's
+report.
 
-The generated set also lives on the Hub as the private dataset
-`marcinwysocki/a1x_pour_sim`, which is where a training box fetches it from
-(`DATASET_REPO`); shipping the 1.9 GB archive from a laptop took hours per
-rental.
+Each generated set also lives on the Hub as a private dataset
+(`marcinwysocki/a1x_pour_sim`, `marcinwysocki/a1x_pour_sim_td`), which is
+where a training box fetches it from (`DATASET_REPO`); shipping the 1.9 GB
+archive from a laptop took hours per rental.
 
 `gen_dataset.py` runs N `run_pour.py` processes on disjoint seed ranges, each
 into its own part, and merges the parts with `lerobot-edit-dataset`. Eight
@@ -229,7 +236,9 @@ it exactly the features its config lists at the dataset's rate, writes the
 seven actions to the servos with the recorder's gripper mapping inverted, and
 judges from ground truth the way the planner is judged: mouth in the rim past
 the tilt threshold for 1.2 s cumulative, glass standing, bottle not on the
-floor. ### First run
+floor.
+
+### First run
 
 ACT, chunk 50, batch 32, lr 1e-5, 40,000 steps on a rented RTX 4090 (about
 2 h 20 min at 5 steps/s, 0.45 USD/h). The L1 action loss fell from 0.73 at

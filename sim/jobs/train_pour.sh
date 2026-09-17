@@ -18,6 +18,7 @@ export HF_TOKEN="${HF_TOKEN:-}"    # only needed when DATASET_REPO is private
 : "${WORKERS:=4}"
 : "${RESUME:=false}"
 : "${RESUME_ARCHIVE:=}"           # optional tar of checkpoints/ to resume from when the run dir is absent
+: "${INIT_FROM:=}"                # optional pretrained_model dir or Hub model id to warm-start a new run from
 : "${WANDB:=false}"
 : "${GPUS:=1}"
 : "${ON_FAILURE:=ACT training stopped; the last checkpoint under sim/runs is still there and RESUME=true picks it up.}"
@@ -34,6 +35,19 @@ export TORCH_HOME="${TORCH_HOME:-sim/runs/torch_home}"
 . "$(dirname "${BASH_SOURCE[0]}")/dataset.sh"
 
 OUT="sim/runs/${RUN_NAME}"
+
+# A Hub model id in INIT_FROM is fetched once into the checkout, before the
+# loader goes offline for good, so the warm start below reads a local directory
+# either way.
+if [ -n "$INIT_FROM" ] && [ ! -d "$INIT_FROM" ]; then
+    INIT_DIR="sim/runs/init/${INIT_FROM//\//__}"
+    if [ ! -f "$INIT_DIR/model.safetensors" ]; then
+        echo "fetching warm-start weights $INIT_FROM"
+        HF_HUB_OFFLINE=0 hf download "$INIT_FROM" --repo-type model --local-dir "$INIT_DIR" >/dev/null
+        find "$INIT_DIR" -name '._*' -delete 2>/dev/null || true
+    fi
+    INIT_FROM="$INIT_DIR"
+fi
 mkdir -p "$TORCH_HOME" sim/runs
 
 # Photometric jitter only. `--dataset.image_transforms.tfs` REPLACES the whole
@@ -70,16 +84,24 @@ if [ "$RESUME" = "true" ]; then
     )
     echo "resuming $RUN_NAME from its last checkpoint, up to $STEPS steps"
 else
+    # A warm start loads the policy config and weights from INIT_FROM (a
+    # pretrained_model directory or a Hub model id) with a fresh optimizer;
+    # the architecture and learning rate then come from that config, not
+    # from CHUNK and LR. A fresh run builds an ACT from those instead.
+    if [ -n "$INIT_FROM" ]; then
+        POLICY=(--policy.path="$INIT_FROM")
+        echo "warm start from $INIT_FROM"
+    else
+        POLICY=(--policy.type=act --policy.chunk_size="$CHUNK" --policy.n_action_steps="$CHUNK"
+                --policy.optimizer_lr="$LR")
+    fi
     ARGS=(
-        --policy.type=act
+        "${POLICY[@]}"
         --dataset.repo_id="$REPO_ID"
         --dataset.root="$DATASET_ROOT"
         --dataset.video_backend=pyav
         --dataset.image_transforms.enable=true
         --dataset.image_transforms.tfs="$TFS"
-        --policy.chunk_size="$CHUNK"
-        --policy.n_action_steps="$CHUNK"
-        --policy.optimizer_lr="$LR"
         --policy.device=cuda
         --policy.push_to_hub=false
         --output_dir="$OUT"
