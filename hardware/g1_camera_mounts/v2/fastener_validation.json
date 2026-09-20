@@ -1,0 +1,5 @@
+{
+  "fastener_envelope_checks": 34,
+  "results": "Nominal hex nuts fit pockets; boom nuts clear ribs; M4 boom screws clear the modeled robot; a 50 mm driver corridor below the tripod slot is clear in six tested poses.",
+  "assumptions": "M4 nut AF 7 mm, height 3.2 mm; M3 AF 5.5 mm, height 2.4 mm; specified washers and printed 2 mm hinge spacers. Real hardware tolerances and webcam socket depth must be checked."
+}

@@ -1,0 +1,430 @@
+{
+  "mechanical_assemblies_checked": 4,
+  "rays": 4500,
+  "blocked": 0,
+  "checks": "STL manifoldness; clamp screws/nuts; upper/lower clearance; 60 mm robot swept-jaw envelope; board PCB/nut envelopes; webcam 45x74x45 mm envelope; tripod washer and 50 mm driver corridor.",
+  "limits": "Physical fit/load and exact camera not tested. Fixed 75 degree pitch; arbitrary lens height changes framing. Optical/mechanical report only; see arm_validation.json for full-arm conflicts and wrist clearance. No cables in model.",
+  "target_region": "X=60..76, Z=0, Y inside jaw gap by 2 mm; 10/20/40/70/100 mm openings.",
+  "cases": [
+    {
+      "kind": "board",
+      "diameter": 57,
+      "lens_height": 0,
+      "lens_forward": 14.6,
+      "lens_xyz": [
+        49.12,
+        0.0,
+        95.09
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 53.77,
+      "required_vfov_deg": 16.94,
+      "focus_range_mm": [
+        95.7,
+        109.9
+      ],
+      "axis_intersects_z0_at_x_mm": 74.6
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 10,
+      "lens_forward": 0,
+      "lens_xyz": [
+        31.82,
+        0.0,
+        105.57
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 47.43,
+      "required_vfov_deg": 15.42,
+      "focus_range_mm": [
+        109.3,
+        124.1
+      ],
+      "axis_intersects_z0_at_x_mm": 60.1
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 10,
+      "lens_forward": 20,
+      "lens_xyz": [
+        36.99,
+        0.0,
+        86.25
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 56.53,
+      "required_vfov_deg": 18.67,
+      "focus_range_mm": [
+        89.3,
+        106.1
+      ],
+      "axis_intersects_z0_at_x_mm": 60.1
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 10,
+      "lens_forward": 22.5,
+      "lens_xyz": [
+        37.64,
+        0.0,
+        83.84
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 57.9,
+      "required_vfov_deg": 19.17,
+      "focus_range_mm": [
+        86.8,
+        103.9
+      ],
+      "axis_intersects_z0_at_x_mm": 60.1
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 24,
+      "lens_forward": 0,
+      "lens_xyz": [
+        45.34,
+        0.0,
+        109.2
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 47.43,
+      "required_vfov_deg": 14.71,
+      "focus_range_mm": [
+        110.2,
+        123.2
+      ],
+      "axis_intersects_z0_at_x_mm": 74.6
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 24,
+      "lens_forward": 20,
+      "lens_xyz": [
+        50.52,
+        0.0,
+        89.88
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 56.53,
+      "required_vfov_deg": 17.95,
+      "focus_range_mm": [
+        90.4,
+        105.0
+      ],
+      "axis_intersects_z0_at_x_mm": 74.6
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 24,
+      "lens_forward": 22.5,
+      "lens_xyz": [
+        51.16,
+        0.0,
+        87.46
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 57.9,
+      "required_vfov_deg": 18.46,
+      "focus_range_mm": [
+        87.9,
+        102.8
+      ],
+      "axis_intersects_z0_at_x_mm": 74.6
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 40,
+      "lens_forward": 0,
+      "lens_xyz": [
+        60.79,
+        0.0,
+        113.34
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 47.43,
+      "required_vfov_deg": 30.8,
+      "focus_range_mm": [
+        113.3,
+        124.0
+      ],
+      "axis_intersects_z0_at_x_mm": 91.2
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 40,
+      "lens_forward": 20,
+      "lens_xyz": [
+        65.97,
+        0.0,
+        94.02
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 56.53,
+      "required_vfov_deg": 37.27,
+      "focus_range_mm": [
+        94.0,
+        106.0
+      ],
+      "axis_intersects_z0_at_x_mm": 91.2
+    },
+    {
+      "kind": "webcam",
+      "diameter": 57,
+      "lens_height": 40,
+      "lens_forward": 22.5,
+      "lens_xyz": [
+        66.62,
+        0.0,
+        91.6
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 57.9,
+      "required_vfov_deg": 38.26,
+      "focus_range_mm": [
+        91.6,
+        103.8
+      ],
+      "axis_intersects_z0_at_x_mm": 91.2
+    },
+    {
+      "kind": "board",
+      "diameter": 60,
+      "lens_height": 0,
+      "lens_forward": 14.6,
+      "lens_xyz": [
+        49.12,
+        0.0,
+        96.59
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 53.07,
+      "required_vfov_deg": 17.14,
+      "focus_range_mm": [
+        97.2,
+        111.2
+      ],
+      "axis_intersects_z0_at_x_mm": 75.0
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 10,
+      "lens_forward": 0,
+      "lens_xyz": [
+        31.82,
+        0.0,
+        107.07
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 46.88,
+      "required_vfov_deg": 14.85,
+      "focus_range_mm": [
+        110.7,
+        125.4
+      ],
+      "axis_intersects_z0_at_x_mm": 60.5
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 10,
+      "lens_forward": 20,
+      "lens_xyz": [
+        36.99,
+        0.0,
+        87.75
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 55.77,
+      "required_vfov_deg": 17.93,
+      "focus_range_mm": [
+        90.7,
+        107.4
+      ],
+      "axis_intersects_z0_at_x_mm": 60.5
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 10,
+      "lens_forward": 22.5,
+      "lens_xyz": [
+        37.64,
+        0.0,
+        85.34
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 57.1,
+      "required_vfov_deg": 18.41,
+      "focus_range_mm": [
+        88.2,
+        105.2
+      ],
+      "axis_intersects_z0_at_x_mm": 60.5
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 24,
+      "lens_forward": 0,
+      "lens_xyz": [
+        45.34,
+        0.0,
+        110.7
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 46.88,
+      "required_vfov_deg": 14.91,
+      "focus_range_mm": [
+        111.7,
+        124.5
+      ],
+      "axis_intersects_z0_at_x_mm": 75.0
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 24,
+      "lens_forward": 20,
+      "lens_xyz": [
+        50.52,
+        0.0,
+        91.38
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 55.77,
+      "required_vfov_deg": 18.15,
+      "focus_range_mm": [
+        91.9,
+        106.3
+      ],
+      "axis_intersects_z0_at_x_mm": 75.0
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 24,
+      "lens_forward": 22.5,
+      "lens_xyz": [
+        51.16,
+        0.0,
+        88.96
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 57.1,
+      "required_vfov_deg": 18.65,
+      "focus_range_mm": [
+        89.4,
+        104.1
+      ],
+      "axis_intersects_z0_at_x_mm": 75.0
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 40,
+      "lens_forward": 0,
+      "lens_xyz": [
+        60.79,
+        0.0,
+        114.84
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 46.88,
+      "required_vfov_deg": 30.79,
+      "focus_range_mm": [
+        114.8,
+        125.4
+      ],
+      "axis_intersects_z0_at_x_mm": 91.6
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 40,
+      "lens_forward": 20,
+      "lens_xyz": [
+        65.97,
+        0.0,
+        95.52
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 55.77,
+      "required_vfov_deg": 37.15,
+      "focus_range_mm": [
+        95.5,
+        107.4
+      ],
+      "axis_intersects_z0_at_x_mm": 91.6
+    },
+    {
+      "kind": "webcam",
+      "diameter": 60,
+      "lens_height": 40,
+      "lens_forward": 22.5,
+      "lens_xyz": [
+        66.62,
+        0.0,
+        93.1
+      ],
+      "angle_deg": 75,
+      "rays": 225,
+      "blocked": 0,
+      "required_hfov_deg": 57.1,
+      "required_vfov_deg": 38.13,
+      "focus_range_mm": [
+        93.1,
+        105.2
+      ],
+      "axis_intersects_z0_at_x_mm": 91.6
+    }
+  ]
+}

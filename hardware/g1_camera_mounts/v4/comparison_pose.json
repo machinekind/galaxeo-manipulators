@@ -1,0 +1,43 @@
+{
+  "q_degrees": [
+    -111.76820000000001,
+    105.9152,
+    -1.9636,
+    9.5397,
+    -66.4478,
+    108.19040000000001
+  ],
+  "jaw_half_gap_mm": 20,
+  "old": {
+    "board": [
+      [
+        "upper",
+        "arm_link2"
+      ],
+      [
+        "lower",
+        "arm_link2"
+      ]
+    ],
+    "webcam": [
+      [
+        "upper",
+        "arm_link2"
+      ],
+      [
+        "lower",
+        "arm_link2"
+      ]
+    ]
+  },
+  "new": {
+    "board": {
+      "collisions": [],
+      "minimum_arm_clearance_mm": 13.584
+    },
+    "webcam": {
+      "collisions": [],
+      "minimum_arm_clearance_mm": 13.584
+    }
+  }
+}

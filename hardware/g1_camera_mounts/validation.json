@@ -1,0 +1,118 @@
+{
+  "clamp_upper_57mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 4656,
+    "print_dimensions_mm": [
+      39.05,
+      91.6,
+      34.0
+    ],
+    "volume_cm3": 18.32
+  },
+  "clamp_lower_57mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 2844,
+    "print_dimensions_mm": [
+      33.05,
+      91.6,
+      18.0
+    ],
+    "volume_cm3": 11.92
+  },
+  "fit_gauge_57mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 636,
+    "print_dimensions_mm": [
+      63.6,
+      31.79,
+      2.0
+    ],
+    "volume_cm3": 0.57
+  },
+  "clamp_upper_60mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 4648,
+    "print_dimensions_mm": [
+      40.55,
+      94.6,
+      34.0
+    ],
+    "volume_cm3": 18.72
+  },
+  "clamp_lower_60mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 2828,
+    "print_dimensions_mm": [
+      34.55,
+      94.6,
+      18.0
+    ],
+    "volume_cm3": 12.34
+  },
+  "fit_gauge_60mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 636,
+    "print_dimensions_mm": [
+      66.6,
+      33.29,
+      2.0
+    ],
+    "volume_cm3": 0.6
+  },
+  "so101_32mm_camera_adapter": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 5220,
+    "print_dimensions_mm": [
+      32.44,
+      40.0,
+      39.59
+    ],
+    "volume_cm3": 8.11
+  },
+  "tripod_webcam_adapter": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 5120,
+    "print_dimensions_mm": [
+      52.0,
+      48.0,
+      6.0
+    ],
+    "volume_cm3": 13.5
+  },
+  "m2_camera_spacer_3mm": {
+    "watertight": true,
+    "consistent_winding": true,
+    "cad_solids": 1,
+    "triangles": 1264,
+    "print_dimensions_mm": [
+      5.0,
+      5.0,
+      3.0
+    ],
+    "volume_cm3": 0.05
+  },
+  "assembly_checks": {
+    "adapter_deck_overlap_mm3": 0,
+    "clamp_half_overlap_mm3": 0,
+    "g1_60mm_static_envelope_overlap_mm3": 0,
+    "clamp_center_gripper_frame_x_mm": -45,
+    "jaw_travel_checked_mm_per_side": 50,
+    "limitations": "No physical fit, load, camera-body, cable, or full-arm motion validation."
+  }
+}

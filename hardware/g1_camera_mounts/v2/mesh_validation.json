@@ -1,0 +1,134 @@
+{
+  "clamp_upper_57mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 31.33,
+    "print_size_mm": [
+      43.05,
+      91.6,
+      59.0
+    ]
+  },
+  "clamp_lower_57mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 11.92,
+    "print_size_mm": [
+      33.05,
+      91.6,
+      18.0
+    ]
+  },
+  "fit_gauge_57mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 0.57,
+    "print_size_mm": [
+      63.6,
+      31.79,
+      2.0
+    ]
+  },
+  "clamp_upper_60mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 31.73,
+    "print_size_mm": [
+      44.55,
+      94.6,
+      59.0
+    ]
+  },
+  "clamp_lower_60mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 12.34,
+    "print_size_mm": [
+      34.55,
+      94.6,
+      18.0
+    ]
+  },
+  "fit_gauge_60mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 0.6,
+    "print_size_mm": [
+      66.6,
+      33.29,
+      2.0
+    ]
+  },
+  "sliding_tilt_fork": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 76.01,
+    "print_size_mm": [
+      91.0,
+      104.6,
+      101.0
+    ]
+  },
+  "so101_board_tilt_carrier": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 15.81,
+    "print_size_mm": [
+      40.0,
+      92.0,
+      40.0
+    ]
+  },
+  "webcam_tilt_carrier": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 43.1,
+    "print_size_mm": [
+      60.0,
+      92.0,
+      40.0
+    ]
+  },
+  "m2_board_spacer_3mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 0.05,
+    "print_size_mm": [
+      5.0,
+      5.0,
+      3.0
+    ]
+  },
+  "m4_hinge_spacer_2mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 0.13,
+    "print_size_mm": [
+      10.0,
+      10.0,
+      2.0
+    ]
+  },
+  "m3_lock_spacer_2mm": {
+    "watertight": true,
+    "winding_consistent": true,
+    "cad_solids": 1,
+    "volume_cm3": 0.14,
+    "print_size_mm": [
+      10.0,
+      10.0,
+      2.0
+    ]
+  }
+}

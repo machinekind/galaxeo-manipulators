@@ -1,0 +1,92 @@
+{
+  "board_fixed75_upper_57mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 22.21,
+    "print_dimensions_mm": [
+      100.69,
+      113.62,
+      91.6
+    ]
+  },
+  "webcam_fixed75_upper_57mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 40.84,
+    "print_dimensions_mm": [
+      63.63,
+      126.38,
+      91.6
+    ]
+  },
+  "lower_clamp_57mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 11.92,
+    "print_dimensions_mm": [
+      33.05,
+      91.6,
+      18.0
+    ]
+  },
+  "fit_gauge_57mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 0.57,
+    "print_dimensions_mm": [
+      63.6,
+      31.79,
+      2.0
+    ]
+  },
+  "board_fixed75_upper_60mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 22.88,
+    "print_dimensions_mm": [
+      100.69,
+      115.12,
+      94.6
+    ]
+  },
+  "webcam_fixed75_upper_60mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 41.43,
+    "print_dimensions_mm": [
+      63.63,
+      127.88,
+      94.6
+    ]
+  },
+  "lower_clamp_60mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 12.34,
+    "print_dimensions_mm": [
+      34.55,
+      94.6,
+      18.0
+    ]
+  },
+  "fit_gauge_60mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 0.6,
+    "print_dimensions_mm": [
+      66.6,
+      33.29,
+      2.0
+    ]
+  },
+  "m2_spacer_3mm": {
+    "watertight": true,
+    "single_cad_solid": true,
+    "volume_cm3": 0.05,
+    "print_dimensions_mm": [
+      5.0,
+      5.0,
+      3.0
+    ]
+  }
+}

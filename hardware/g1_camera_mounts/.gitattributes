@@ -1,0 +1,6 @@
+# CAD interchange exports are generated artifacts; review their source scripts.
+*.step binary linguist-generated=true
+*.stl binary linguist-generated=true
+*.glb binary linguist-generated=true
+*.png binary linguist-generated=true
+*.zip binary linguist-generated=true
