@@ -257,6 +257,7 @@ Features match `record_a1x.py`:
     observation.state             (7,)  measured joints + finger position
     observation.images.laptop     320 x 240, downscaled from the 640 x 480 render
     observation.images.topdown    256 x 256, that frame warped onto the table plane
+    observation.images.wrist      320 x 240, the G1 wrist camera, only with `--wrist`
     observation.cam_K, cam_T      (9,) (16,)  the session's camera calibration, for
                                   provenance (`cam_K` is the 640 x 480 intrinsics)
 
@@ -275,6 +276,19 @@ Each generated set also lives on the Hub as a private dataset
 (`marcinwysocki/a1x_pour_sim`, `marcinwysocki/a1x_pour_sim_td`), which is
 where a training box fetches it from (`DATASET_REPO`); shipping the 1.9 GB
 archive from a laptop took hours per rental.
+
+`gen_dataset.py --wrist left` mounts the printed wrist camera of
+`hardware/g1_camera_mounts` on the gripper (`pour_scene.build(seed, wrist="left")`,
+or `WRIST_CAMERA=left` for a whole process) and records its stream next to the
+other two. That is a different robot, not only a third video: 104 g on the
+wrist and 57 collision boxes the planner routes around (`planner/motion.py`
+refuses a configuration that puts the mount against the arm's own links or
+anything else it may not touch). The camera's pose is jittered per seed by the
+bracket's re-seating play (2 mm, 1.5 deg) and the frame gets a per-seed exposure
+draw (gain 0.75 to 1.25, gamma 0.8 to 1.25), both from their own RNG stream, so
+a seed's bottle, glass, table and webcam are what they were without the mount.
+`eval_policy.py` and `dagger.py` read the checkpoint's config and build the
+scene with the camera when the policy lists the stream, without it otherwise.
 
 `gen_dataset.py` runs N `run_pour.py` processes on disjoint seed ranges, each
 into its own part, and merges the parts with `lerobot-edit-dataset`. Eight

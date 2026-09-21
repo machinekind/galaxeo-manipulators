@@ -138,7 +138,11 @@ def main():
     ap.add_argument("--fps", type=int, default=20)
     ap.add_argument("--repo-id", default="galaxeo/a1x_pour_sim")
     ap.add_argument("--keep-parts", action="store_true", help="do not delete part_k/ after merging")
+    ap.add_argument("--wrist", choices=("left", "right"),
+                    help="mount the G1 wrist camera on that hand and record observation.images.wrist")
     args = ap.parse_args()
+    if args.wrist:
+        os.environ["WRIST_CAMERA"] = args.wrist       # inherited by every worker
 
     for exe in (LEROBOT_PY, LEROBOT_EDIT):
         if not os.path.exists(exe):

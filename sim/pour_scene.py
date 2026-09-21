@@ -80,7 +80,17 @@ CARD_T_NOM = np.array([TIP_X + CARD["out"] / 2, 0.0, 0.0])
 # in the card plane, opposite normals, the thickness apart.
 CARD_TAGS = {0: (np.array([0.0, 0.0, CARD["T"] / 2]), np.eye(3)),
              1: (np.array([0.0, 0.0, -CARD["T"] / 2]), np.diag([-1.0, 1.0, -1.0]))}
-_ARM = None
+_ARM = {}
+
+# The G1 wrist camera (hardware/g1_camera_mounts) is opt-in: it adds 104 g and
+# 57 collision primitives to the wrist, so a scene with it and a scene without
+# it are different robots. WRIST_CAMERA=left|right turns it on for every
+# build() of the process, which is how gen_dataset reaches its workers;
+# build(wrist=...) overrides that per call.
+WRIST_HAND = os.environ.get("WRIST_CAMERA", "")
+WRIST_CAM = "arm/wrist"
+WRIST_JITTER = dict(pos_mm=2.0, rot_deg=1.5)             # re-seating play of the bracket and the lens
+WRIST_EXPOSURE = dict(gain=(0.75, 1.25), gamma=(0.8, 1.25))   # a wrist camera swings through the light
 
 # ------------------------------------------------------------ randomisation
 # A policy trained on these frames must never learn one particular table, so
@@ -101,11 +111,22 @@ DISTRACT = dict(n=(0, 3), clear=0.12, arm_clear=0.16, edge=0.04, view=0.55,
                 r=(0.015, 0.045), h=(0.03, 0.12), mass=(0.05, 0.4))
 
 
-def _arm_spec():
-    global _ARM
-    if _ARM is None:
-        _ARM = mujoco.MjSpec.from_file(os.path.join(HERE, "a1x.xml"))
-    return _ARM
+def _wrist_module():
+    mount = os.path.join(os.path.dirname(HERE), "hardware", "g1_camera_mounts", "sim")
+    if mount not in sys.path:
+        sys.path.append(mount)
+    import wrist_camera
+    return wrist_camera
+
+
+def _arm_spec(wrist=""):
+    """The arm, parsed once per process and per hand the camera is mounted on."""
+    if wrist not in _ARM:
+        spec = mujoco.MjSpec.from_file(os.path.join(HERE, "a1x.xml"))
+        if wrist:
+            _wrist_module().attach_wrist_camera(spec, hand=wrist)
+        _ARM[wrist] = spec
+    return _ARM[wrist]
 
 
 def _add_tag_assets(spec, ids, plate):
@@ -476,14 +497,19 @@ def pour_orientations(R_g, tilt=POUR_TILT, n=8):
     return [tilt_about((np.cos(a), np.sin(a)), tilt) @ R_g for a in np.linspace(0, 2 * np.pi, n, endpoint=False)]
 
 
-def build(seed=0, max_tries=60, calib_card=False, card_extreme=False):
+def build(seed=0, max_tries=60, calib_card=False, card_extreme=False, wrist=None):
     """Compile one randomised episode. Returns (model, data, info).
 
     `calib_card` pinches the calibration card in the gripper; with it the scene
     also carries `info["calib"]`. Without it the scene has no fiducial of any
     kind, which is what the planner, the dataset recorder and the policy
     evaluator build. `card_extreme` puts the card at the limits of the
-    misplacement instead of anywhere inside them."""
+    misplacement instead of anywhere inside them. `wrist` ("left", "right" or
+    "") mounts the G1 wrist camera; None takes it from WRIST_CAMERA. The camera
+    is `WRIST_CAM`, its pose is jittered per seed by the bracket's re-seating
+    play, and `info["wrist"]` carries that seed's exposure draw. None of it
+    touches the other draws of a seed."""
+    wrist = WRIST_HAND if wrist is None else wrist
     rng = np.random.default_rng(seed)
     drng, table, base_xml, rand = sample_scene(seed)
     stats = {"grasp": 0, "pour": 0}
@@ -512,13 +538,21 @@ def build(seed=0, max_tries=60, calib_card=False, card_extreme=False):
             base_xml.replace("</worldbody>", "".join(extra) + "</worldbody>"))
         spec.visual.global_.offwidth, spec.visual.global_.offheight = max(1600, cam["W"]), max(1000, cam["H"])
         add_bottle_meshes(spec, b)
-        spec.attach(_arm_spec().copy(), prefix="arm/", frame=spec.body("arm_mount").add_frame())
+        spec.attach(_arm_spec(wrist).copy(), prefix="arm/", frame=spec.body("arm_mount").add_frame())
         _split_finger_pads(spec)
         T_card = None
         if calib_card:
             T_card = sample_card_pose(np.random.default_rng([int(seed), 0xCA1D]), card_extreme)
             _add_card(spec, spec.body("arm/gripper_link"), T_card)
         model = spec.compile()
+        wrist_info = None
+        if wrist:
+            # on the compiled model, because the arm spec is shared by every seed
+            wrng = np.random.default_rng([int(seed), 0xCA11])
+            _wrist_module().jitter_camera(model, wrng, camera=WRIST_CAM, **WRIST_JITTER)
+            wrist_info = dict(hand=wrist, camera=WRIST_CAM,
+                              gain=float(wrng.uniform(*WRIST_EXPOSURE["gain"])),
+                              gamma=float(wrng.uniform(*WRIST_EXPOSURE["gamma"])))
         # The URDF gives no gripper force, and a position servo commanded to
         # "closed" squeezes with kp times the travel left: 13 N on a 30 mm neck,
         # and a full bottle pivots out. A real gripper closes with a set force
@@ -560,7 +594,7 @@ def build(seed=0, max_tries=60, calib_card=False, card_extreme=False):
         info = dict(seed=int(seed), attempt=attempt, rejected=stats, bottle=b, glass=g,
                     bottle_pos=np.array([bp[0], bp[1], TABLE_TOP]), bottle_yaw=float(b_yaw),
                     glass_pos=np.array([gp[0], gp[1], TABLE_TOP]),
-                    cam=cam,
+                    cam=cam, wrist=wrist_info,
                     arm_base=base, table_top=TABLE_TOP, q_home=Q_HOME.copy(),
                     randomisation=dict(
                         rand,

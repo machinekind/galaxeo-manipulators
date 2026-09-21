@@ -14,8 +14,10 @@ the dataset, because that is the rate the actions were recorded at). Every tick
 renders `laptop_cam` once at its native size, hands the policy exactly the
 features its config lists as inputs -- the raw frame downscaled to the shape
 the config asks for, and, if the config asks for it, the top-down table map
-`planner.topdown` warps out of the same frame with the session's calibration --
-and writes the returned 7-vector to the actuators: six joint targets
+`planner.topdown` warps out of the same frame with the session's calibration;
+a policy whose config lists `observation.images.wrist` gets the scene built
+with the G1 wrist camera on `--wrist` (left by default) and that camera's frame
+through the recorder's own `wrist_frame` -- and writes the returned 7-vector to the actuators: six joint targets
 straight into `data.ctrl[arm.acts]`, and the gripper through the same mapping
 the recorder inverted -- anything under 20 mm means "closed", which on this
 model is a command 30 mm past the stop so the fingers squeeze with a set force.
@@ -43,6 +45,7 @@ import mujoco  # noqa: E402
 from a1x_control import Arm  # noqa: E402
 from planner.pour import POUR_MIN_SECS, POUR_MIN_TILT  # noqa: E402
 from planner.run_episodes import write_gif  # noqa: E402
+from planner.run_pour import WRIST_KEY, wrist_frame  # noqa: E402
 from planner.topdown import SIDE as TD_SIDE, topdown  # noqa: E402
 from pour_scene import GRIP_CMD, WORKSPACE, build, cam_intrinsics  # noqa: E402
 
@@ -98,6 +101,13 @@ def load_policy(ckpt, device, ensemble=None):
     return policy, pre, post, cfg
 
 
+def wrist_hand(cfg, hand="left"):
+    """The hand the scene must carry the wrist camera on for this policy: `hand`
+    if its config reads the wrist stream, otherwise none -- the mount changes the
+    arm's mass and collision shape, so a policy gets the robot it was trained on."""
+    return hand if WRIST_KEY in cfg.input_features else ""
+
+
 def observation(cfg, renderer, data, arm, info, torch):
     """Exactly the features the policy config lists as inputs, in dataset units.
 
@@ -112,7 +122,11 @@ def observation(cfg, renderer, data, arm, info, torch):
     at the config's map size."""
     obs, frame = {}, None
     for key in cfg.input_features:
-        if key.startswith("observation.images."):
+        if key == WRIST_KEY:
+            H, W = cfg.input_features[key].shape[1:]
+            img = wrist_frame(renderer, data, info, (W, H))
+            obs[key] = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float().div(255.0).unsqueeze(0)
+        elif key.startswith("observation.images."):
             if frame is None:
                 renderer.update_scene(data, camera="laptop_cam")
                 frame = renderer.render().copy()                 # HWC uint8, native size
@@ -197,9 +211,13 @@ class Judge:
                     glass_fell=self.glass_fell or not glass_up, on_floor=on_floor, why=why)
 
 
-def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None):
+def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wrist="left",
+            wrist_frames=None, small=False):
+    """`frames` collects laptop_cam, `wrist_frames` the wrist stream when the
+    scene has one; `small` keeps both at half size, which is what makes holding
+    every episode of a long evaluation affordable."""
     policy.reset()
-    model, data, info = build(seed)
+    model, data, info = build(seed, wrist=wrist_hand(cfg, wrist))
     arm = Arm(model, "arm/")
     # Always render at the camera's native size: the top-down warp wants the
     # full frame, and the raw stream is downscaled from it, which is what the
@@ -220,7 +238,10 @@ def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None):
             judge.tick(dt)
             if frames is not None:
                 r.update_scene(data, camera="laptop_cam")
-                frames.append(r.render().copy())
+                f = r.render()
+                frames.append(cv2.resize(f, (W // 2, H // 2), interpolation=cv2.INTER_AREA) if small else f.copy())
+                if wrist_frames is not None and info.get("wrist"):
+                    wrist_frames.append(wrist_frame(r, data, info, (W // 2, H // 2) if small else (W, H)))
     finally:
         r.close()
     out = judge.result()
@@ -236,6 +257,11 @@ def main():
     ap.add_argument("--fps", type=int, default=20, help="control rate; must match the dataset")
     ap.add_argument("--max-secs", type=float, default=45.0, help="wall clock budget per episode")
     ap.add_argument("--gif", help="record the first episode from laptop_cam")
+    ap.add_argument("--gif-all", metavar="DIR", help="record every episode: DIR/seedN.gif from laptop_cam, "
+                    "and DIR/seedN_wrist.gif when the policy reads the wrist camera")
+    ap.add_argument("--wrist", choices=("left", "right"), default="left",
+                    help="hand the wrist camera is mounted on, for a policy that reads it")
+    ap.add_argument("--json", help="write the per-seed results here")
     ap.add_argument("--device", default="cpu", help="cpu | cuda | mps")
     ap.add_argument("--ensemble", type=float, default=None,
                     help="ACT temporal ensembling coefficient (e.g. 0.01); off by default")
@@ -249,18 +275,32 @@ def main():
           f"chunk {cfg.chunk_size}, n_action_steps {cfg.n_action_steps}, on {args.device}")
     print("inputs: " + ", ".join(cfg.input_features))
 
-    n_ok = 0
+    if args.gif_all:
+        os.makedirs(args.gif_all, exist_ok=True)
+    n_ok, rows = 0, []
     for i in range(args.n):
         seed = args.seed + i
-        frames = [] if (args.gif and i == 0) else None
-        res = episode(policy, pre, post, cfg, seed, args.fps, args.max_secs, torch, frames)
+        frames = [] if (args.gif_all or (args.gif and i == 0)) else None
+        wframes = [] if args.gif_all else None
+        res = episode(policy, pre, post, cfg, seed, args.fps, args.max_secs, torch, frames,
+                      wrist=args.wrist, wrist_frames=wframes, small=bool(args.gif_all))
         n_ok += res["success"]
+        rows.append(dict(seed=seed, **{k: (bool(v) if isinstance(v, (bool, np.bool_)) else v)
+                                        for k, v in res.items()}))
         print(f"seed {seed:3d}  {'SUCCESS' if res['success'] else 'FAIL   '} "
               f"poured {res['secs']:4.1f}s  max tilt {np.degrees(res['max_tilt']):5.1f}deg  "
               f"glass {'FELL' if res['glass_fell'] else 'ok  '}  t={res['duration']:5.1f}s"
               + (f"  {res['why']}" if res["why"] else ""), flush=True)
-        if frames:
+        if frames and args.gif and i == 0:
             write_gif(frames, args.gif, fps=args.fps)
+        if args.gif_all:
+            write_gif(frames, os.path.join(args.gif_all, f"seed{seed}.gif"), fps=args.fps)
+            if wframes:
+                write_gif(wframes, os.path.join(args.gif_all, f"seed{seed}_wrist.gif"), fps=args.fps)
+    if args.json:
+        import json
+        with open(args.json, "w") as f:
+            json.dump(dict(ckpt=ckpt, n=args.n, ok=int(n_ok), episodes=rows), f, indent=1)
     print(f"\n{n_ok}/{args.n} success ({100 * n_ok / args.n:.0f}%)")
 
 

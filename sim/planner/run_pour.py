@@ -19,6 +19,9 @@ schema `record_a1x.py` writes on the real arm:
     observation.images.topdown   (256, 256, 3) that same frame warped onto the table
                                  plane: a 0.7 m square about the workspace, world +y up
                                  and +x right, 2.73 mm per pixel. See planner/topdown.py
+    observation.images.wrist     (240, 320, 3) the G1 wrist camera, only when the scene has
+                                 one (WRIST_CAMERA=left|right, or gen_dataset --wrist):
+                                 downscaled from 640x480, with the seed's exposure draw
     observation.cam_K, cam_T     (9,) (16,) the session's camera calibration, for
                                  provenance only. `cam_K` is the intrinsics of the
                                  *640x480 render*, not of the stored 320x240 frame
@@ -47,7 +50,24 @@ from planner.run_episodes import Recorder, write_gif  # noqa: E402
 from planner.topdown import N as TD_N, SIDE as TD_SIDE, topdown  # noqa: E402
 from pour_scene import WORKSPACE, build  # noqa: E402
 
-STORE_W, STORE_H = 320, 240        # stored size of the raw webcam stream
+STORE_W, STORE_H = 320, 240        # stored size of the raw webcam stream, and of the wrist stream
+WRIST_KEY = "observation.images.wrist"
+
+
+def wrist_frame(renderer, data, info, wh=(STORE_W, STORE_H)):
+    """The wrist camera's frame the way the dataset stores it: rendered at the
+    renderer's native 640x480, the seed's exposure draw applied (gain, then
+    gamma -- MuJoCo has no exposure, and a camera 60 mm from the object does
+    not hold the base camera's), then an area downscale. The evaluator calls
+    this too, so a policy sees at test time what it was trained on."""
+    w = info["wrist"]
+    renderer.update_scene(data, camera=w["camera"])
+    img = renderer.render().astype(np.float32) / 255.0
+    img = np.clip(img * w["gain"], 0.0, 1.0) ** w["gamma"]
+    img = (img * 255.0 + 0.5).astype(np.uint8)
+    if (img.shape[1], img.shape[0]) != tuple(wh):
+        img = cv2.resize(img, tuple(wh), interpolation=cv2.INTER_AREA)
+    return img
 
 
 class PourRecorder(Recorder):
@@ -94,9 +114,11 @@ class LeRobotRecorder:
         full = self.r.render().copy()
         td = topdown(full, self.K3, self.T_cam2world, self.centre, self.td_side, self.td_n)
         img = cv2.resize(full, self.wh, interpolation=cv2.INTER_AREA)
+        extra = {WRIST_KEY: wrist_frame(self.r, d, self.info, self.wh)} if self.info.get("wrist") else {}
         q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
         act = np.concatenate([d.ctrl[self.arm.acts], [np.clip(d.ctrl[self.arm.grip], 0.0, 0.05)]])
-        self.ds.add_frame({"action": act.astype(np.float32),
+        self.ds.add_frame({**extra,
+                           "action": act.astype(np.float32),
                            "observation.state": np.concatenate([q, [g]]).astype(np.float32),
                            "observation.images.laptop": img,
                            "observation.images.topdown": td,
@@ -104,9 +126,13 @@ class LeRobotRecorder:
                            "task": TASK})
 
 
-def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N):
+def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N, wrist=None):
     """Open or create the dataset. `W`, `H` is the stored size of the raw
-    webcam stream; `td_n` the side of the square top-down map."""
+    webcam stream and of the wrist stream; `td_n` the side of the square
+    top-down map. `wrist` adds the wrist stream; None reads WRIST_CAMERA, the
+    switch `pour_scene.build` reads, so the schema follows the scenes."""
+    from pour_scene import WRIST_HAND
+    wrist = WRIST_HAND if wrist is None else wrist
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     names7 = [f"arm_joint{i}" for i in range(1, 7)] + ["gripper"]
     hwc = ["height", "width", "channels"]
@@ -118,6 +144,8 @@ def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N):
         "observation.cam_K": {"dtype": "float32", "shape": (9,), "names": None},
         "observation.cam_T": {"dtype": "float32", "shape": (16,), "names": None},
     }
+    if wrist:
+        features[WRIST_KEY] = {"dtype": "video", "shape": (H, W, 3), "names": hwc}
     if os.path.exists(root):
         return LeRobotDataset(repo_id, root=root)
     return LeRobotDataset.create(repo_id, fps=fps, features=features, root=root,

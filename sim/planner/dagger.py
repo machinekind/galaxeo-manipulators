@@ -43,7 +43,7 @@ import mujoco  # noqa: E402
 
 from a1x_control import Arm  # noqa: E402
 from planner.eval_policy import (GLASS_MARGIN, MOUTH_ABOVE, Judge, apply_action,  # noqa: E402
-                                 find_checkpoint, load_policy, observation)
+                                 find_checkpoint, load_policy, observation, wrist_hand)
 from planner.perception import SimPourPerception  # noqa: E402
 from planner.pour import POUR_MIN_SECS, Pour, held_by  # noqa: E402
 from planner.run_pour import STORE_H, STORE_W, LeRobotRecorder, open_lerobot  # noqa: E402
@@ -192,7 +192,7 @@ def teach(model, data, info, renderer, fps, seed):
 def collect(seed, policy, pre, post, cfg, args, torch, ds, log):
     """One scene: roll the policy out, then walk the rewind schedule until
     `--takeovers` usable teacher segments are in hand. Returns a report dict."""
-    model, data, info = build(seed)
+    model, data, info = build(seed, wrist=wrist_hand(cfg, args.wrist))
     mujoco.mj_forward(model, data)
     arm = Arm(model, "arm/")
     rep = dict(seed=seed, trouble=None, t_fail=0.0, takes=[])
@@ -278,6 +278,8 @@ def main():
     ap.add_argument("--device", default="cpu", help="cpu | cuda | mps")
     ap.add_argument("--takeovers", type=int, default=1, help="usable segments to harvest per scene")
     ap.add_argument("--rewind", default="1.0,2.5,5.0", help="seconds before the trouble, in order")
+    ap.add_argument("--wrist", choices=("left", "right"), default="left",
+                    help="hand the wrist camera is on, for a policy that reads it")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     args.rewind = [float(x) for x in args.rewind.split(",") if x.strip()]
@@ -294,7 +296,8 @@ def main():
           f"on {args.device}; rewind {args.rewind}, up to {args.takeovers} takeover(s) per seed")
     ds, log = None, None
     if args.lerobot:
-        ds = open_lerobot(args.lerobot, args.repo_id, args.fps, STORE_W, STORE_H, TD_N)
+        ds = open_lerobot(args.lerobot, args.repo_id, args.fps, STORE_W, STORE_H, TD_N,
+                          wrist=wrist_hand(cfg, args.wrist))
         print(f"lerobot dataset at {args.lerobot}: {ds.num_episodes} episode(s) so far")
         log = open(os.path.join(args.lerobot, "dagger_log.jsonl"), "a")
     try:

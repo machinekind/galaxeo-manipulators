@@ -27,6 +27,8 @@ import numpy as np
 from a1x_control import smoothstep
 
 ARM = "arm/"
+MOUNT_BODIES = ("arm/wrist_camera_mount",)   # the G1 wrist-camera payload, when the scene has one
+MOUNT_EXEMPT = ("arm/gripper_link",)         # what it is bolted to
 ELBOWS = ((1.0, -1.6, 0.6), (1.9, -2.4, 0.5), (0.7, -1.0, 0.3))
 
 
@@ -76,6 +78,17 @@ class Motion:
         for i in range(s.ncon):
             c = s.contact[i]
             b1, b2 = self.body_of_geom[c.geom1], self.body_of_geom[c.geom2]
+            # A wrist payload is bolted to the arm, but it is not "self": the arm
+            # can drive it into its own links and into the object it is carrying,
+            # and both of those are collisions a planner has to refuse.
+            on_mount = [b in MOUNT_BODIES for b in (b1, b2)]
+            if on_mount[0] != on_mount[1]:
+                g = c.geom2 if on_mount[0] else c.geom1
+                other = b2 if on_mount[0] else b1
+                label = self.geom_name[g] or other or "world"
+                if other not in MOUNT_EXEMPT and label not in allow and other not in allow:
+                    return label
+                continue
             mine = [b.startswith(ARM) or b in carried for b in (b1, b2)]
             if mine[0] == mine[1]:            # self-contact, or two things I do not control
                 continue
