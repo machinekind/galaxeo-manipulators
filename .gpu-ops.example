@@ -1,0 +1,24 @@
+# Copy this file to .gpu-ops (gitignored) and fill in your own values. It tells
+# the out-of-tree job dispatcher where the payloads and the Python project live
+# in this checkout; everything personal -- host, account, job naming -- stays in
+# your own .gpu-ops and never in the repository.
+#
+#   cp .gpu-ops.example .gpu-ops
+
+# Directory holding the payload scripts.
+OPS_PAYLOAD_DIR=sim/jobs
+
+# Directory with pyproject.toml + uv.lock the remote venv is synced from.
+OPS_PROJECT_DIR=sim
+
+# Name of the checkout on the remote side. Empty: use the local directory name.
+OPS_REPO_NAME=
+
+# Extra requirements file, if any. Empty: the project's lockfile is enough.
+OPS_REQUIREMENTS=
+
+# rsync exclude patterns, space separated: virtualenvs, run outputs, caches.
+OPS_RSYNC_EXTRA=sim/.venv/ sim/.venv-lerobot/ sim/runs/ sim/__pycache__/ sim/planner/__pycache__/ sim/calib/__pycache__/ sim/datasets/*/merged/ sim/datasets/*/part_*
+
+# Default job name. Empty: derived from the payload being run.
+OPS_JOB_NAME=

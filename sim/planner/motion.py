@@ -87,9 +87,12 @@ class Motion:
             return label
         return None
 
-    def path_clear(self, q0, q1, grip, allow=(), held=None, n=10):
-        """Sample the smoothstep ramp the servos will follow between two poses."""
+    def path_clear(self, q0, q1, grip, allow=(), held=None, n=10, step=0.04):
+        """Sample the smoothstep ramp the servos will follow between two poses,
+        at least every `step` rad of the largest joint move: a finger crossing
+        a bottle's shoulder is over in a few centimetres."""
         q0, q1 = np.asarray(q0, float), np.asarray(q1, float)
+        n = max(n, int(np.max(np.abs(q1 - q0)) / step))
         for s in np.linspace(0, 1, n + 1)[1:-1]:
             hit = self.collides(q0 + smoothstep(s) * (q1 - q0), grip, allow, held)
             if hit:

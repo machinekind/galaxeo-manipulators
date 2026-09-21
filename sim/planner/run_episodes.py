@@ -35,8 +35,8 @@ FRAME_W, FRAME_H = 480, 320
 class Recorder:
     """Samples state at 50 Hz and, if a renderer is given, frames at 10 Hz."""
 
-    def __init__(self, renderer=None, frame_hz=FRAME_HZ):
-        self.r, self.frame_hz = renderer, frame_hz
+    def __init__(self, renderer=None, frame_hz=FRAME_HZ, cam="table_cam"):
+        self.r, self.frame_hz, self.cam = renderer, frame_hz, cam
         self.t, self.qpos, self.ctrl, self.tcp, self.stage = [], [], [], [], []
         self.ft, self.frames = [], []
 
@@ -50,7 +50,7 @@ class Recorder:
             self.tcp.append(np.concatenate([pos, R.ravel()]))
             self.stage.append(pp.label)
         if self.r is not None and len(self.frames) <= int(d.time * self.frame_hz):
-            self.r.update_scene(d, camera="table_cam")
+            self.r.update_scene(d, camera=self.cam)
             self.frames.append(self.r.render())
             self.ft.append(d.time)
 

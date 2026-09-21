@@ -94,15 +94,22 @@ class Script:
     sets a gripper target; joint targets ramp over the phase duration.
 
     `arms` maps a short name to the model prefix, e.g. {"arm": "arm/"}.
+
+    `t0` is where the script's clock starts. It matters when a script takes
+    over a simulation that is already running (the planner finishing an episode
+    a policy began): phase times are compared against `data.time`, so a script
+    built at t = 0 while the world is at t = 12 would have all its phases
+    already in the past. Ramps always start from the measured joint angles and
+    the current gripper command, so only the clock needs telling.
     """
 
-    def __init__(self, model, data, arms=None):
+    def __init__(self, model, data, arms=None, t0=0.0):
         self.m, self.d = model, data
         if arms is None:
             arms = {n: f"{n}/" for n in ("leader", "follower")}
         self.arms = {n: Arm(model, p) for n, p in arms.items()}
         self.phases = []      # (label, t_start, t_end, arm, q_from, q_to, grip_from, grip_to)
-        self.t = 0.0
+        self.t = float(t0)
         self.last_ok = True
         self.q = {n: data.qpos[a.qadr].copy() for n, a in self.arms.items()}
         self.g = {n: data.ctrl[a.grip] for n, a in self.arms.items()}

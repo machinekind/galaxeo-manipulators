@@ -56,6 +56,9 @@ Joint order matches the driver: `arm_joint1..6`, then the gripper.
 
 ## Pick and place
 
+(The bottle pour task, its camera calibration and data pipeline are in
+[POUR.md](POUR.md).)
+
 One A1X on the table, a placeholder quadruped standing beside it at a random
 pose, one to three random primitives on the table. The planner picks one up and
 sets it on the dog's back.
