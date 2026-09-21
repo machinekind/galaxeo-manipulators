@@ -20,6 +20,10 @@ glass is rejected before it is tried.
 and past the tilt threshold for long enough, with the glass still standing.
 A bead fluid can replace it later without touching the rest of the machine.
 Placing the bottle back somewhere new is the episode's reset.
+
+`takeover` is the same machine entered mid-episode, from whatever state
+something else (a policy being corrected by `dagger.py`) left the scene in:
+the bottle free on the table, or already in the fingers and possibly tipped.
 """
 from dataclasses import dataclass, field
 
@@ -41,6 +45,24 @@ POUR_HOLD = 2.0                  # seconds at the pour angle
 POUR_MIN_TILT = 1.55             # rad from upright the mouth must pass for liquid to run
 POUR_MIN_SECS = 1.2              # ... and stay there this long
 RETREAT_Z = (0.03, 0.07, 0.12)
+LEVEL_STEP = 0.35                # most tilt taken out of a held bottle in one move [rad]
+
+
+def held_by(model, data, body, arm_prefix="arm/"):
+    """True when `body` is pinched: it has a live contact with *both* finger
+    bodies. Ground truth rather than the gap sensor, because a gap that looks
+    like a grasp is also what an empty hand beside a bottle reports."""
+    bid = model.body(body).id
+    fingers = {model.body(f"{arm_prefix}gripper_finger_link{i}").id for i in (1, 2)}
+    touched = set()
+    for i in range(data.ncon):
+        c = data.contact[i]
+        b1, b2 = model.geom_bodyid[c.geom1], model.geom_bodyid[c.geom2]
+        if b1 == bid:
+            touched.add(b2)
+        elif b2 == bid:
+            touched.add(b1)
+    return fingers <= touched
 
 
 def _rot_axis(axis, angle):
@@ -75,12 +97,12 @@ class Pour:
         self.m, self.d, self.per, self.info = model, data, perception, info
         self.arm = Arm(model, arm_prefix)
         self.motion = Motion(model, data, self.arm)
-        self.script = Script(model, data, {"arm": arm_prefix})
+        self.script = Script(model, data, {"arm": arm_prefix}, t0=data.time)
         self.home = info["q_home"]
         self.top = info["table_top"]
         self.verbose = verbose
         self.stages, self.label = [], "idle"
-        self.held = self.on_step = None
+        self.held = self.on_step = self.on_stage = None
         self.pour_log = []                       # (t, tilt, mouth-in-rim) while pouring
 
     # ---------------------------------------------------------------- helpers
@@ -141,12 +163,18 @@ class Pour:
         self.pour_log.append((self.d.time, self._tilt(), inside))
 
     # ----------------------------------------------------------------- stages
-    def _perceive(self):
+    def _perceive_any(self):
+        """Measure bottle and glass whatever pose they are in: a takeover may
+        start with the bottle in the hand and half tipped over."""
         self.bottle, self.glass = self.per.bottle(), self.per.glass()
-        if self.bottle.R[2, 2] < 0.95:
-            return False, "bottle not upright"
         return True, (f"bottle r={self.bottle.body_r * 1000:.0f}mm h={self.bottle.height * 1000:.0f}mm, "
                       f"glass r={self.glass.r * 1000:.0f}mm")
+
+    def _perceive(self):
+        ok, detail = self._perceive_any()
+        if self.bottle.R[2, 2] < 0.95:
+            return False, "bottle not upright"
+        return ok, detail
 
     def _grasp_candidates(self):
         """Grasps across an upright bottle, approach from the base side.
@@ -318,16 +346,26 @@ class Pour:
 
     def _search_pour(self, q_from, R_now, R_local, p_local, mouth_local, held, grip, mouth_now, first=None):
         """(joint waypoints, label) of the first axis/angle whose whole path solves."""
-        allow = {self.bottle.name}
         axes = self._pour_axes(R_now, mouth_now)
         if first is not None:
             axes.sort(key=lambda t: t[0] != first)
-        R_b0 = R_now @ R_local
+        return self._try_pours(axes, q_from, R_now @ R_local, R_local, p_local, mouth_local,
+                               held, grip, mouth_now)
+
+    def _try_pours(self, axes, q_from, R_b0, R_local, p_local, mouth_local, held, grip, mouth_now,
+                   tilt_max=None):
+        """Walk the candidates and return the first whose whole path solves.
+
+        `tilt_max` caps the final tilt; the nominal search leaves it open,
+        because its angles come from a closed form that aims at one tilt, while
+        a takeover scans for them and can overshoot into a pose that empties
+        the bottle past the glass."""
+        allow = {self.bottle.name}
         for name, axis, angles in axes:
             for ang in angles:
                 # the bottle must actually pass the pour angle about this axis
                 tilt = np.arccos(np.clip((_rot_axis(axis, ang) @ R_b0)[2, 2], -1, 1))
-                if tilt < POUR_MIN_TILT + 0.05:
+                if tilt < POUR_MIN_TILT + 0.05 or (tilt_max is not None and tilt > tilt_max):
                     continue
                 qs, q_prev, ok = [], q_from, True
                 for pos, R in self._pour_path(R_b0, R_local, p_local, mouth_local, mouth_now, axis, ang):
@@ -344,9 +382,10 @@ class Pour:
 
     def _plan_pour(self):
         _, R_now = self._tcp()
+        hint = getattr(self, "pour_hint", "").split()
         plan = self._search_pour(self.script.q["arm"], R_now, self.R_local, self.p_local, self.mouth_local,
                                  self.held, self._grip(), self._mouth(),
-                                 first=getattr(self, "pour_hint", "").split()[0] or None)
+                                 first=hint[0] if hint else None)
         if plan is None:
             return False, "no reachable pour path"
         self.pour_qs, self.pour_label = plan
@@ -415,19 +454,29 @@ class Pour:
         self.script.wait(0.3, "upright settle")
         self._advance("upright")
         self._grab()
-        _, R_o, _ = self._body(self.bottle.name)
         tilt = self._tilt()
-        if tilt > 0.04:
+        # One step for the few degrees a nominal pour leaves behind. A takeover
+        # that began with the bottle already tipped untips only back to there,
+        # and that much is levelled in steps, raising the hand where turning a
+        # long bottle about the TCP would swing its base into the table.
+        n = int(np.ceil(tilt / LEVEL_STEP)) if tilt > 0.04 else 0
+        for i in range(n):
+            _, R_o, _ = self._body(self.bottle.name)
             axis = np.cross(R_o[:, 2], [0, 0, 1.0])
             tcp, R = self._tcp()
-            q, why = self.motion.solve(self.script.q["arm"], tcp, _rot_axis(axis, tilt) @ R, self._grip(),
-                                       {self.bottle.name}, home=self.home, held=self.held,
-                                       q_from=self.script.q["arm"])
-            if not why:
-                self.script.move_q("arm", q, 1.0, "level")
-                self.script.wait(0.3, "level settle")
-                self._advance("upright")
-                self._grab()
+            for dz in (0.0, 0.05, 0.10) if n > 1 else (0.0,):
+                q, why = self.motion.solve(self.script.q["arm"], tcp + [0, 0, dz],
+                                           _rot_axis(axis, self._tilt() / (n - i)) @ R, self._grip(),
+                                           {self.bottle.name}, home=self.home, held=self.held,
+                                           q_from=self.script.q["arm"])
+                if not why:
+                    break
+            if why:
+                break
+            self.script.move_q("arm", q, 1.0, "level")
+            self.script.wait(0.3, "level settle")
+            self._advance("upright")
+            self._grab()
         return bool(self._tilt() < 0.15), f"tilt {np.degrees(tilt):.1f}deg -> {np.degrees(self._tilt()):.1f}deg"
 
     # ------------------------------------------------------------------ place
@@ -501,18 +550,120 @@ class Pour:
             f"bottle at {np.round(pos[:2], 3)} dz={pos[2] - self.top:+.3f} v={np.linalg.norm(vel):.3f}"
             + (f" -> {bad}" if bad else ""))
 
-    # -------------------------------------------------------------------- run
-    def run(self, on_step=None):
+    # -------------------------------------------------- takeover mid-episode
+    def _hold(self):
+        """Enter with the bottle already in the fingers: freeze how it sits
+        there and the grasp is rigid from here, exactly as after a pick."""
+        self._grab()
+        pos, _, _ = self._body(self.bottle.name)
+        return True, (f"base {(pos[2] - self.top) * 1000:.0f}mm above the table, "
+                      f"tilt {np.degrees(self._tilt()):.0f}deg")
+
+    def _angle_for_tilt(self, axis, R_b0, want, step=0.02, tol=0.03):
+        """Smallest rotation about `axis` that tips a bottle sitting at `R_b0`
+        to `want` radians from upright, by scanning. `_pour_axes` has a closed
+        form for this, but only from an upright start."""
+        for ang in np.arange(step, np.pi + 1e-9, step):
+            tilt = np.arccos(np.clip((_rot_axis(axis, ang) @ R_b0)[2, 2], -1, 1))
+            if abs(tilt - want) < tol:
+                return float(ang)
+        return None
+
+    def _pour_axes_now(self, R_now, R_b0, mouth_now):
+        """`_pour_axes` for a bottle that may already be tipped.
+
+        Same preference order -- a roll about the approach axis, which the
+        pinch resists with both contacts a radius apart, before a lean about a
+        horizontal one -- but the angles are scanned rather than solved, and a
+        bottle the policy has already tipped past the pour angle only needs its
+        mouth carried over the rim, which is angle zero."""
+        wants = (POUR_TILT, POUR_TILT - 0.15, POUR_TILT + 0.15)
+        a = R_now[:, 0]
+        cands = [("roll+", a), ("roll-", -a)]
+        to_glass = self.glass.rim[:2] - mouth_now[:2]
+        ang0 = np.arctan2(to_glass[1], to_glass[0])
+        for dang in (0.0, np.pi, 0.5, -0.5, np.pi + 0.5, np.pi - 0.5):
+            d = np.array([np.cos(ang0 + dang), np.sin(ang0 + dang), 0.0])
+            cands.append((f"lean{np.degrees(dang):+.0f}", np.cross([0, 0, 1.0], d)))
+        out = []
+        if np.arccos(np.clip(R_b0[2, 2], -1, 1)) > POUR_MIN_TILT + 0.05:
+            out.append(("carry", a, [0.0]))
+        for name, axis in cands:
+            angles = [x for x in (self._angle_for_tilt(axis, R_b0, w) for w in wants) if x is not None]
+            if angles:
+                out.append((name, axis, angles))
+        return out
+
+    def _plan_pour_now(self):
+        """Plan the pour from however the bottle sits in the hand right now.
+        Barely tipped and the nominal planner applies unchanged; past that its
+        closed-form roll angles are wrong, so the candidates are scanned."""
+        if self._tilt() < 0.15:
+            return self._plan_pour()
+        _, R_now = self._tcp()
+        R_b0, mouth_now = R_now @ self.R_local, self._mouth()
+        plan = self._try_pours(self._pour_axes_now(R_now, R_b0, mouth_now), self.script.q["arm"],
+                               R_b0, self.R_local, self.p_local, self.mouth_local, self.held,
+                               self._grip(), mouth_now, tilt_max=POUR_TILT + 0.3)
+        if plan is None:
+            return False, f"no reachable pour path from tilt {np.degrees(self._tilt()):.0f}deg"
+        self.pour_qs, self.pour_label = plan
+        return True, plan[1]
+
+    def takeover(self, on_step=None):
+        """Finish the episode from whatever state `data` is already in.
+
+        Two entries are worth taking over from: the bottle free and upright on
+        the table, which is the nominal stage list, and the bottle in the
+        fingers, which skips straight to the pour. Anything else -- toppled,
+        off the table, glass down -- is not a state a demonstration should
+        start from, so it fails at once and the collector rewinds further."""
         self.on_step = on_step
-        steps = [self._perceive, self._plan_grasp, self._pick, self._verify_grasp, self._lift,
-                 self._verify_lift, self._plan_pour, self._pour, self._verify_pour, self._upright,
-                 self._place, self._verify_place]
+        _, g_R, _ = self._body(self.info["glass"]["name"])
+        if g_R[2, 2] < 0.95:
+            return self._failed("glass down")
+        name = self.info["bottle"]["name"]
+        pos, R_o, _ = self._body(name)
+        tilt = float(np.arccos(np.clip(R_o[2, 2], -1, 1)))
+        if not held_by(self.m, self.d, name, self.arm.prefix):
+            if R_o[2, 2] < 0.95:
+                return self._failed("bottle toppled")
+            if abs(pos[2] - self.top) > 0.02:
+                return self._failed("bottle not standing on the table")
+            self.case = "free"
+            return self.run(on_step)
+        self.case = "held"
+        steps = [self._perceive_any, self._hold]
+        # still on the table and level: raise it the way `lift` would have, so
+        # the pour starts from the pose the pour planner expects
+        if pos[2] - self.top < 0.03 and tilt < 0.15:
+            steps += [self._lift, self._verify_lift]
+        return self._steps(steps + [self._plan_pour_now, self._pour, self._verify_pour,
+                                    self._upright, self._place, self._verify_place])
+
+    # -------------------------------------------------------------------- run
+    def _failed(self, detail):
+        self.stages.append(("takeover", False, detail))
+        return Result(False, "takeover", detail, self.stages, self.d.time)
+
+    def _steps(self, steps):
+        """Run a stage list, naming each outcome, and stop at the first failure.
+        `on_stage(self, name, ok)` fires after each one: a recorder buffering
+        frames needs to know where `verify_pour` ended."""
         for fn in steps:
             name = fn.__name__[1:]
             ok, detail = fn()
             self.stages.append((name, bool(ok), detail))
             if self.verbose:
                 print(f"    {'ok  ' if ok else 'FAIL'} {name:13s} {detail}", flush=True)
+            if self.on_stage:
+                self.on_stage(self, name, bool(ok))
             if not ok:
                 return Result(False, name, detail, self.stages, self.d.time)
         return Result(True, "done", "", self.stages, self.d.time)
+
+    def run(self, on_step=None):
+        self.on_step = on_step
+        return self._steps([self._perceive, self._plan_grasp, self._pick, self._verify_grasp,
+                            self._lift, self._verify_lift, self._plan_pour, self._pour,
+                            self._verify_pour, self._upright, self._place, self._verify_place])

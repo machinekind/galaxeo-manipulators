@@ -14,6 +14,7 @@ sim/.venv/bin/python sim/planner/run_pour.py --n 1 --seed 1 --gif pour.gif
 sim/.venv/bin/mjpython sim/planner/run_pour.py --view --seed 1      # live (macOS needs mjpython)
 sim/.venv/bin/python sim/gen_dataset.py --root sim/datasets/pour_sim --episodes 300   # dataset, parallel
 sim/.venv-lerobot/bin/python sim/planner/eval_policy.py --ckpt sim/runs/pour_act_0 --n 20  # policy in the loop
+sim/.venv/bin/python sim/gen_dagger.py --ckpt sim/runs/pour_act_td2 --root sim/datasets/pour_dagger1 --seeds 400   # DAgger round
 ```
 
 | | |
@@ -27,6 +28,8 @@ sim/.venv-lerobot/bin/python sim/planner/eval_policy.py --ckpt sim/runs/pour_act
 | `planner/run_pour.py` | seeded episodes, GIF, `.npz`, or a LeRobot v3 dataset |
 | `gen_dataset.py` | N worker processes, disjoint seeds, parts merged into one dataset |
 | `planner/eval_policy.py` | a trained lerobot checkpoint driving the scene, judged like the planner |
+| `planner/dagger.py` | DAgger worker: policy rollout, ground-truth monitor, rewind, planner takeover, recorded |
+| `gen_dagger.py` | N DAgger workers on fresh seeds, corrections merged with the base dataset |
 | `jobs/` | GPU payloads: `preflight.sh`, `train_pour.sh`; `pyproject.toml` + `uv.lock` is the training env |
 
 ## The plan
@@ -362,6 +365,61 @@ right joint targets from any state the policy reaches, so the next run should
 be a DAgger loop, rolling the policy out, relabelling its visited states with
 the planner's actions, and retraining on the union. A wrist camera is the
 lever after that; the photorealism step waits until a sim policy pours in sim.
+
+### DAgger
+
+The planner is an open-loop timed script, so relabelling the policy's own
+frames is not an option: asked what it would do from any state, its first
+command is the start of a smoothstep ramp, which says "stay here", and ACT
+learns 50-step chunks, not single steps. What the simulator offers instead is
+rewinding. `planner/dagger.py` rolls the policy out on a fresh scene and
+snapshots the physics every 0.5 s. A ground-truth monitor ends the rollout at
+the first trouble and names it:
+
+| trouble | |
+| --- | --- |
+| `disturbed` | the bottle moved 10 mm or leaned 0.1 rad with nobody holding it |
+| `glass` | the glass moved 10 mm or fell |
+| `dropped` | the bottle was carried and is no longer in the fingers (the policy opens the hand early on some scenes) |
+| `miss` | held, tipped past 1 rad, mouth outside the rim for 1.5 s: pouring on the table |
+| `timeout` | 45 s without a pour |
+
+"Held" is both finger bodies in contact with the bottle, debounced by 0.25 s,
+because a bottle rolling in the fingers drops a contact for a tick now and
+then. The scene is then restored to 1 s before the trouble (then 2.5 s, then
+5 s, if the teacher cannot use the nearer one; a timeout rewinds to a random
+snapshot) and `Pour.takeover` finishes the episode from there, recorded in the
+dataset's schema as one episode. The policy's own frames are not kept. What
+training gains is recoveries from the states the policy's mistakes lead to.
+
+`takeover` has two entries. With the bottle free and upright it is the normal
+stage list, replanned from wherever the arm is. With the bottle in the fingers
+it freezes the grasp as measured, lifts first if the bottle is still near the
+table, and plans a pour from the bottle's current orientation: if it is
+already tipped, the roll about the approach axis is continued by an angle found
+by scanning (the closed form assumes an upright start), or the mouth is simply
+carried over the rim if the tilt is already past the pour angle. Afterwards
+the bottle is levelled in steps, raising the hand where turning a tipped bottle
+about the TCP would put its base through the table. A segment is kept whole if
+the teacher's run succeeded, cut at the end of `verify_pour` if only the
+putting-down failed, and dropped otherwise. The nominal planner is unchanged:
+seeds 0 to 19 print the same lines as before.
+
+`gen_dagger.py` runs the workers in parallel on seeds from 5000 (2000 to 2019
+are refused: they are the evaluation set), writes `ROOT/dagger` (corrections
+only), `ROOT/merged` (the base set plus the corrections, which is what training
+reads) and `ROOT/dagger_log.jsonl` (seed, trouble, takeover time, entry,
+frames per episode). A round is then:
+
+```bash
+sim/.venv/bin/python sim/gen_dagger.py --ckpt sim/runs/pour_act_td2 --root sim/datasets/pour_dagger1 --seeds 400
+# push sim/datasets/pour_dagger1/merged to a private Hub dataset, then train_pour.sh with
+#   DATASET_ROOT=sim/datasets/pour_dagger1/merged DATASET_REPO=<that repo> INIT_FROM=<the rolled-out weights>
+sim/.venv-lerobot/bin/python sim/planner/eval_policy.py --ckpt sim/runs/<new run> --n 20 --seed 2000
+```
+
+and the next round rolls out the new checkpoint with the previous `merged` as
+`--base`.
 
 ## Known limits
 

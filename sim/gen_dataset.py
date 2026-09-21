@@ -64,15 +64,18 @@ def _pump(tag, proc, state, lock):
                     print(f"[{tag}] {state['ok']:3d}/{state['done']:3d} ok   {line}", flush=True)
 
 
-def run_workers(root, repo_id, n_workers, n_each, seed0, fps):
-    """Start one run_pour per worker on a disjoint seed range; wait for all."""
+def run_workers(root, repo_id, n_workers, n_each, seed0, fps, script=RUN_POUR, extra=()):
+    """Start one worker per seed range; wait for all. `script` is the episode
+    producer: `run_pour.py` here, `planner/dagger.py` for gen_dagger, which
+    takes the same --lerobot / --repo-id / --seed / --n / --fps flags and
+    reports the same `seed N SUCCESS|FAIL` line the pump counts."""
     lock = threading.Lock()
     workers = []
     for k in range(n_workers):
         part = os.path.join(root, f"part_{k}")
         seed = seed0 + k * n_each
-        cmd = [LEROBOT_PY, RUN_POUR, "--lerobot", part, "--repo-id", f"{repo_id}_part{k}",
-               "--seed", str(seed), "--n", str(n_each), "--fps", str(fps)]
+        cmd = [LEROBOT_PY, script, "--lerobot", part, "--repo-id", f"{repo_id}_part{k}",
+               "--seed", str(seed), "--n", str(n_each), "--fps", str(fps), *extra]
         print(f"[w{k}] seeds {seed}..{seed + n_each - 1} -> {part}", flush=True)
         p = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, bufsize=1)
@@ -97,11 +100,16 @@ def episodes_in(part):
     return int(info.get("total_episodes", 0)), int(info.get("total_frames", 0))
 
 
-def merge(parts, repo_id, out):
-    """Merge the non-empty parts into `out` with lerobot-edit-dataset."""
+def merge(parts, repo_id, out, ids=None):
+    """Merge the non-empty parts into `out` with lerobot-edit-dataset.
+
+    `parts` is [(key, root)], the key naming that part's repo id. A dataset
+    merged in from somewhere else brought its own id, so `ids` can give them
+    all explicitly; the roots exist locally either way, and lerobot only uses
+    the id as a label when it is handed a root."""
     if os.path.exists(out):
         shutil.rmtree(out)
-    ids = [f"{repo_id}_part{k}" for k, _ in parts]
+    ids = ids or [f"{repo_id}_part{k}" for k, _ in parts]
     roots = [p for _, p in parts]
     cmd = [LEROBOT_EDIT, "--operation.type", "merge",
            "--operation.repo_ids", "[" + ", ".join(f"'{i}'" for i in ids) + "]",
