@@ -98,6 +98,7 @@ each frame carries.
 | `RESUME` | default false |
 | `RESUME_ARCHIVE` | optional tar of `checkpoints/` (with its `last` link), unpacked into the run dir when it has no checkpoint; run dirs do not travel with a sync |
 | `INIT_FROM` | optional `pretrained_model` directory (repository-relative) or Hub model id; a new run starts from those weights and their config with a fresh optimizer, so `CHUNK` and `LR` are ignored. `HF_TOKEN` is exported for a private model repo |
+| `PIN_CPUS` | default 0 (off). On a container that sees far more CPUs than it was given, pin the run to this many: each PyAV decoder starts a thread per visible CPU, and `WORKERS` times that can exceed the container's thread limit (`avcodec_open2 ... Cannot allocate memory`) |
 | `RETRIES` | default 5: a `lerobot-train` that exits non-zero is continued from the run's last checkpoint (or started again if there is none yet) this many times before the payload gives up |
 | `WANDB` | default false; `true` adds `--wandb.enable=true`. `WANDB_MODE`, `WANDB_DIR` and `WANDB_API_KEY` come from the caller |
 | `SAVE_FREQ`, `LOG_FREQ` | default `STEPS/10` (min 1000) and 100 |

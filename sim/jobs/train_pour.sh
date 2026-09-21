@@ -19,6 +19,7 @@ export HF_TOKEN="${HF_TOKEN:-}"    # only needed when DATASET_REPO is private
 : "${RESUME:=false}"
 : "${RESUME_ARCHIVE:=}"           # optional tar of checkpoints/ to resume from when the run dir is absent
 : "${INIT_FROM:=}"                # optional pretrained_model dir or Hub model id to warm-start a new run from
+: "${PIN_CPUS:=0}"                # >0: run on that many CPUs only (taskset), see below
 : "${RETRIES:=5}"                 # times a crashed run is picked up again from its last checkpoint
 : "${WANDB:=false}"
 : "${GPUS:=1}"
@@ -130,8 +131,19 @@ fi
 # object is not iterable" out of torchvision's `for i in torch.randperm(4)` at
 # step 610). So a failed run is continued from its last checkpoint, or started
 # again if it never wrote one, up to RETRIES times, instead of idling a GPU.
+#
+# PIN_CPUS: every PyAV decoder starts one thread per CPU it can see, and a
+# rented container on a 128-core host sees all of them whatever share it was
+# sold: 32 loader workers then want 4096 threads and avcodec_open2 fails with
+# "Cannot allocate memory". An affinity mask is what the decoder counts, so
+# pinning the run to the cores it actually has keeps that product sane.
+RUN=()
+if [ "$PIN_CPUS" -gt 0 ] && command -v taskset >/dev/null 2>&1; then
+    RUN=(taskset -c "0-$(( PIN_CPUS - 1 ))")
+    echo "pinned to $PIN_CPUS CPUs"
+fi
 try=0
-until lerobot-train "${ARGS[@]}"; do
+until ${RUN[@]+"${RUN[@]}"} lerobot-train "${ARGS[@]}"; do
     try=$(( try + 1 ))
     [ "$try" -le "$RETRIES" ] || { echo "training failed $try times; giving up"; exit 1; }
     LAST="$OUT/checkpoints/last/pretrained_model/train_config.json"
