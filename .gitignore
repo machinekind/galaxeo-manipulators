@@ -26,3 +26,6 @@ a1xy/lerobot/
 diag/*.raw
 diag/*.log
 diag/*.csv
+
+# --- MuJoCo sim ---------------------------------------------------------------
+sim/.venv/
