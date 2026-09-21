@@ -1,0 +1,89 @@
+{
+  "frame": "gripper_link",
+  "units": "metres",
+  "handedness": "right",
+  "lens_entrance_pupil_m": [
+    -0.019776889,
+    0.045236761,
+    0.042928581
+  ],
+  "pcb_front_face_centre_m": [
+    -0.029,
+    0.051,
+    0.048
+  ],
+  "optical_axis": [
+    0.768592593,
+    -0.480269956,
+    -0.422618262
+  ],
+  "image_up": [
+    0.358400612,
+    -0.223953558,
+    0.906307787
+  ],
+  "image_right": [
+    -0.529919264,
+    -0.848048096,
+    -0.0
+  ],
+  "T_gripper_camera_opencv": [
+    [
+      -0.529919264,
+      -0.358400612,
+      0.768592593,
+      -0.019776889
+    ],
+    [
+      -0.848048096,
+      0.223953558,
+      -0.480269956,
+      0.045236761
+    ],
+    [
+      -0.0,
+      -0.906307787,
+      -0.422618262,
+      0.042928581
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "pitch_below_tool_axis_deg": 25.0,
+  "yaw_inboard_deg": 32.0,
+  "roll_deg": 0.0,
+  "lens": {
+    "recommended": {
+      "name": "M12 wide, ~2.1 mm",
+      "fov_deg": [
+        101.4,
+        85.0
+      ],
+      "fov_note": "the horizontal angle is not free: with square pixels on this 4:3 frame it follows from the vertical one, and MuJoCo drives a fixed camera from fovy alone. A nominal 110 x 85 deg would need a 1.56:1 sensor; on 640 x 480 the same lens gives 101.4 x 85.",
+      "why": "cuts the fraction of the image a held bottle covers to 0.29 from 0.54 on body grasps and leaves 25.2 deg of framing margin instead of 9.3. It costs almost no frame: the mount is 0.0% of the wide image once the gripper is in front of it. It does NOT recover the bottle mouth: on a body grasp the mouth is behind the camera plane, so no field of view reaches it."
+    },
+    "alternative": {
+      "name": "M12 standard, ~3.6 mm",
+      "fov_deg": [
+        69.53,
+        55.0
+      ],
+      "why": "more pixels on the grasp zone, but only 9.3 deg of framing margin and a held bottle covers 0.54 of the image on body grasps."
+    }
+  },
+  "resolution_px": [
+    640,
+    480
+  ],
+  "sensor_module": {
+    "kind": "32 x 32 mm UVC board camera, M2 holes on a 26-30 mm square",
+    "mass_g": 22.0
+  },
+  "payload_mass_g": 103.7,
+  "mouth_visibility": "On neck grasps the bottle mouth is in frame with either lens. On body-high and body-mid grasps it is behind the camera plane and no lens sees it: close the pour loop on the base camera, or bias the planner to neck grasps.",
+  "notes": "Pose is nominal CAD, not a calibration. Calibrate extrinsics on the real arm; this is the starting guess and the repeatable mechanical datum that makes recalibration unnecessary after a camera swap."
+}

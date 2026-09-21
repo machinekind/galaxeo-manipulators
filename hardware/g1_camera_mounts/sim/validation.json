@@ -1,0 +1,1986 @@
+{
+ "command": "python sim/test_wrist_camera.py --pr1-sim <pr1>/sim --pour-sim <sim_pour> --seed-ranges 0-19,100-119,200-219 --json sim/validation.json",
+ "seed_ranges": [
+  "0-19",
+  "100-119",
+  "200-219"
+ ],
+ "phases": [
+  {
+   "phase": "unit",
+   "failed": 0,
+   "rows": [
+    {
+     "name": "a pr1 right: mass delta == payload",
+     "ok": true,
+     "got": "103.7000 g",
+     "want": "103.7000 g"
+    },
+    {
+     "name": "a pr1 right: geoms added",
+     "ok": true,
+     "got": "58",
+     "want": "57 collision + 1 visual"
+    },
+    {
+     "name": "a pr1 left: mass delta == payload",
+     "ok": true,
+     "got": "103.7000 g",
+     "want": "103.7000 g"
+    },
+    {
+     "name": "a pr1 left: geoms added",
+     "ok": true,
+     "got": "58",
+     "want": "57 collision + 1 visual"
+    },
+    {
+     "name": "a pour right: mass delta == payload",
+     "ok": true,
+     "got": "103.7000 g",
+     "want": "103.7000 g"
+    },
+    {
+     "name": "a pour right: geoms added",
+     "ok": true,
+     "got": "58",
+     "want": "57 collision + 1 visual"
+    },
+    {
+     "name": "a pour left: mass delta == payload",
+     "ok": true,
+     "got": "103.7000 g",
+     "want": "103.7000 g"
+    },
+    {
+     "name": "a pour left: geoms added",
+     "ok": true,
+     "got": "58",
+     "want": "57 collision + 1 visual"
+    },
+    {
+     "name": "a compiled inertia == payload.json about the gripper origin",
+     "ok": true,
+     "got": "max |diff| 1.28e-11 kg m2",
+     "want": "< 1e-9"
+    },
+    {
+     "name": "a right: no new contacts over home + the wrist sweep (638 configs x 5 jaw openings)",
+     "ok": true,
+     "got": "0 config(s) with a new contact",
+     "want": "0"
+    },
+    {
+     "note": "91 config(s) skipped: the bare arm already self-collides there"
+    },
+    {
+     "note": "right: random audit 18 hit(s) in 4953 (config, jaw) pairs from 1651 bare-clear configs of 2000, i.e. 0.363%; G5 measures 61/9403 = 0.649% of configs with python-fcl against the meshes. e.g. random 168 jaw 0 mm: ['wrist_camera_mount_camera_plate / arm_link2', 'wrist_camera_mount_plate_spine / arm_link2', 'wrist_camera_mount_plate_tongue / arm_link2']"
+    },
+    {
+     "name": "a left: no new contacts over home + the wrist sweep (638 configs x 5 jaw openings)",
+     "ok": true,
+     "got": "0 config(s) with a new contact",
+     "want": "0"
+    },
+    {
+     "note": "91 config(s) skipped: the bare arm already self-collides there"
+    },
+    {
+     "note": "left: random audit 24 hit(s) in 4953 (config, jaw) pairs from 1651 bare-clear configs of 2000, i.e. 0.485%; G5 measures 74/9403 = 0.787% of configs with python-fcl against the meshes. e.g. random 85 jaw 0 mm: ['wrist_camera_mount_camera_body / arm_link1', 'wrist_camera_mount_camera_body / arm_link2', 'wrist_camera_mount_camera_plate / arm_link1', 'wrist_camera_mount_camera_plate / arm_link2', 'wrist_camera_mount_plate_spine / arm_link1', 'wrist_camera_mount_plate_spine / arm_link2', 'wrist_camera_mount_standoff_pad_1 / arm_link1', 'wrist_camera_mount_standoff_pad_3 / arm_link1', 'wrist_camera_mount_standoff_pad_3 / arm_link2']"
+    },
+    {
+     "name": "c right: T_gripper_camera matches camera_spec.json",
+     "ok": true,
+     "got": "max |diff| 5.50e-10",
+     "want": "<= 1e-6"
+    },
+    {
+     "name": "c right: fovy is the recommended lens's vertical FoV",
+     "ok": true,
+     "got": "85.0",
+     "want": "85.0"
+    },
+    {
+     "name": "c right: primitives are proper rotations",
+     "ok": true,
+     "got": "57 primitives",
+     "want": "det == +1"
+    },
+    {
+     "name": "c left: T_gripper_camera matches camera_spec.json",
+     "ok": true,
+     "got": "max |diff| 5.50e-10",
+     "want": "<= 1e-6"
+    },
+    {
+     "name": "c left: fovy is the recommended lens's vertical FoV",
+     "ok": true,
+     "got": "85.0",
+     "want": "85.0"
+    },
+    {
+     "name": "c left: primitives are proper rotations",
+     "ok": true,
+     "got": "57 primitives",
+     "want": "det == +1"
+    },
+    {
+     "name": "c right: write_mjcf_fragment() compiles to the same mount",
+     "ok": true,
+     "got": "max |diff| 5.18e-10 (cam_quat)",
+     "want": "< 1e-9 everywhere"
+    },
+    {
+     "name": "c left: write_mjcf_fragment() compiles to the same mount",
+     "ok": true,
+     "got": "max |diff| 5.18e-10 (cam_quat)",
+     "want": "< 1e-9 everywhere"
+    }
+   ],
+   "guard": false,
+   "seed_range": null,
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "frames",
+   "failed": 0,
+   "rows": [
+    {
+     "name": "b home: both fingertips in frame",
+     "ok": true,
+     "got": "uv [[285.0, 225.0], [291.0, 224.2]]",
+     "want": "inside 640x480"
+    },
+    {
+     "name": "b home: point 250 mm ahead of the tips in frame",
+     "ok": true,
+     "got": "uv [195.1, 157.8]",
+     "want": "inside 640x480"
+    },
+    {
+     "note": "home: the mount is 0.00% of the frame and its shadow darkens another 17.71%"
+    },
+    {
+     "note": "pre-grasp pose from the planner: body-high yaw+0.70 pitch0.30"
+    },
+    {
+     "name": "b pregrasp: both fingertips in frame",
+     "ok": true,
+     "got": "uv [[153.7, 253.4], [374.9, 205.9]]",
+     "want": "inside 640x480"
+    },
+    {
+     "name": "b pregrasp: point 250 mm ahead of the tips in frame",
+     "ok": true,
+     "got": "uv [195.1, 157.8]",
+     "want": "inside 640x480"
+    },
+    {
+     "note": "pregrasp: the mount is 0.00% of the frame and its shadow darkens another 0.00%"
+    },
+    {
+     "note": "alternative lens fovy 55 deg: K f = 461.0 px vs 261.9 px for the wide one"
+    },
+    {
+     "note": "home, alternative lens (fovy 55 deg): the mount is 0.00% of the frame and its shadow darkens another 25.99%"
+    },
+    {
+     "data": {
+      "own_image_share": {
+       "wide": {
+        "fovy_deg": 85.0,
+        "home_own": 0.0,
+        "home_shadow": 0.1771,
+        "pregrasp_own": 0.0,
+        "pregrasp_shadow": 0.0
+       },
+       "alternative": {
+        "fovy_deg": 55.0,
+        "home_own": 0.0,
+        "home_shadow": 0.2599
+       }
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": null,
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "filter",
+   "failed": 0,
+   "rows": [
+    {
+     "note": "f right: of 6000 random configurations, 333 put a mount geom against another arm/ body and the shipped Motion.collides returned None for 276 of them; with the DATASET.md 1b patch, 333 and 0"
+    },
+    {
+     "name": "f right: the shipped filter really does skip mount-vs-arm contacts, which is what 1b is for",
+     "ok": true,
+     "got": "276 of 333 skipped unpatched",
+     "want": "the shipped filter skips them; the patch does not"
+    },
+    {
+     "note": "f left: of 6000 random configurations, 330 put a mount geom against another arm/ body and the shipped Motion.collides returned None for 275 of them; with the DATASET.md 1b patch, 330 and 0"
+    },
+    {
+     "name": "f left: the shipped filter really does skip mount-vs-arm contacts, which is what 1b is for",
+     "ok": true,
+     "got": "275 of 330 skipped unpatched",
+     "want": "the shipped filter skips them; the patch does not"
+    },
+    {
+     "data": {
+      "collision_filter": {
+       "right": {
+        "configurations": 6000,
+        "mount_against_arm": 333,
+        "shipped_filter_missed": 276,
+        "patched_filter_missed": 0,
+        "jaw_half_gap_mm": 20.0
+       },
+       "left": {
+        "configurations": 6000,
+        "mount_against_arm": 330,
+        "shipped_filter_missed": 275,
+        "patched_filter_missed": 0,
+        "jaw_half_gap_mm": 20.0
+       }
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": null,
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "pr1",
+   "failed": 0,
+   "rows": [
+    {
+     "name": "d pick-and-place with the right-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "20/20 vs 20/20 bare",
+     "want": ">= 19"
+    },
+    {
+     "name": "d pick-and-place with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "20/20 vs 20/20 bare",
+     "want": ">= 19"
+    },
+    {
+     "data": {
+      "pickplace": {
+       "bare": {
+        "ok": 20,
+        "outcomes": {
+         "success": 20
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": true,
+         "7": true,
+         "8": true,
+         "9": true,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "secs": 14.1
+       },
+       "right": {
+        "ok": 20,
+        "outcomes": {
+         "success": 20
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": true,
+         "7": true,
+         "8": true,
+         "9": true,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "secs": 14.9
+       },
+       "left": {
+        "ok": 20,
+        "outcomes": {
+         "success": 20
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": true,
+         "7": true,
+         "8": true,
+         "9": true,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "secs": 14.9
+       }
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": null,
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "view",
+   "failed": 0,
+   "rows": [
+    {
+     "note": "right: {'grasp: glass': 6, 'grasp: bottle mouth': 0} of 20 seeds"
+    },
+    {
+     "note": "left: {'grasp: glass': 6, 'grasp: bottle mouth': 0} of 20 seeds"
+    },
+    {
+     "note": "pour roll sign the planner chose: {'roll-': 14, 'roll+': 6} (roll- swings a +Y payload down)"
+    },
+    {
+     "data": {
+      "view": {
+       "right": {
+        "grasp: glass": 6,
+        "grasp: bottle mouth": 0
+       },
+       "left": {
+        "grasp: glass": 6,
+        "grasp: bottle mouth": 0
+       }
+      },
+      "roll_sign": {
+       "roll-": 14,
+       "roll+": 6
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": "0-19",
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "pour",
+   "failed": 0,
+   "rows": [
+    {
+     "note": "planner mount guard: OFF (as shipped)"
+    },
+    {
+     "name": "e pour with the right-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "18/20 vs 18/20 bare",
+     "want": ">= 17"
+    },
+    {
+     "name": "e right: the mount touched nothing at all over seeds 0-19",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "right: closest approach over the whole episode [mm] {'bottle': 22.26, 'glass': 13.32, 'table': 5.83, 'fingers': 4.12, 'arm_links': 12.05}"
+    },
+    {
+     "note": "right: the geoms that got there {'bottle': 'arm/wrist_camera_mount_clamp_band_7/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_camera_plate/glass/wall11', 'table': 'arm/wrist_camera_mount_plate_tongue/table', 'fingers': 'arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_plate_spine/arm/arm_link2'}"
+    },
+    {
+     "note": "right: pour roll sign chosen by the planner {'roll-': 14, 'roll+': 6} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "right: closest approach during the pour roll [mm] {'bottle': 30.05, 'glass': 13.32, 'table': 6.14, 'fingers': 4.12, 'arm_links': 18.46}"
+    },
+    {
+     "name": "e pour with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "18/20 vs 18/20 bare",
+     "want": ">= 17"
+    },
+    {
+     "name": "e left: the mount touched nothing at all over seeds 0-19",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "left: closest approach over the whole episode [mm] {'bottle': 14.3, 'glass': 26.4, 'table': 15.45, 'fingers': 4.12, 'arm_links': 18.43}"
+    },
+    {
+     "note": "left: the geoms that got there {'bottle': 'arm/wrist_camera_mount_camera_lens/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_plate_spine/glass/wall7', 'table': 'arm/wrist_camera_mount_rail_key_n/table', 'fingers': 'arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_17/arm/arm_link2'}"
+    },
+    {
+     "note": "left: pour roll sign chosen by the planner {'roll-': 14, 'roll+': 6} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "left: closest approach during the pour roll [mm] {'bottle': 17.86, 'glass': 26.4, 'table': 15.5, 'fingers': 4.12, 'arm_links': 18.43}"
+    },
+    {
+     "note": "handedness: left -- success 18/20 and 15.5 mm worst clearance during the pour, against 18/20 and 6.1 mm for the other hand"
+    },
+    {
+     "data": {
+      "pour": {
+       "bare": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "plan_pour": 2
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": false,
+         "7": true,
+         "8": true,
+         "9": false,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "closest_mm": {},
+        "closest_during_pour_mm": {},
+        "closest_pair": {},
+        "pour_roll_sign": {
+         "roll-": 14,
+         "roll+": 6
+        },
+        "mount_contacts": {},
+        "secs": 581.7
+       },
+       "right": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "plan_pour": 2
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": false,
+         "7": true,
+         "8": true,
+         "9": false,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "closest_mm": {
+         "bottle": 22.26,
+         "glass": 13.32,
+         "table": 5.83,
+         "fingers": 4.12,
+         "arm_links": 12.05
+        },
+        "closest_during_pour_mm": {
+         "bottle": 30.05,
+         "glass": 13.32,
+         "table": 6.14,
+         "fingers": 4.12,
+         "arm_links": 18.46
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_clamp_band_7/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_camera_plate/glass/wall11",
+         "table": "arm/wrist_camera_mount_plate_tongue/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_plate_spine/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll-": 14,
+         "roll+": 6
+        },
+        "mount_contacts": {},
+        "secs": 578.7
+       },
+       "left": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "plan_pour": 2
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": false,
+         "7": true,
+         "8": true,
+         "9": false,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "closest_mm": {
+         "bottle": 14.3,
+         "glass": 26.4,
+         "table": 15.45,
+         "fingers": 4.12,
+         "arm_links": 18.43
+        },
+        "closest_during_pour_mm": {
+         "bottle": 17.86,
+         "glass": 26.4,
+         "table": 15.5,
+         "fingers": 4.12,
+         "arm_links": 18.43
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_camera_lens/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_plate_spine/glass/wall7",
+         "table": "arm/wrist_camera_mount_rail_key_n/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_17/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll-": 14,
+         "roll+": 6
+        },
+        "mount_contacts": {},
+        "secs": 581.5
+       }
+      },
+      "guard": false,
+      "handedness": {
+       "better": "left",
+       "margin_mm": {
+        "right": 6.14,
+        "left": 15.5
+       },
+       "success": {
+        "right": 18,
+        "left": 18
+       },
+       "seeds": [
+        0,
+        19
+       ]
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": "0-19",
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "pour",
+   "failed": 0,
+   "rows": [
+    {
+     "note": "planner mount guard: ON (patched copy)"
+    },
+    {
+     "name": "e pour with the right-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "18/20 vs 18/20 bare",
+     "want": ">= 17"
+    },
+    {
+     "name": "e right: the mount touched nothing at all over seeds 0-19",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "right: closest approach over the whole episode [mm] {'bottle': 22.26, 'glass': 13.32, 'table': 5.83, 'fingers': 4.12, 'arm_links': 12.05}"
+    },
+    {
+     "note": "right: the geoms that got there {'bottle': 'arm/wrist_camera_mount_clamp_band_7/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_camera_plate/glass/wall11', 'table': 'arm/wrist_camera_mount_plate_tongue/table', 'fingers': 'arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_plate_spine/arm/arm_link2'}"
+    },
+    {
+     "note": "right: pour roll sign chosen by the planner {'roll-': 14, 'roll+': 6} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "right: closest approach during the pour roll [mm] {'bottle': 30.05, 'glass': 13.32, 'table': 6.14, 'fingers': 4.12, 'arm_links': 18.46}"
+    },
+    {
+     "name": "e pour with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "18/20 vs 18/20 bare",
+     "want": ">= 17"
+    },
+    {
+     "name": "e left: the mount touched nothing at all over seeds 0-19",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "left: closest approach over the whole episode [mm] {'bottle': 14.3, 'glass': 26.4, 'table': 15.45, 'fingers': 4.12, 'arm_links': 18.43}"
+    },
+    {
+     "note": "left: the geoms that got there {'bottle': 'arm/wrist_camera_mount_camera_lens/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_plate_spine/glass/wall7', 'table': 'arm/wrist_camera_mount_rail_key_n/table', 'fingers': 'arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_17/arm/arm_link2'}"
+    },
+    {
+     "note": "left: pour roll sign chosen by the planner {'roll-': 14, 'roll+': 6} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "left: closest approach during the pour roll [mm] {'bottle': 17.86, 'glass': 26.4, 'table': 15.5, 'fingers': 4.12, 'arm_links': 18.43}"
+    },
+    {
+     "note": "handedness: left -- success 18/20 and 15.5 mm worst clearance during the pour, against 18/20 and 6.1 mm for the other hand"
+    },
+    {
+     "data": {
+      "pour": {
+       "bare": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "plan_pour": 2
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": false,
+         "7": true,
+         "8": true,
+         "9": false,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "closest_mm": {},
+        "closest_during_pour_mm": {},
+        "closest_pair": {},
+        "pour_roll_sign": {
+         "roll-": 14,
+         "roll+": 6
+        },
+        "mount_contacts": {},
+        "secs": 567.6
+       },
+       "right": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "plan_pour": 2
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": false,
+         "7": true,
+         "8": true,
+         "9": false,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "closest_mm": {
+         "bottle": 22.26,
+         "glass": 13.32,
+         "table": 5.83,
+         "fingers": 4.12,
+         "arm_links": 12.05
+        },
+        "closest_during_pour_mm": {
+         "bottle": 30.05,
+         "glass": 13.32,
+         "table": 6.14,
+         "fingers": 4.12,
+         "arm_links": 18.46
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_clamp_band_7/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_camera_plate/glass/wall11",
+         "table": "arm/wrist_camera_mount_plate_tongue/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_plate_spine/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll-": 14,
+         "roll+": 6
+        },
+        "mount_contacts": {},
+        "secs": 579.5
+       },
+       "left": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "plan_pour": 2
+        },
+        "per_seed": {
+         "0": true,
+         "1": true,
+         "2": true,
+         "3": true,
+         "4": true,
+         "5": true,
+         "6": false,
+         "7": true,
+         "8": true,
+         "9": false,
+         "10": true,
+         "11": true,
+         "12": true,
+         "13": true,
+         "14": true,
+         "15": true,
+         "16": true,
+         "17": true,
+         "18": true,
+         "19": true
+        },
+        "closest_mm": {
+         "bottle": 14.3,
+         "glass": 26.4,
+         "table": 15.45,
+         "fingers": 4.12,
+         "arm_links": 18.43
+        },
+        "closest_during_pour_mm": {
+         "bottle": 17.86,
+         "glass": 26.4,
+         "table": 15.5,
+         "fingers": 4.12,
+         "arm_links": 18.43
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_camera_lens/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_plate_spine/glass/wall7",
+         "table": "arm/wrist_camera_mount_rail_key_n/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_17/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll-": 14,
+         "roll+": 6
+        },
+        "mount_contacts": {},
+        "secs": 587.5
+       }
+      },
+      "guard": true,
+      "handedness": {
+       "better": "left",
+       "margin_mm": {
+        "right": 6.14,
+        "left": 15.5
+       },
+       "success": {
+        "right": 18,
+        "left": 18
+       },
+       "seeds": [
+        0,
+        19
+       ]
+      }
+     }
+    }
+   ],
+   "guard": true,
+   "seed_range": "0-19",
+   "seeds": [
+    0,
+    19
+   ]
+  },
+  {
+   "phase": "view",
+   "failed": 0,
+   "rows": [
+    {
+     "note": "right: {'grasp: glass': 11, 'grasp: bottle mouth': 1} of 20 seeds"
+    },
+    {
+     "note": "left: {'grasp: glass': 6, 'grasp: bottle mouth': 0, 'no plan': 1} of 20 seeds"
+    },
+    {
+     "note": "pour roll sign the planner chose: {'roll+': 11, 'roll-': 8, 'lean+29': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "data": {
+      "view": {
+       "right": {
+        "grasp: glass": 11,
+        "grasp: bottle mouth": 1
+       },
+       "left": {
+        "grasp: glass": 6,
+        "grasp: bottle mouth": 0,
+        "no plan": 1
+       }
+      },
+      "roll_sign": {
+       "roll+": 11,
+       "roll-": 8,
+       "lean+29": 1
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": "100-119",
+   "seeds": [
+    100,
+    119
+   ]
+  },
+  {
+   "phase": "pour",
+   "failed": 1,
+   "rows": [
+    {
+     "note": "planner mount guard: OFF (as shipped)"
+    },
+    {
+     "name": "e pour with the right-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "16/20 vs 17/20 bare",
+     "want": ">= 16"
+    },
+    {
+     "name": "e right: the mount touched nothing at all over seeds 100-119",
+     "ok": false,
+     "got": "{'pick:arm/arm_link2': 10, 'pour:glass': 5}",
+     "want": "none"
+    },
+    {
+     "note": "right: closest approach over the whole episode [mm] {'bottle': 14.17, 'glass': -0.08, 'table': 1.0, 'fingers': 4.12, 'arm_links': -0.79}"
+    },
+    {
+     "note": "right: the geoms that got there {'bottle': 'arm/wrist_camera_mount_clamp_band_6/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_camera_plate/glass/wall10', 'table': 'arm/wrist_camera_mount_plate_tongue/table', 'fingers': 'arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_plate_tongue/arm/arm_link2'}"
+    },
+    {
+     "note": "right: pour roll sign chosen by the planner {'roll+': 11, 'roll-': 8, 'lean+29': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "right: closest approach during the pour roll [mm] {'bottle': 16.06, 'glass': -0.08, 'table': 1.03, 'fingers': 4.12, 'arm_links': 5.0}"
+    },
+    {
+     "note": "right: lost seeds [105], gained seeds [] ({'success': 16, 'verify_lift': 1, 'plan_pour': 2, 'verify_pour': 1})"
+    },
+    {
+     "name": "e pour with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "17/20 vs 17/20 bare",
+     "want": ">= 16"
+    },
+    {
+     "name": "e left: the mount touched nothing at all over seeds 100-119",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "left: closest approach over the whole episode [mm] {'bottle': 6.82, 'glass': 21.18, 'table': 9.33, 'fingers': 4.12, 'arm_links': 5.02}"
+    },
+    {
+     "note": "left: the geoms that got there {'bottle': 'arm/wrist_camera_mount_standoff_pad_3/bottle/neck', 'glass': 'arm/wrist_camera_mount_plate_spine/glass/wall8', 'table': 'arm/wrist_camera_mount_rail_key_n/table', 'fingers': 'arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_17/arm/arm_link2'}"
+    },
+    {
+     "note": "left: pour roll sign chosen by the planner {'roll+': 10, 'roll-': 8, 'lean+29': 1, 'none': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "left: closest approach during the pour roll [mm] {'bottle': 7.51, 'glass': 21.18, 'table': 9.36, 'fingers': 4.12, 'arm_links': 5.02}"
+    },
+    {
+     "note": "handedness: left -- success 17/20 and 7.5 mm worst clearance during the pour, against 16/20 and -0.1 mm for the other hand"
+    },
+    {
+     "data": {
+      "pour": {
+       "bare": {
+        "ok": 17,
+        "outcomes": {
+         "success": 17,
+         "verify_lift": 1,
+         "plan_pour": 1,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "100": true,
+         "101": false,
+         "102": true,
+         "103": true,
+         "104": false,
+         "105": true,
+         "106": true,
+         "107": true,
+         "108": true,
+         "109": true,
+         "110": true,
+         "111": true,
+         "112": true,
+         "113": true,
+         "114": false,
+         "115": true,
+         "116": true,
+         "117": true,
+         "118": true,
+         "119": true
+        },
+        "closest_mm": {},
+        "closest_during_pour_mm": {},
+        "closest_pair": {},
+        "pour_roll_sign": {
+         "roll+": 11,
+         "roll-": 8,
+         "lean+29": 1
+        },
+        "mount_contacts": {},
+        "secs": 649.9
+       },
+       "right": {
+        "ok": 16,
+        "outcomes": {
+         "success": 16,
+         "verify_lift": 1,
+         "plan_pour": 2,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "100": true,
+         "101": false,
+         "102": true,
+         "103": true,
+         "104": false,
+         "105": false,
+         "106": true,
+         "107": true,
+         "108": true,
+         "109": true,
+         "110": true,
+         "111": true,
+         "112": true,
+         "113": true,
+         "114": false,
+         "115": true,
+         "116": true,
+         "117": true,
+         "118": true,
+         "119": true
+        },
+        "closest_mm": {
+         "bottle": 14.17,
+         "glass": -0.08,
+         "table": 1.0,
+         "fingers": 4.12,
+         "arm_links": -0.79
+        },
+        "closest_during_pour_mm": {
+         "bottle": 16.06,
+         "glass": -0.08,
+         "table": 1.03,
+         "fingers": 4.12,
+         "arm_links": 5.0
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_clamp_band_6/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_camera_plate/glass/wall10",
+         "table": "arm/wrist_camera_mount_plate_tongue/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_plate_tongue/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll+": 11,
+         "roll-": 8,
+         "lean+29": 1
+        },
+        "mount_contacts": {
+         "pick:arm/arm_link2": 10,
+         "pour:glass": 5
+        },
+        "secs": 653.7
+       },
+       "left": {
+        "ok": 17,
+        "outcomes": {
+         "success": 17,
+         "verify_lift": 1,
+         "plan_pour": 1,
+         "plan_grasp": 1
+        },
+        "per_seed": {
+         "100": true,
+         "101": false,
+         "102": true,
+         "103": true,
+         "104": false,
+         "105": true,
+         "106": true,
+         "107": true,
+         "108": true,
+         "109": true,
+         "110": true,
+         "111": true,
+         "112": true,
+         "113": true,
+         "114": false,
+         "115": true,
+         "116": true,
+         "117": true,
+         "118": true,
+         "119": true
+        },
+        "closest_mm": {
+         "bottle": 6.82,
+         "glass": 21.18,
+         "table": 9.33,
+         "fingers": 4.12,
+         "arm_links": 5.02
+        },
+        "closest_during_pour_mm": {
+         "bottle": 7.51,
+         "glass": 21.18,
+         "table": 9.36,
+         "fingers": 4.12,
+         "arm_links": 5.02
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_standoff_pad_3/bottle/neck",
+         "glass": "arm/wrist_camera_mount_plate_spine/glass/wall8",
+         "table": "arm/wrist_camera_mount_rail_key_n/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_17/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll+": 10,
+         "roll-": 8,
+         "lean+29": 1,
+         "none": 1
+        },
+        "mount_contacts": {},
+        "secs": 727.4
+       }
+      },
+      "guard": false,
+      "handedness": {
+       "better": "left",
+       "margin_mm": {
+        "right": -0.08,
+        "left": 7.51
+       },
+       "success": {
+        "right": 16,
+        "left": 17
+       },
+       "seeds": [
+        100,
+        119
+       ]
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": "100-119",
+   "seeds": [
+    100,
+    119
+   ]
+  },
+  {
+   "phase": "pour",
+   "failed": 2,
+   "rows": [
+    {
+     "note": "planner mount guard: ON (patched copy)"
+    },
+    {
+     "name": "e pour with the right-hand mount loses at most 1 seed",
+     "ok": false,
+     "got": "15/20 vs 17/20 bare",
+     "want": ">= 16"
+    },
+    {
+     "name": "e right: the mount touched nothing at all over seeds 100-119",
+     "ok": false,
+     "got": "{'pour:glass': 5}",
+     "want": "none"
+    },
+    {
+     "note": "right: closest approach over the whole episode [mm] {'bottle': 14.17, 'glass': -0.08, 'table': 1.0, 'fingers': 4.12, 'arm_links': 0.02}"
+    },
+    {
+     "note": "right: the geoms that got there {'bottle': 'arm/wrist_camera_mount_clamp_band_6/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_camera_plate/glass/wall10', 'table': 'arm/wrist_camera_mount_plate_tongue/table', 'fingers': 'arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_plate_spine/arm/arm_link2'}"
+    },
+    {
+     "note": "right: pour roll sign chosen by the planner {'roll+': 11, 'roll-': 8, 'lean+29': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "right: closest approach during the pour roll [mm] {'bottle': 16.06, 'glass': -0.08, 'table': 1.03, 'fingers': 4.12, 'arm_links': 12.57}"
+    },
+    {
+     "note": "right: lost seeds [105, 118], gained seeds [] ({'success': 15, 'verify_lift': 2, 'plan_pour': 2, 'verify_pour': 1})"
+    },
+    {
+     "name": "e pour with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "17/20 vs 17/20 bare",
+     "want": ">= 16"
+    },
+    {
+     "name": "e left: the mount touched nothing at all over seeds 100-119",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "left: closest approach over the whole episode [mm] {'bottle': 6.82, 'glass': 21.18, 'table': 9.33, 'fingers': 4.12, 'arm_links': 5.02}"
+    },
+    {
+     "note": "left: the geoms that got there {'bottle': 'arm/wrist_camera_mount_standoff_pad_3/bottle/neck', 'glass': 'arm/wrist_camera_mount_plate_spine/glass/wall8', 'table': 'arm/wrist_camera_mount_rail_key_n/table', 'fingers': 'arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_17/arm/arm_link2'}"
+    },
+    {
+     "note": "left: pour roll sign chosen by the planner {'roll+': 10, 'roll-': 8, 'lean+29': 1, 'none': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "left: closest approach during the pour roll [mm] {'bottle': 7.51, 'glass': 21.18, 'table': 9.36, 'fingers': 4.12, 'arm_links': 5.02}"
+    },
+    {
+     "note": "handedness: left -- success 17/20 and 7.5 mm worst clearance during the pour, against 15/20 and -0.1 mm for the other hand"
+    },
+    {
+     "data": {
+      "pour": {
+       "bare": {
+        "ok": 17,
+        "outcomes": {
+         "success": 17,
+         "verify_lift": 1,
+         "plan_pour": 1,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "100": true,
+         "101": false,
+         "102": true,
+         "103": true,
+         "104": false,
+         "105": true,
+         "106": true,
+         "107": true,
+         "108": true,
+         "109": true,
+         "110": true,
+         "111": true,
+         "112": true,
+         "113": true,
+         "114": false,
+         "115": true,
+         "116": true,
+         "117": true,
+         "118": true,
+         "119": true
+        },
+        "closest_mm": {},
+        "closest_during_pour_mm": {},
+        "closest_pair": {},
+        "pour_roll_sign": {
+         "roll+": 11,
+         "roll-": 8,
+         "lean+29": 1
+        },
+        "mount_contacts": {},
+        "secs": 648.9
+       },
+       "right": {
+        "ok": 15,
+        "outcomes": {
+         "success": 15,
+         "verify_lift": 2,
+         "plan_pour": 2,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "100": true,
+         "101": false,
+         "102": true,
+         "103": true,
+         "104": false,
+         "105": false,
+         "106": true,
+         "107": true,
+         "108": true,
+         "109": true,
+         "110": true,
+         "111": true,
+         "112": true,
+         "113": true,
+         "114": false,
+         "115": true,
+         "116": true,
+         "117": true,
+         "118": false,
+         "119": true
+        },
+        "closest_mm": {
+         "bottle": 14.17,
+         "glass": -0.08,
+         "table": 1.0,
+         "fingers": 4.12,
+         "arm_links": 0.02
+        },
+        "closest_during_pour_mm": {
+         "bottle": 16.06,
+         "glass": -0.08,
+         "table": 1.03,
+         "fingers": 4.12,
+         "arm_links": 12.57
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_clamp_band_6/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_camera_plate/glass/wall10",
+         "table": "arm/wrist_camera_mount_plate_tongue/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_plate_spine/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll+": 11,
+         "roll-": 8,
+         "lean+29": 1
+        },
+        "mount_contacts": {
+         "pour:glass": 5
+        },
+        "secs": 637.6
+       },
+       "left": {
+        "ok": 17,
+        "outcomes": {
+         "success": 17,
+         "verify_lift": 1,
+         "plan_pour": 1,
+         "plan_grasp": 1
+        },
+        "per_seed": {
+         "100": true,
+         "101": false,
+         "102": true,
+         "103": true,
+         "104": false,
+         "105": true,
+         "106": true,
+         "107": true,
+         "108": true,
+         "109": true,
+         "110": true,
+         "111": true,
+         "112": true,
+         "113": true,
+         "114": false,
+         "115": true,
+         "116": true,
+         "117": true,
+         "118": true,
+         "119": true
+        },
+        "closest_mm": {
+         "bottle": 6.82,
+         "glass": 21.18,
+         "table": 9.33,
+         "fingers": 4.12,
+         "arm_links": 5.02
+        },
+        "closest_during_pour_mm": {
+         "bottle": 7.51,
+         "glass": 21.18,
+         "table": 9.36,
+         "fingers": 4.12,
+         "arm_links": 5.02
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_standoff_pad_3/bottle/neck",
+         "glass": "arm/wrist_camera_mount_plate_spine/glass/wall8",
+         "table": "arm/wrist_camera_mount_rail_key_n/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_17/arm/arm_link2"
+        },
+        "pour_roll_sign": {
+         "roll+": 10,
+         "roll-": 8,
+         "lean+29": 1,
+         "none": 1
+        },
+        "mount_contacts": {},
+        "secs": 730.7
+       }
+      },
+      "guard": true,
+      "handedness": {
+       "better": "left",
+       "margin_mm": {
+        "right": -0.08,
+        "left": 7.51
+       },
+       "success": {
+        "right": 15,
+        "left": 17
+       },
+       "seeds": [
+        100,
+        119
+       ]
+      }
+     }
+    }
+   ],
+   "guard": true,
+   "seed_range": "100-119",
+   "seeds": [
+    100,
+    119
+   ]
+  },
+  {
+   "phase": "view",
+   "failed": 0,
+   "rows": [
+    {
+     "note": "right: {'grasp: glass': 4, 'grasp: bottle mouth': 0} of 20 seeds"
+    },
+    {
+     "note": "left: {'grasp: glass': 8, 'grasp: bottle mouth': 0} of 20 seeds"
+    },
+    {
+     "note": "pour roll sign the planner chose: {'roll-': 9, 'lean+209': 2, 'roll+': 8, 'lean+0': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "data": {
+      "view": {
+       "right": {
+        "grasp: glass": 4,
+        "grasp: bottle mouth": 0
+       },
+       "left": {
+        "grasp: glass": 8,
+        "grasp: bottle mouth": 0
+       }
+      },
+      "roll_sign": {
+       "roll-": 9,
+       "lean+209": 2,
+       "roll+": 8,
+       "lean+0": 1
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": "200-219",
+   "seeds": [
+    200,
+    219
+   ]
+  },
+  {
+   "phase": "pour",
+   "failed": 1,
+   "rows": [
+    {
+     "note": "planner mount guard: OFF (as shipped)"
+    },
+    {
+     "name": "e pour with the right-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "18/20 vs 19/20 bare",
+     "want": ">= 18"
+    },
+    {
+     "name": "e right: the mount touched nothing at all over seeds 200-219",
+     "ok": false,
+     "got": "{'pour:glass': 32}",
+     "want": "none"
+    },
+    {
+     "note": "right: closest approach over the whole episode [mm] {'bottle': 23.26, 'glass': -0.43, 'table': 13.21, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "right: the geoms that got there {'bottle': 'arm/wrist_camera_mount_clamp_band_7/bottle/shoulder0', 'glass': 'arm/wrist_camera_mount_standoff_pad_1/glass/wall11', 'table': 'arm/wrist_camera_mount_plate_tongue/table', 'fingers': 'arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_0/arm/arm_link6'}"
+    },
+    {
+     "note": "right: pour roll sign chosen by the planner {'roll-': 9, 'lean+209': 2, 'roll+': 8, 'lean+0': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "right: closest approach during the pour roll [mm] {'bottle': 31.42, 'glass': -0.43, 'table': 13.46, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "right: lost seeds [210], gained seeds [] ({'success': 18, 'verify_pour': 2})"
+    },
+    {
+     "name": "e pour with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "19/20 vs 19/20 bare",
+     "want": ">= 18"
+    },
+    {
+     "name": "e left: the mount touched nothing at all over seeds 200-219",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "left: closest approach over the whole episode [mm] {'bottle': 14.01, 'glass': 3.57, 'table': 21.43, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "left: the geoms that got there {'bottle': 'arm/wrist_camera_mount_camera_lens/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_rail_key_n/glass/wall1', 'table': 'arm/wrist_camera_mount_rail_key_n/table', 'fingers': 'arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_12/arm/arm_link6'}"
+    },
+    {
+     "note": "left: pour roll sign chosen by the planner {'roll-': 12, 'lean+209': 2, 'roll+': 5, 'lean+0': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "left: closest approach during the pour roll [mm] {'bottle': 19.09, 'glass': 3.57, 'table': 21.69, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "handedness: left -- success 19/20 and 3.6 mm worst clearance during the pour, against 18/20 and -0.4 mm for the other hand"
+    },
+    {
+     "data": {
+      "pour": {
+       "bare": {
+        "ok": 19,
+        "outcomes": {
+         "success": 19,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "200": true,
+         "201": true,
+         "202": false,
+         "203": true,
+         "204": true,
+         "205": true,
+         "206": true,
+         "207": true,
+         "208": true,
+         "209": true,
+         "210": true,
+         "211": true,
+         "212": true,
+         "213": true,
+         "214": true,
+         "215": true,
+         "216": true,
+         "217": true,
+         "218": true,
+         "219": true
+        },
+        "closest_mm": {},
+        "closest_during_pour_mm": {},
+        "closest_pair": {},
+        "pour_roll_sign": {
+         "roll-": 12,
+         "lean+209": 2,
+         "roll+": 5,
+         "lean+0": 1
+        },
+        "mount_contacts": {},
+        "secs": 656.4
+       },
+       "right": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "verify_pour": 2
+        },
+        "per_seed": {
+         "200": true,
+         "201": true,
+         "202": false,
+         "203": true,
+         "204": true,
+         "205": true,
+         "206": true,
+         "207": true,
+         "208": true,
+         "209": true,
+         "210": false,
+         "211": true,
+         "212": true,
+         "213": true,
+         "214": true,
+         "215": true,
+         "216": true,
+         "217": true,
+         "218": true,
+         "219": true
+        },
+        "closest_mm": {
+         "bottle": 23.26,
+         "glass": -0.43,
+         "table": 13.21,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_during_pour_mm": {
+         "bottle": 31.42,
+         "glass": -0.43,
+         "table": 13.46,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_clamp_band_7/bottle/shoulder0",
+         "glass": "arm/wrist_camera_mount_standoff_pad_1/glass/wall11",
+         "table": "arm/wrist_camera_mount_plate_tongue/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_0/arm/arm_link6"
+        },
+        "pour_roll_sign": {
+         "roll-": 9,
+         "lean+209": 2,
+         "roll+": 8,
+         "lean+0": 1
+        },
+        "mount_contacts": {
+         "pour:glass": 32
+        },
+        "secs": 691.7
+       },
+       "left": {
+        "ok": 19,
+        "outcomes": {
+         "success": 19,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "200": true,
+         "201": true,
+         "202": false,
+         "203": true,
+         "204": true,
+         "205": true,
+         "206": true,
+         "207": true,
+         "208": true,
+         "209": true,
+         "210": true,
+         "211": true,
+         "212": true,
+         "213": true,
+         "214": true,
+         "215": true,
+         "216": true,
+         "217": true,
+         "218": true,
+         "219": true
+        },
+        "closest_mm": {
+         "bottle": 14.01,
+         "glass": 3.57,
+         "table": 21.43,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_during_pour_mm": {
+         "bottle": 19.09,
+         "glass": 3.57,
+         "table": 21.69,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_camera_lens/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_rail_key_n/glass/wall1",
+         "table": "arm/wrist_camera_mount_rail_key_n/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_12/arm/arm_link6"
+        },
+        "pour_roll_sign": {
+         "roll-": 12,
+         "lean+209": 2,
+         "roll+": 5,
+         "lean+0": 1
+        },
+        "mount_contacts": {},
+        "secs": 770.1
+       }
+      },
+      "guard": false,
+      "handedness": {
+       "better": "left",
+       "margin_mm": {
+        "right": -0.43,
+        "left": 3.57
+       },
+       "success": {
+        "right": 18,
+        "left": 19
+       },
+       "seeds": [
+        200,
+        219
+       ]
+      }
+     }
+    }
+   ],
+   "guard": false,
+   "seed_range": "200-219",
+   "seeds": [
+    200,
+    219
+   ]
+  },
+  {
+   "phase": "pour",
+   "failed": 1,
+   "rows": [
+    {
+     "note": "planner mount guard: ON (patched copy)"
+    },
+    {
+     "name": "e pour with the right-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "18/20 vs 19/20 bare",
+     "want": ">= 18"
+    },
+    {
+     "name": "e right: the mount touched nothing at all over seeds 200-219",
+     "ok": false,
+     "got": "{'pour:glass': 32}",
+     "want": "none"
+    },
+    {
+     "note": "right: closest approach over the whole episode [mm] {'bottle': 23.26, 'glass': -0.43, 'table': 13.21, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "right: the geoms that got there {'bottle': 'arm/wrist_camera_mount_clamp_band_7/bottle/shoulder0', 'glass': 'arm/wrist_camera_mount_standoff_pad_1/glass/wall11', 'table': 'arm/wrist_camera_mount_plate_tongue/table', 'fingers': 'arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_0/arm/arm_link6'}"
+    },
+    {
+     "note": "right: pour roll sign chosen by the planner {'roll-': 9, 'lean+209': 2, 'roll+': 8, 'lean+0': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "right: closest approach during the pour roll [mm] {'bottle': 31.42, 'glass': -0.43, 'table': 13.46, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "right: lost seeds [210], gained seeds [] ({'success': 18, 'verify_pour': 2})"
+    },
+    {
+     "name": "e pour with the left-hand mount loses at most 1 seed",
+     "ok": true,
+     "got": "19/20 vs 19/20 bare",
+     "want": ">= 18"
+    },
+    {
+     "name": "e left: the mount touched nothing at all over seeds 200-219",
+     "ok": true,
+     "got": "none",
+     "want": "none"
+    },
+    {
+     "note": "left: closest approach over the whole episode [mm] {'bottle': 14.01, 'glass': 3.57, 'table': 21.43, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "left: the geoms that got there {'bottle': 'arm/wrist_camera_mount_camera_lens/bottle/shoulder1', 'glass': 'arm/wrist_camera_mount_rail_key_n/glass/wall1', 'table': 'arm/wrist_camera_mount_rail_key_n/table', 'fingers': 'arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2', 'arm_links': 'arm/wrist_camera_mount_clamp_band_12/arm/arm_link6'}"
+    },
+    {
+     "note": "left: pour roll sign chosen by the planner {'roll-': 12, 'lean+209': 2, 'roll+': 5, 'lean+0': 1} (roll- swings a +Y payload down)"
+    },
+    {
+     "note": "left: closest approach during the pour roll [mm] {'bottle': 19.09, 'glass': 3.57, 'table': 21.69, 'fingers': 4.12, 'arm_links': 18.55}"
+    },
+    {
+     "note": "handedness: left -- success 19/20 and 3.6 mm worst clearance during the pour, against 18/20 and -0.4 mm for the other hand"
+    },
+    {
+     "data": {
+      "pour": {
+       "bare": {
+        "ok": 19,
+        "outcomes": {
+         "success": 19,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "200": true,
+         "201": true,
+         "202": false,
+         "203": true,
+         "204": true,
+         "205": true,
+         "206": true,
+         "207": true,
+         "208": true,
+         "209": true,
+         "210": true,
+         "211": true,
+         "212": true,
+         "213": true,
+         "214": true,
+         "215": true,
+         "216": true,
+         "217": true,
+         "218": true,
+         "219": true
+        },
+        "closest_mm": {},
+        "closest_during_pour_mm": {},
+        "closest_pair": {},
+        "pour_roll_sign": {
+         "roll-": 12,
+         "lean+209": 2,
+         "roll+": 5,
+         "lean+0": 1
+        },
+        "mount_contacts": {},
+        "secs": 725.9
+       },
+       "right": {
+        "ok": 18,
+        "outcomes": {
+         "success": 18,
+         "verify_pour": 2
+        },
+        "per_seed": {
+         "200": true,
+         "201": true,
+         "202": false,
+         "203": true,
+         "204": true,
+         "205": true,
+         "206": true,
+         "207": true,
+         "208": true,
+         "209": true,
+         "210": false,
+         "211": true,
+         "212": true,
+         "213": true,
+         "214": true,
+         "215": true,
+         "216": true,
+         "217": true,
+         "218": true,
+         "219": true
+        },
+        "closest_mm": {
+         "bottle": 23.26,
+         "glass": -0.43,
+         "table": 13.21,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_during_pour_mm": {
+         "bottle": 31.42,
+         "glass": -0.43,
+         "table": 13.46,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_clamp_band_7/bottle/shoulder0",
+         "glass": "arm/wrist_camera_mount_standoff_pad_1/glass/wall11",
+         "table": "arm/wrist_camera_mount_plate_tongue/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_n/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_0/arm/arm_link6"
+        },
+        "pour_roll_sign": {
+         "roll-": 9,
+         "lean+209": 2,
+         "roll+": 8,
+         "lean+0": 1
+        },
+        "mount_contacts": {
+         "pour:glass": 32
+        },
+        "secs": 811.3
+       },
+       "left": {
+        "ok": 19,
+        "outcomes": {
+         "success": 19,
+         "verify_pour": 1
+        },
+        "per_seed": {
+         "200": true,
+         "201": true,
+         "202": false,
+         "203": true,
+         "204": true,
+         "205": true,
+         "206": true,
+         "207": true,
+         "208": true,
+         "209": true,
+         "210": true,
+         "211": true,
+         "212": true,
+         "213": true,
+         "214": true,
+         "215": true,
+         "216": true,
+         "217": true,
+         "218": true,
+         "219": true
+        },
+        "closest_mm": {
+         "bottle": 14.01,
+         "glass": 3.57,
+         "table": 21.43,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_during_pour_mm": {
+         "bottle": 19.09,
+         "glass": 3.57,
+         "table": 21.69,
+         "fingers": 4.12,
+         "arm_links": 18.55
+        },
+        "closest_pair": {
+         "bottle": "arm/wrist_camera_mount_camera_lens/bottle/shoulder1",
+         "glass": "arm/wrist_camera_mount_rail_key_n/glass/wall1",
+         "table": "arm/wrist_camera_mount_rail_key_n/table",
+         "fingers": "arm/wrist_camera_mount_rail_key_p/arm/gripper_finger_link2",
+         "arm_links": "arm/wrist_camera_mount_clamp_band_12/arm/arm_link6"
+        },
+        "pour_roll_sign": {
+         "roll-": 12,
+         "lean+209": 2,
+         "roll+": 5,
+         "lean+0": 1
+        },
+        "mount_contacts": {},
+        "secs": 796.3
+       }
+      },
+      "guard": true,
+      "handedness": {
+       "better": "left",
+       "margin_mm": {
+        "right": -0.43,
+        "left": 3.57
+       },
+       "success": {
+        "right": 18,
+        "left": 19
+       },
+       "seeds": [
+        200,
+        219
+       ]
+      }
+     }
+    }
+   ],
+   "guard": true,
+   "seed_range": "200-219",
+   "seeds": [
+    200,
+    219
+   ]
+  }
+ ]
+}
