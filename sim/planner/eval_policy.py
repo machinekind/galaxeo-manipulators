@@ -242,6 +242,10 @@ def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wri
     # recorder did when the dataset was written.
     W, H = info["cam"]["W"], info["cam"]["H"]
     judge = Judge(model, data, info)
+    # what went wrong first, in the DAgger monitor's words; the import is here
+    # because planner.dagger imports this module
+    from planner.dagger import Monitor
+    mon, trouble = Monitor(model, data, info), None
     n_sub = max(1, int(round((1.0 / fps) / model.opt.timestep)))
     dt = n_sub * model.opt.timestep
     r = mujoco.Renderer(model, height=H, width=W)
@@ -254,6 +258,10 @@ def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wri
             for _ in range(n_sub):
                 mujoco.mj_step(model, data)
             judge.tick(dt)
+            if trouble is None:
+                t = mon.tick(dt)
+                if t:
+                    trouble = dict(trouble=t, t_trouble=round(float(data.time), 2))
             if frames is not None:
                 r.update_scene(data, camera="laptop_cam")
                 f = r.render()
@@ -264,6 +272,8 @@ def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wri
         r.close()
     out = judge.result()
     out["duration"] = float(data.time)
+    out.update(trouble or dict(trouble=None, t_trouble=None))
+    out["carried"] = bool(mon.carried)
     return out
 
 
@@ -308,7 +318,9 @@ def main():
         print(f"seed {seed:3d}  {'SUCCESS' if res['success'] else 'FAIL   '} "
               f"poured {res['secs']:4.1f}s  max tilt {np.degrees(res['max_tilt']):5.1f}deg  "
               f"glass {'FELL' if res['glass_fell'] else 'ok  '}  t={res['duration']:5.1f}s"
-              + (f"  {res['why']}" if res["why"] else ""), flush=True)
+              + (f"  {res['why']}" if res["why"] else "")
+              + (f"  first trouble: {res['trouble']} at {res['t_trouble']}s" if res["trouble"] else "")
+              + ("  carried" if res["carried"] else ""), flush=True)
         if frames and args.gif and i == 0:
             write_gif(frames, args.gif, fps=args.fps)
         if args.video:
