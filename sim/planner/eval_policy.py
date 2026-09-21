@@ -56,6 +56,24 @@ FLOOR_DROP = 0.05         # bottle centre this far below the table top = on the 
 GRIP_CLOSED = 0.02        # commanded finger opening under this means "close hard" [m]
 
 
+def write_mp4(frames, path, fps=20, crf=23):
+    """H.264 through PyAV, whose wheel carries libx264: no ffmpeg binary needed."""
+    import av
+    h, w = frames[0].shape[:2]
+    h, w = h - h % 2, w - w % 2                     # yuv420p needs even sides
+    out = av.open(path, "w")
+    stream = out.add_stream("libx264", rate=fps)
+    stream.width, stream.height, stream.pix_fmt = w, h, "yuv420p"
+    stream.options = {"crf": str(crf), "preset": "medium"}
+    for f in frames:
+        for packet in stream.encode(av.VideoFrame.from_ndarray(np.ascontiguousarray(f[:h, :w]), format="rgb24")):
+            out.mux(packet)
+    for packet in stream.encode():
+        out.mux(packet)
+    out.close()
+    print(f"wrote {path} ({len(frames)} frames)")
+
+
 def find_checkpoint(path):
     """Accept a pretrained_model directory or a training run directory."""
     path = os.path.abspath(path)
@@ -257,8 +275,8 @@ def main():
     ap.add_argument("--fps", type=int, default=20, help="control rate; must match the dataset")
     ap.add_argument("--max-secs", type=float, default=45.0, help="wall clock budget per episode")
     ap.add_argument("--gif", help="record the first episode from laptop_cam")
-    ap.add_argument("--gif-all", metavar="DIR", help="record every episode: DIR/seedN.gif from laptop_cam, "
-                    "and DIR/seedN_wrist.gif when the policy reads the wrist camera")
+    ap.add_argument("--video", metavar="DIR", help="record every episode as DIR/seedN_{ok,fail}.mp4: laptop_cam, "
+                    "with the wrist stream beside it when the policy reads one")
     ap.add_argument("--wrist", choices=("left", "right"), default="left",
                     help="hand the wrist camera is mounted on, for a policy that reads it")
     ap.add_argument("--json", help="write the per-seed results here")
@@ -275,15 +293,15 @@ def main():
           f"chunk {cfg.chunk_size}, n_action_steps {cfg.n_action_steps}, on {args.device}")
     print("inputs: " + ", ".join(cfg.input_features))
 
-    if args.gif_all:
-        os.makedirs(args.gif_all, exist_ok=True)
+    if args.video:
+        os.makedirs(args.video, exist_ok=True)
     n_ok, rows = 0, []
     for i in range(args.n):
         seed = args.seed + i
-        frames = [] if (args.gif_all or (args.gif and i == 0)) else None
-        wframes = [] if args.gif_all else None
+        frames = [] if (args.video or (args.gif and i == 0)) else None
+        wframes = [] if args.video else None
         res = episode(policy, pre, post, cfg, seed, args.fps, args.max_secs, torch, frames,
-                      wrist=args.wrist, wrist_frames=wframes, small=bool(args.gif_all))
+                      wrist=args.wrist, wrist_frames=wframes, small=bool(args.video))
         n_ok += res["success"]
         rows.append(dict(seed=seed, **{k: (bool(v) if isinstance(v, (bool, np.bool_)) else v)
                                         for k, v in res.items()}))
@@ -293,10 +311,10 @@ def main():
               + (f"  {res['why']}" if res["why"] else ""), flush=True)
         if frames and args.gif and i == 0:
             write_gif(frames, args.gif, fps=args.fps)
-        if args.gif_all:
-            write_gif(frames, os.path.join(args.gif_all, f"seed{seed}.gif"), fps=args.fps)
-            if wframes:
-                write_gif(wframes, os.path.join(args.gif_all, f"seed{seed}_wrist.gif"), fps=args.fps)
+        if args.video:
+            both = [np.concatenate(fw, axis=1) for fw in zip(frames, wframes)] if wframes else frames
+            write_mp4(both, os.path.join(args.video, f"seed{seed}_{'ok' if res['success'] else 'fail'}.mp4"),
+                      fps=args.fps)
     if args.json:
         import json
         with open(args.json, "w") as f:
