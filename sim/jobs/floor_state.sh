@@ -16,13 +16,16 @@ set -euo pipefail
 : "${SAVE_FREQ:=10000}"
 : "${EVAL_N:=20}"                     # episodes per evaluation range
 : "${EVAL_SEEDS:=2000 1000}"          # first seed of each evaluation range
-: "${GEN_WORKERS:=$(( $(nproc) - 2 ))}"
+: "${GEN_WORKERS:=0}"                 # 0: the box's cores (cgroup quota, not the host's count) minus 2
 : "${GPUS:=1}"
 : "${ON_FAILURE:=State floor check stopped; sim/runs/<run> holds whatever stage finished.}"
 export TORCH_HOME="${TORCH_HOME:-sim/runs/torch_home}"
 export HF_HUB_OFFLINE=1
-# Headless Linux renders through EGL; a Mac running this by hand keeps its own.
-[ "$(uname)" = Linux ] && export MUJOCO_GL="${MUJOCO_GL:-egl}"
+# Headless rendering (the evaluation renders the cameras), one BLAS thread per
+# worker, and the core count the box was sold with.
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/render.sh"
+[ "$GEN_WORKERS" -gt 0 ] || GEN_WORKERS=$(( $(cores_available) - 2 ))
 
 OUT="sim/runs/${RUN_NAME}"
 DATA="sim/datasets/${RUN_NAME}"
@@ -57,7 +60,7 @@ for s0 in $EVAL_SEEDS; do
     for k in $(seq 0 5 $(( EVAL_N - 1 ))); do
         s=$(( s0 + k )); n=$(( EVAL_N - k < 5 ? EVAL_N - k : 5 ))
         python sim/planner/eval_policy.py --ckpt "$CKPT" --n "$n" --seed "$s" --device cpu \
-            --json "$OUT/eval/seeds_${s}.json" > "$OUT/eval/seeds_${s}.log" 2>&1 &
+            --video "$OUT/eval/video" --json "$OUT/eval/seeds_${s}.json" > "$OUT/eval/seeds_${s}.log" 2>&1 &
         pids+=($!)
     done
 done
