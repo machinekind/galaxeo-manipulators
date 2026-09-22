@@ -383,39 +383,39 @@ lever after that; the photorealism step waits until a sim policy pours in sim.
 
 ### The wrist-camera run
 
-The printed G1 wrist camera (`hardware/g1_camera_mounts`, left hand) was put on
-the simulated arm and a third dataset recorded with the same generator and the
-same seeds as the redraw set (`marcinwysocki/a1x_pour_sim_wrist`: 360 episodes
-of 416 seeds, 269,584 frames, 2.2 GB; the planner's success rate with the 104 g
-payload and its 57 collision boxes on the wrist was 87 %, against 87 % without).
-The policy sees the wrist stream at 320 x 240 next to the laptop frame and the
-map; the camera's pose is jittered per seed by the bracket's re-seating play
-and the frame gets a per-seed exposure draw. Training was the redraw run's
-recipe unchanged, 80,000 steps of ACT at chunk 50, batch 32, lr 1e-5, in one
-rental of 2 h 28 min on an RTX 4090 (about 1.30 USD). The L1 loss reached
-**0.089**, under the redraw run's 0.099 and the first run's 0.101, and was
-still falling.
+The printed G1 wrist camera from `hardware/g1_camera_mounts` was mounted on the
+simulated arm's left hand. A third dataset was recorded with the same generator
+and the same seeds as the redraw set. It is `marcinwysocki/a1x_pour_sim_wrist`:
+360 episodes from 416 seeds, 269,584 frames, 2.2 GB. The planner poured on 87 %
+of seeds with the 104 g payload and its 57 collision boxes on the wrist, the
+same rate as without them. The policy sees the wrist stream at 320 x 240 next to
+the laptop frame and the map. The camera's pose is jittered per seed by the
+bracket's re-seating play, and each seed draws an exposure for the frame.
+Training used the redraw run's recipe unchanged: 80,000 steps of ACT at chunk
+50, batch 32, lr 1e-5. One rental of an RTX 4090 took 2 h 28 min and about
+1.30 USD. The L1 loss reached **0.089** and was still falling. The redraw run
+ended at 0.099 and the first run at 0.101.
 
-Closed loop the checkpoint scores **0/20 on unseen seeds 2000 to 2019 and 0/20
-on training-range seeds 1000 to 1019**, at 60,000 steps 0/10 on the training
-range, against the redraw run's 0/20 and 3/20. The redraw checkpoint re-run
-through the same evaluator gives 3/20 on those training seeds, so the harness
-did not move. What did move is the failure mix on the training range: with the
-wrist camera 13 of 20 episodes grasp, lift and carry the bottle (5 drop it, 5
-tip it beside the glass, 3 knock the glass over), against 9 of 17 failures for
-the redraw run. On unseen seeds 17 of 20 still disturb the bottle on the
-approach, at 2 to 4.6 s, before the wrist camera has anything to add.
+Closed loop, the checkpoint scores **0/20 on unseen seeds 2000 to 2019 and 0/20
+on training-range seeds 1000 to 1019**. The 60,000-step checkpoint scores 0/10
+on the training range. The redraw run scored 0/20 and 3/20. The redraw
+checkpoint re-run through the same evaluator still gives 3/20 on those training
+seeds, so the evaluator is sound. The failure mix on the training range moved.
+With the wrist camera 13 of 20 episodes grasp, lift and carry the bottle. Of
+those, 5 drop it, 5 tip it beside the glass and 3 knock the glass over. For the
+redraw run 9 of 17 failures carried the bottle. On unseen seeds 17 of 20 still
+disturb the bottle on the approach, between 2 and 4.6 s. The wrist camera sees
+only the table at that point.
 
-So a lower action loss bought a policy that grasps more often on scenes it has
-seen and pours on none, and the wrist view did not touch the approach, where
-most unseen episodes fail. The approach is decided from the laptop frame and the
-map at a distance the wrist camera does not cover (it sees the fingertips and
-60 mm past them), and the grasp-to-pour phase that it does cover is where the
-carried episodes now fail, on the last centimetres to the rim, the same place
-the redraw run failed. Three hundred and sixty demonstrations of one behaviour
-are not enough for ACT to learn that from either camera. The DAgger loop above
-is still the lever that addresses this failure directly; the wrist stream is
-now in the recorder and the collector, so DAgger corrections carry it too.
+A lower action loss bought a policy that grasps more often on scenes it has seen
+and pours on none. The approach is decided from the laptop frame and the map.
+The wrist camera does not cover that distance: it sees the fingertips and 60 mm
+past them. It does cover the phase from grasp to pour, and the carried episodes
+fail there, on the last centimetres to the rim. The redraw run failed in the
+same place. Three hundred and sixty demonstrations of one behaviour are too few
+for ACT to learn that phase from either camera. The DAgger loop below addresses
+this failure directly. The recorder and the collector now carry the wrist
+stream, so DAgger corrections record it too.
 
 ### DAgger
 
