@@ -38,8 +38,10 @@ import mujoco
 m = mujoco.MjModel.from_xml_string(
     '<mujoco><worldbody><light pos="0 0 3"/><geom type="box" size="1 1 .1" rgba=".5 .6 .7 1"/>'
     '<camera name="c" pos="0 -2 2" xyaxes="1 0 0 0 1 1"/></worldbody></mujoco>')
+d = mujoco.MjData(m)
+mujoco.mj_forward(m, d)          # without it the camera has no pose yet and the frame is black
 r = mujoco.Renderer(m, 48, 64)
-r.update_scene(mujoco.MjData(m), camera="c")
+r.update_scene(d, camera="c")
 img = r.render()
 r.close()
 raise SystemExit(0 if img.max() > 0 else 1)
