@@ -15,10 +15,11 @@ set -euo pipefail
 : "${VARY:=1}"                        # 1: the grasp is drawn among the feasible candidates
 : "${SERVO_NOISE:=1.5}"               # std [deg] of the drift added to the executed joint commands
 : "${WRIST:=left}"                    # hand carrying the wrist camera
-: "${STEPS:=80000}"
+: "${STEPS:=100000}"                 # the state floor kept improving to 100k; the loss had not plateaued
 : "${BATCH:=32}"
 : "${CHUNK:=50}"
-: "${LR:=1e-5}"
+: "${LR:=1e-4}"                       # the transformer's rate; the backbone keeps lerobot's 1e-5
+: "${VAE:=false}"                     # off, as in the state floor check that passed
 : "${WORKERS:=16}"                    # dataloader workers
 : "${INIT_FROM:=}"                    # optional warm start (pretrained_model dir or Hub model id)
 : "${DATASET_REPO:=}"                 # optional: a Hub dataset to use instead of generating
@@ -73,7 +74,7 @@ fi
 if [ ! -f "$OUT/checkpoints/last/pretrained_model/config.json" ]; then
     echo "== training ACT, $STEPS steps (train_pour.sh)"
     DATASET_ROOT="$DATA/merged" REPO_ID="galaxeo/${RUN_NAME}" RUN_NAME="$RUN_NAME" STEPS="$STEPS" BATCH="$BATCH" \
-        CHUNK="$CHUNK" LR="$LR" WORKERS="$WORKERS" INIT_FROM="$INIT_FROM" PIN_CPUS="$(cores_available)" \
+        CHUNK="$CHUNK" LR="$LR" VAE="$VAE" WORKERS="$WORKERS" INIT_FROM="$INIT_FROM" PIN_CPUS="$(cores_available)" \
         OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4 \
         bash sim/jobs/train_pour.sh 2>&1 | tr '\r' '\n' | tee "$LOGS/train.log" \
         | grep -E "step:|Error|Traceback|training|warm start|run " | tail -40

@@ -173,7 +173,7 @@ joint commands, the planner's clean command kept as the label), both from
 | `RUN_NAME` | default `pour_full_<JOB_ID>` |
 | `EPISODES`, `SEED0`, `OVER` | wanted successes, first seed, seeds per success; defaults 3000, 10000, 1.6 |
 | `VARY`, `SERVO_NOISE`, `WRIST` | 1/0, degrees, hand; defaults 1, 1.5, left |
-| `STEPS`, `BATCH`, `CHUNK`, `LR`, `WORKERS`, `INIT_FROM` | passed to `train_pour.sh` |
+| `STEPS`, `BATCH`, `CHUNK`, `LR`, `VAE`, `WORKERS`, `INIT_FROM` | passed to `train_pour.sh`; defaults 100000, 32, 50, 1e-4, false, 16 |
 | `DATASET_REPO` | optional Hub dataset to train on instead of generating |
 | `PUSH_DATASET`, `PUSH_MODEL` | optional private Hub repos the merged set and the final weights are pushed to (`HF_TOKEN`) |
 | `CONTROL_CKPT` | optional Hub model id or repo-relative `pretrained_model` dir evaluated as the control |

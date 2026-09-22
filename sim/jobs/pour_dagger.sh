@@ -89,7 +89,7 @@ fi
 if [ ! -f "$OUT/checkpoints/last/pretrained_model/config.json" ]; then
     echo "== training ACT from $POLICY, $STEPS steps (train_pour.sh)"
     DATASET_ROOT="$DATA/merged" REPO_ID="galaxeo/${RUN_NAME}" RUN_NAME="$RUN_NAME" STEPS="$STEPS" BATCH="$BATCH" \
-        WORKERS="$WORKERS" INIT_FROM="$POLICY_DIR" PIN_CPUS="$(cores_available)" \
+        WORKERS="$WORKERS" INIT_FROM="$POLICY_DIR" VAE="${VAE:-false}" PIN_CPUS="$(cores_available)" \
         OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4 \
         bash sim/jobs/train_pour.sh 2>&1 | tr '\r' '\n' | tee "$LOGS/train.log" \
         | grep -E "step:|Error|Traceback|training|warm start|run " | tail -40
