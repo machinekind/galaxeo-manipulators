@@ -119,6 +119,84 @@ the Hub). `galaxeo/a1x_pour_sim` is the default `run_pour.py --lerobot` writes
 with, so both payloads default to the same string; override `REPO_ID` if you
 recorded the dataset under another name.
 
+## render.sh
+
+Sourced by the payloads that render or run many simulator processes
+(`floor_state.sh`, `pour_full.sh`). On Linux it sets `MUJOCO_GL=egl`, test
+renders one frame, and if that fails installs the GLVND front library
+(`libegl1`, `libgl1`) and writes the NVIDIA EGL vendor file, which a CUDA
+container image usually lacks even though it carries the driver's own
+`libEGL_nvidia.so.0`. It also pins numpy's BLAS to one thread per process
+(a container on a 88-core host shows all 88 to every worker, and 40 workers
+times 88 threads is over the thread limit) and provides `cores_available`,
+the cgroup CPU quota rather than `nproc`, which reports the host.
+
+## floor_state.sh
+
+The state-based floor check on one machine: generate a dataset of the true
+scene state with `gen_dataset.py --state` (no images), train ACT on it, and
+evaluate it closed loop on the same box, with a video of every evaluation
+episode. If a policy that sees the bottle pose and the glass position cannot
+pour, the action side is what is short, and no image run will fix it.
+
+| input | |
+| --- | --- |
+| `RUN_NAME` | default `pour_state_<JOB_ID>`; the dataset lands in `sim/datasets/<RUN_NAME>` |
+| `EPISODES` | successful episodes wanted, default 1000 |
+| `SEED0` | first scene seed, default 10000 |
+| `STEPS`, `BATCH`, `CHUNK`, `LR`, `SAVE_FREQ` | as in `train_pour.sh`; defaults 50000, 32, 50, 1e-5, 10000 |
+| `EVAL_N`, `EVAL_SEEDS` | episodes per range and the first seed of each, default 20 and `2000 1000` |
+| `GEN_WORKERS` | generator processes, default the box's cores minus 2 |
+
+    RUN_NAME=pour_state_floor EPISODES=1000 STEPS=50000 bash sim/jobs/floor_state.sh
+
+## pour_full.sh
+
+The image run on one machine: generate a dataset with the laptop camera, the
+top-down map and the wrist camera, train ACT on it through `train_pour.sh`
+(so the recipe is the one the earlier runs used), evaluate the checkpoint,
+and evaluate a control checkpoint on the same seeds. The generator runs with
+planner variation (the grasp drawn among the feasible pitches and yaws of
+the preferred place) and noise injection (a smooth drift on the executed
+joint commands, the planner's clean command kept as the label), both from
+`run_pour.py --vary --servo-noise`.
+
+| input | |
+| --- | --- |
+| `RUN_NAME` | default `pour_full_<JOB_ID>` |
+| `EPISODES`, `SEED0`, `OVER` | wanted successes, first seed, seeds per success; defaults 3000, 10000, 1.6 |
+| `VARY`, `SERVO_NOISE`, `WRIST` | 1/0, degrees, hand; defaults 1, 1.5, left |
+| `STEPS`, `BATCH`, `CHUNK`, `LR`, `WORKERS`, `INIT_FROM` | passed to `train_pour.sh` |
+| `DATASET_REPO` | optional Hub dataset to train on instead of generating |
+| `PUSH_DATASET`, `PUSH_MODEL` | optional private Hub repos the merged set and the final weights are pushed to (`HF_TOKEN`) |
+| `CONTROL_CKPT` | optional Hub model id or repo-relative `pretrained_model` dir evaluated as the control |
+| `EVAL_N`, `EVAL_SEEDS`, `GEN_WORKERS` | as in `floor_state.sh` |
+
+Results: `sim/runs/<RUN_NAME>/eval` and `eval_control`, each with
+`seeds_*.json`, `all.json` and `video/seed*_{ok,fail}.mp4` (laptop camera
+with the wrist stream beside it). `planner/eval_summary.py` prints the
+success counts and the failure-mode mix from those files.
+
+## pour_dagger.sh
+
+One DAgger round on one machine: roll a policy out on fresh scenes from seed
+5000 with `gen_dagger.py`, let the planner take over from the states it
+reaches, merge the recoveries with the base dataset, warm-start training from
+the rolled-out weights, and evaluate the result and the rolled-out policy on
+the same seeds (`eval` and `eval_control`).
+
+| input | |
+| --- | --- |
+| `POLICY` | **required**, Hub model id or repo-relative `pretrained_model` dir to roll out and warm-start from |
+| `BASE_DATASET` | **required**, Hub dataset id or repo-relative root the recoveries are merged with |
+| `RUN_NAME` | default `pour_dagger_<JOB_ID>` |
+| `SEEDS`, `SEED0`, `TAKEOVERS`, `REWIND`, `WRIST` | scenes to roll out and the collector's knobs; defaults 1500, 5000, 1, `1.0,2.5,5.0`, left |
+| `STEPS`, `BATCH`, `WORKERS` | passed to `train_pour.sh`; default 30000 steps |
+| `PUSH_DATASET`, `PUSH_MODEL`, `CONTROL_CKPT`, `EVAL_N`, `EVAL_SEEDS`, `GEN_WORKERS` | as in `pour_full.sh`; the control defaults to `POLICY` |
+
+The next round takes this round's `PUSH_MODEL` as `POLICY` and its
+`PUSH_DATASET` as `BASE_DATASET`.
+
 ## Evaluating a checkpoint
 
 Training does not evaluate: the pour scene is not a gym environment. Closed-loop

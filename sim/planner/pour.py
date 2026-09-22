@@ -92,8 +92,46 @@ class GraspPlan:
     q_grasp: np.ndarray
 
 
+class ServoNoise:
+    """A smooth random offset added to the six arm servo targets the script
+    writes, so the executed trajectory strays from the planned one the way a
+    policy's does, while the recorder keeps the planner's clean command as the
+    label (`Pour.ctrl_clean`). Recovering from that drift is then in the data
+    at every frame instead of only at a DAgger takeover.
+
+    Each joint is an Ornstein-Uhlenbeck process: white noise through a
+    first-order low-pass with time constant `tau`, stationary deviation
+    `sigma`. Drift on that scale (0.4 s) is what a ramp of a few seconds can
+    absorb; per-step jitter would only be averaged out by the servo. The
+    gripper is left alone: a perturbed close command drops the bottle instead
+    of teaching anything."""
+
+    def __init__(self, rng, sigma=np.radians(1.5), tau=0.4):
+        self.rng, self.sigma, self.tau = rng, float(sigma), float(tau)
+        self.x = np.zeros(6)
+
+    # How much of the drift each stage gets. The approach is where the policy
+    # fails most and where a demonstration can afford to wander. The lift is
+    # judged by a 30 mm rise at the end of a 1.5 s ramp, which the full drift
+    # missed on a third of the seeds; the pour steers the mouth inside a 6 cm
+    # rim, and the full drift there bumped the glass on one seed in five.
+    SCALE = {"pick": 1.0, "lift": 0.5, "pour": 0.4, "upright": 0.7, "place": 0.7}
+
+    def __call__(self, dt, stage=None):
+        k = dt / self.tau
+        self.x += -k * self.x + self.sigma * np.sqrt(2.0 * k) * self.rng.standard_normal(6)
+        return self.x * self.SCALE.get(stage, 1.0)
+
+
 class Pour:
-    def __init__(self, model, data, perception, info, arm_prefix="arm/", verbose=False):
+    """`rng` feeds the two optional perturbations of the nominal planner:
+    `vary` draws the grasp among the feasible candidates instead of taking
+    the first in the preference order, and `servo_noise` is a `ServoNoise`
+    added to the executed command (see `_advance`). Both leave the stages,
+    the checks and the labels the recorder sees exactly as they were."""
+
+    def __init__(self, model, data, perception, info, arm_prefix="arm/", verbose=False,
+                 rng=None, vary=False, servo_noise=None):
         self.m, self.d, self.per, self.info = model, data, perception, info
         self.arm = Arm(model, arm_prefix)
         self.motion = Motion(model, data, self.arm)
@@ -104,12 +142,18 @@ class Pour:
         self.stages, self.label = [], "idle"
         self.held = self.on_step = self.on_stage = None
         self.pour_log = []                       # (t, tilt, mouth-in-rim) while pouring
+        self.rng = rng if rng is not None else np.random.default_rng(0)
+        self.vary, self.servo_noise = bool(vary), servo_noise
+        self.ctrl_clean = data.ctrl.copy()       # the script's command before any noise
 
     # ---------------------------------------------------------------- helpers
     def _advance(self, label):
         self.label = label
         while self.d.time < self.script.t - 1e-9:
             self.script.apply(self.d.time)
+            self.ctrl_clean[:] = self.d.ctrl
+            if self.servo_noise is not None:
+                self.d.ctrl[self.arm.acts] += self.servo_noise(self.m.opt.timestep, label)
             mujoco.mj_step(self.m, self.d)
             if label == "pour":
                 self._log_pour()
@@ -200,10 +244,32 @@ class Pour:
             if width > 0.09:
                 continue
             for dyaw in (0.0, 0.35, -0.35, 0.7, -0.7):
+                if self.vary:
+                    # Off-grid too: the demonstrations should cover the space
+                    # between the listed pitches and yaws, not five points of it.
+                    pitch_v = float(np.clip(pitch + self.rng.uniform(-0.08, 0.08), 0.2, 0.8))
+                    dyaw += float(self.rng.uniform(-0.15, 0.15))
+                else:
+                    pitch_v = pitch
                 a = ang0 + dyaw
-                R = grasp_R((np.cos(a), np.sin(a)), pitch)
+                R = grasp_R((np.cos(a), np.sin(a)), pitch_v)
                 pos = b.base + [0, 0, z_rel] + depth * np.array([np.cos(a), np.sin(a), 0.0])
-                out.append((f"{where} yaw{dyaw:+.2f} pitch{pitch:.2f}", pos, R, width))
+                out.append((f"{where} yaw{dyaw:+.2f} pitch{pitch_v:.2f}", pos, R, width))
+        if self.vary:
+            # Shuffled within each place (body-high, neck, body) and the places
+            # kept in their preference order: the first feasible entry is then a
+            # uniform draw over the feasible pitches and yaws of the best place,
+            # and a neck or mid-body grasp is still only taken when the high
+            # grasp has none. Shuffling everything lost a third of the seeds at
+            # plan_pour, on grasps the look-ahead accepts but the measured
+            # pose does not. `_plan_grasp` needs no change.
+            groups = {}
+            for c in out:
+                groups.setdefault(c[0].split()[0], []).append(c)
+            out = []
+            for g in groups.values():
+                self.rng.shuffle(g)
+                out += g
         return out
 
     def _housing_touches(self, q, grip):

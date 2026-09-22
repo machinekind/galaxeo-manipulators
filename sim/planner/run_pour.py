@@ -45,7 +45,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import mujoco  # noqa: E402
 
 from planner.perception import SimPourPerception  # noqa: E402
-from planner.pour import Pour  # noqa: E402
+from planner.pour import Pour, ServoNoise  # noqa: E402
 from planner.run_episodes import Recorder, write_gif  # noqa: E402
 from planner.topdown import N as TD_N, SIDE as TD_SIDE, topdown  # noqa: E402
 from pour_scene import WORKSPACE, build  # noqa: E402
@@ -75,6 +75,15 @@ class EnvState:
     def __call__(self, d):
         return np.concatenate([d.xpos[self.bottle], d.xmat[self.bottle], d.xpos[self.glass],
                                self.geom]).astype(np.float32)
+
+
+def clean_action(pp, arm):
+    """The 7-vector the dataset labels a frame with: the planner's own command
+    for the six joints, before any servo noise `Pour` added to what the
+    actuators received, and the gripper command clipped to its stored range.
+    Without noise `ctrl_clean` and `d.ctrl` are the same array of numbers."""
+    c = pp.ctrl_clean
+    return np.concatenate([c[arm.acts], [np.clip(c[arm.grip], 0.0, 0.05)]])
 
 
 def wrist_frame(renderer, data, info, wh=(STORE_W, STORE_H)):
@@ -122,7 +131,7 @@ class StateRecorder:
             return
         self.n += 1
         q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
-        act = np.concatenate([d.ctrl[self.arm.acts], [np.clip(d.ctrl[self.arm.grip], 0.0, 0.05)]])
+        act = clean_action(pp, self.arm)
         self.ds.add_frame({"action": act.astype(np.float32),
                            "observation.state": np.concatenate([q, [g]]).astype(np.float32),
                            ENV_KEY: self.env(d), "task": TASK})
@@ -159,7 +168,7 @@ class LeRobotRecorder:
         img = cv2.resize(full, self.wh, interpolation=cv2.INTER_AREA)
         extra = {WRIST_KEY: wrist_frame(self.r, d, self.info, self.wh)} if self.info.get("wrist") else {}
         q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
-        act = np.concatenate([d.ctrl[self.arm.acts], [np.clip(d.ctrl[self.arm.grip], 0.0, 0.05)]])
+        act = clean_action(pp, self.arm)
         self.ds.add_frame({**extra,
                            "action": act.astype(np.float32),
                            "observation.state": np.concatenate([q, [g]]).astype(np.float32),
@@ -210,11 +219,19 @@ def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N, wrist=None):
                                  robot_type="galaxea_a1x", use_videos=True, image_writer_threads=4)
 
 
-def episode(seed, gif=False, record=None, verbose=False, noise=0.0, ds=None, fps=20, state=False):
+def episode(seed, gif=False, record=None, verbose=False, noise=0.0, ds=None, fps=20, state=False,
+            vary=False, servo_noise=0.0):
+    """`vary` draws the grasp among the feasible candidates; `servo_noise` is
+    the standard deviation, in degrees, of the drift added to the executed
+    joint commands (0 = the planner's own command is what the servos get).
+    Both draw from streams seeded by the scene seed, so an episode is
+    reproducible and a re-run of a seed range gives the same dataset."""
     model, data, info = build(seed)
     per = SimPourPerception(model, data, info, pos_noise=noise, rot_noise=noise,
                             rng=np.random.default_rng(seed))
-    pp = Pour(model, data, per, info, verbose=verbose)
+    sn = ServoNoise(np.random.default_rng([seed, 2]), sigma=np.radians(servo_noise)) if servo_noise > 0 else None
+    pp = Pour(model, data, per, info, verbose=verbose, rng=np.random.default_rng([seed, 1]),
+              vary=vary, servo_noise=sn)
     rec = None
     if ds is not None and state:
         result = pp.run(on_step=StateRecorder(ds, model, info, fps, pp.arm))
@@ -296,6 +313,10 @@ def main():
     ap.add_argument("--fps", type=int, default=20, help="frame and state rate of the LeRobot dataset")
     ap.add_argument("--state", action="store_true",
                     help="with --lerobot: record the privileged scene state instead of images (no rendering)")
+    ap.add_argument("--vary", action="store_true",
+                    help="draw the grasp among the feasible candidates instead of taking the first")
+    ap.add_argument("--servo-noise", type=float, default=0.0, metavar="DEG",
+                    help="std of the smooth drift added to the executed joint commands; the label stays clean")
     args = ap.parse_args()
     if args.view:
         return view(args.seed, noise=args.noise)
@@ -313,7 +334,7 @@ def main():
         want_gif = args.gif and i == 0
         model, data, info, res, rec = episode(seed, gif=bool(want_gif), record=args.record,
                                               verbose=args.verbose, noise=args.noise, ds=ds, fps=args.fps,
-                                              state=args.state)
+                                              state=args.state, vary=args.vary, servo_noise=args.servo_noise)
         n_ok += res.success
         outcomes[res.stage if not res.success else "success"] += 1
         b = info["bottle"]

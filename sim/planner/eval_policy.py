@@ -233,12 +233,15 @@ class Judge:
 
 
 def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wrist="left",
-            wrist_frames=None, small=False):
+            wrist_frames=None, small=False, show_wrist=False):
     """`frames` collects laptop_cam, `wrist_frames` the wrist stream when the
     scene has one; `small` keeps both at half size, which is what makes holding
     every episode of a long evaluation affordable."""
     policy.reset()
-    model, data, info = build(seed, wrist=wrist_hand(cfg, wrist))
+    # `show_wrist` mounts the camera for the recording even when the policy does
+    # not read it, so a state-based or laptop-only policy can be watched from
+    # the hand too; it carries the mount's mass, which that policy never saw.
+    model, data, info = build(seed, wrist=wrist if show_wrist else wrist_hand(cfg, wrist))
     arm = Arm(model, "arm/")
     # Always render at the camera's native size: the top-down warp wants the
     # full frame, and the raw stream is downscaled from it, which is what the
@@ -293,6 +296,8 @@ def main():
                     "with the wrist stream beside it when the policy reads one")
     ap.add_argument("--wrist", choices=("left", "right"), default="left",
                     help="hand the wrist camera is mounted on, for a policy that reads it")
+    ap.add_argument("--show-wrist", action="store_true",
+                    help="with --video: mount the wrist camera and record it even if the policy does not read it")
     ap.add_argument("--json", help="write the per-seed results here")
     ap.add_argument("--device", default="cpu", help="cpu | cuda | mps")
     ap.add_argument("--ensemble", type=float, default=None,
@@ -315,7 +320,8 @@ def main():
         frames = [] if (args.video or (args.gif and i == 0)) else None
         wframes = [] if args.video else None
         res = episode(policy, pre, post, cfg, seed, args.fps, args.max_secs, torch, frames,
-                      wrist=args.wrist, wrist_frames=wframes, small=bool(args.video))
+                      wrist=args.wrist, wrist_frames=wframes, small=bool(args.video),
+                      show_wrist=bool(args.show_wrist and args.video))
         n_ok += res["success"]
         rows.append(dict(seed=seed, **{k: (bool(v) if isinstance(v, (bool, np.bool_)) else v)
                                         for k, v in res.items()}))
