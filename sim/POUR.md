@@ -380,6 +380,43 @@ be a DAgger loop, rolling the policy out, relabelling its visited states with
 the planner's actions, and retraining on the union. A wrist camera is the
 lever after that; the photorealism step waits until a sim policy pours in sim.
 
+
+### The wrist-camera run
+
+The printed G1 wrist camera (`hardware/g1_camera_mounts`, left hand) was put on
+the simulated arm and a third dataset recorded with the same generator and the
+same seeds as the redraw set (`marcinwysocki/a1x_pour_sim_wrist`: 360 episodes
+of 416 seeds, 269,584 frames, 2.2 GB; the planner's success rate with the 104 g
+payload and its 57 collision boxes on the wrist was 87 %, against 87 % without).
+The policy sees the wrist stream at 320 x 240 next to the laptop frame and the
+map; the camera's pose is jittered per seed by the bracket's re-seating play
+and the frame gets a per-seed exposure draw. Training was the redraw run's
+recipe unchanged, 80,000 steps of ACT at chunk 50, batch 32, lr 1e-5, in one
+rental of 2 h 28 min on an RTX 4090 (about 1.30 USD). The L1 loss reached
+**0.089**, under the redraw run's 0.099 and the first run's 0.101, and was
+still falling.
+
+Closed loop the checkpoint scores **0/20 on unseen seeds 2000 to 2019 and 0/20
+on training-range seeds 1000 to 1019**, at 60,000 steps 0/10 on the training
+range, against the redraw run's 0/20 and 3/20. The redraw checkpoint re-run
+through the same evaluator gives 3/20 on those training seeds, so the harness
+did not move. What did move is the failure mix on the training range: with the
+wrist camera 13 of 20 episodes grasp, lift and carry the bottle (5 drop it, 5
+tip it beside the glass, 3 knock the glass over), against 9 of 17 failures for
+the redraw run. On unseen seeds 17 of 20 still disturb the bottle on the
+approach, at 2 to 4.6 s, before the wrist camera has anything to add.
+
+So a lower action loss bought a policy that grasps more often on scenes it has
+seen and pours on none, and the wrist view did not touch the approach, where
+most unseen episodes fail. The approach is decided from the laptop frame and the
+map at a distance the wrist camera does not cover (it sees the fingertips and
+60 mm past them), and the grasp-to-pour phase that it does cover is where the
+carried episodes now fail, on the last centimetres to the rim, the same place
+the redraw run failed. Three hundred and sixty demonstrations of one behaviour
+are not enough for ACT to learn that from either camera. The DAgger loop above
+is still the lever that addresses this failure directly; the wrist stream is
+now in the recorder and the collector, so DAgger corrections carry it too.
+
 ### DAgger
 
 The planner is an open-loop timed script, so relabelling the policy's own
@@ -438,7 +475,7 @@ and the next round rolls out the new checkpoint with the previous `merged` as
 ## Known limits
 
 No liquid, so the pour is verified geometrically. Bottles are round; flat
-sided ones need a box body and a different closing rule. No wrist camera,
-which is the one addition that would most help the pour. The real-arm
+sided ones need a box body and a different closing rule. The wrist camera is
+in the simulator and the datasets but not yet in a policy that pours. The real-arm
 `Robot` and camera perception (bottle and glass from one image via the
 table plane) are not written.
