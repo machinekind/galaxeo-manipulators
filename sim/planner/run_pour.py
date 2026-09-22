@@ -52,6 +52,29 @@ from pour_scene import WORKSPACE, build  # noqa: E402
 
 STORE_W, STORE_H = 320, 240        # stored size of the raw webcam stream, and of the wrist stream
 WRIST_KEY = "observation.images.wrist"
+ENV_KEY = "observation.environment_state"
+ENV_NAMES = (["bottle_x", "bottle_y", "bottle_z"] + [f"bottle_R{i}{j}" for i in range(3) for j in range(3)]
+             + ["glass_x", "glass_y", "glass_z", "bottle_body_r", "bottle_body_h", "bottle_height",
+                "bottle_neck_r", "glass_r", "glass_h"])
+
+
+class EnvState:
+    """The privileged state a *state-based* policy reads instead of images: the
+    bottle's pose and the glass's position from the simulator, per frame, in the
+    world frame (the arm base is fixed), plus the geometry that decides where
+    the planner grasps and how far it tilts. 21 floats. Nothing a camera would
+    have to infer is left out, so a policy that fails on this input fails on the
+    action side, not the perception side."""
+
+    def __init__(self, model, info):
+        self.bottle = model.body(info["bottle"]["name"]).id
+        self.glass = model.body(info["glass"]["name"]).id
+        b, g = info["bottle"], info["glass"]
+        self.geom = np.array([b["body_r"], b["body_h"], b["height"], b["neck_r"], g["r"], g["h"]], np.float32)
+
+    def __call__(self, d):
+        return np.concatenate([d.xpos[self.bottle], d.xmat[self.bottle], d.xpos[self.glass],
+                               self.geom]).astype(np.float32)
 
 
 def wrist_frame(renderer, data, info, wh=(STORE_W, STORE_H)):
@@ -83,6 +106,26 @@ class PourRecorder(Recorder):
 
 
 TASK = "pick up the bottle and pour it into the glass"
+
+
+class StateRecorder:
+    """Streams one episode's actions, joint states and privileged scene state at
+    `fps`, rendering nothing. What `--state` datasets are made of."""
+
+    def __init__(self, ds, model, info, fps, arm):
+        self.ds, self.fps, self.arm, self.env = ds, fps, arm, EnvState(model, info)
+        self.n = 0
+
+    def __call__(self, pp):
+        d = pp.d
+        if self.n > int(d.time * self.fps):
+            return
+        self.n += 1
+        q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
+        act = np.concatenate([d.ctrl[self.arm.acts], [np.clip(d.ctrl[self.arm.grip], 0.0, 0.05)]])
+        self.ds.add_frame({"action": act.astype(np.float32),
+                           "observation.state": np.concatenate([q, [g]]).astype(np.float32),
+                           ENV_KEY: self.env(d), "task": TASK})
 
 
 class LeRobotRecorder:
@@ -126,6 +169,21 @@ class LeRobotRecorder:
                            "task": TASK})
 
 
+def open_state_lerobot(root, repo_id, fps):
+    """A state-only dataset: action, joints and the privileged scene state."""
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    names7 = [f"arm_joint{i}" for i in range(1, 7)] + ["gripper"]
+    features = {
+        "action": {"dtype": "float32", "shape": (7,), "names": names7},
+        "observation.state": {"dtype": "float32", "shape": (7,), "names": names7},
+        ENV_KEY: {"dtype": "float32", "shape": (len(ENV_NAMES),), "names": ENV_NAMES},
+    }
+    if os.path.exists(root):
+        return LeRobotDataset(repo_id, root=root)
+    return LeRobotDataset.create(repo_id, fps=fps, features=features, root=root,
+                                 robot_type="galaxea_a1x", use_videos=False)
+
+
 def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N, wrist=None):
     """Open or create the dataset. `W`, `H` is the stored size of the raw
     webcam stream and of the wrist stream; `td_n` the side of the square
@@ -152,13 +210,19 @@ def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N, wrist=None):
                                  robot_type="galaxea_a1x", use_videos=True, image_writer_threads=4)
 
 
-def episode(seed, gif=False, record=None, verbose=False, noise=0.0, ds=None, fps=20):
+def episode(seed, gif=False, record=None, verbose=False, noise=0.0, ds=None, fps=20, state=False):
     model, data, info = build(seed)
     per = SimPourPerception(model, data, info, pos_noise=noise, rot_noise=noise,
                             rng=np.random.default_rng(seed))
     pp = Pour(model, data, per, info, verbose=verbose)
     rec = None
-    if ds is not None:
+    if ds is not None and state:
+        result = pp.run(on_step=StateRecorder(ds, model, info, fps, pp.arm))
+        if result.success:
+            ds.save_episode()
+        else:
+            ds.clear_episode_buffer()
+    elif ds is not None:
         r = mujoco.Renderer(model, height=info["cam"]["H"], width=info["cam"]["W"])
         try:
             result = pp.run(on_step=LeRobotRecorder(ds, r, info, fps, pp.arm))
@@ -230,13 +294,17 @@ def main():
     ap.add_argument("--lerobot", help="root directory of a LeRobot dataset to append successful episodes to")
     ap.add_argument("--repo-id", default="galaxeo/a1x_pour_sim")
     ap.add_argument("--fps", type=int, default=20, help="frame and state rate of the LeRobot dataset")
+    ap.add_argument("--state", action="store_true",
+                    help="with --lerobot: record the privileged scene state instead of images (no rendering)")
     args = ap.parse_args()
     if args.view:
         return view(args.seed, noise=args.noise)
     if args.record:
         os.makedirs(args.record, exist_ok=True)
     ds = None
-    if args.lerobot:
+    if args.lerobot and args.state:
+        ds = open_state_lerobot(args.lerobot, args.repo_id, args.fps)
+    elif args.lerobot:
         ds = open_lerobot(args.lerobot, args.repo_id, args.fps, STORE_W, STORE_H, TD_N)
         print(f"lerobot dataset at {args.lerobot}: {ds.num_episodes} episode(s) so far")
     outcomes, n_ok = Counter(), 0
@@ -244,7 +312,8 @@ def main():
         seed = args.seed + i
         want_gif = args.gif and i == 0
         model, data, info, res, rec = episode(seed, gif=bool(want_gif), record=args.record,
-                                              verbose=args.verbose, noise=args.noise, ds=ds, fps=args.fps)
+                                              verbose=args.verbose, noise=args.noise, ds=ds, fps=args.fps,
+                                              state=args.state)
         n_ok += res.success
         outcomes[res.stage if not res.success else "success"] += 1
         b = info["bottle"]

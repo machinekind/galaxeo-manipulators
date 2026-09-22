@@ -138,6 +138,8 @@ def main():
     ap.add_argument("--fps", type=int, default=20)
     ap.add_argument("--repo-id", default="galaxeo/a1x_pour_sim")
     ap.add_argument("--keep-parts", action="store_true", help="do not delete part_k/ after merging")
+    ap.add_argument("--state", action="store_true",
+                    help="record the privileged scene state instead of images (a state-based dataset)")
     ap.add_argument("--wrist", choices=("left", "right"),
                     help="mount the G1 wrist camera on that hand and record observation.images.wrist")
     args = ap.parse_args()
@@ -155,7 +157,8 @@ def main():
           f"from {args.seed0}, {args.fps} fps, into {root}", flush=True)
 
     t0 = time.time()
-    states = run_workers(root, args.repo_id, n_workers, n_each, args.seed0, args.fps)
+    states = run_workers(root, args.repo_id, n_workers, n_each, args.seed0, args.fps,
+                         extra=["--state"] if args.state else ())
     for k, st in enumerate(states):
         if st["rc"]:
             print(f"[w{k}] exited {st['rc']}; last of {st['log']}:", flush=True)

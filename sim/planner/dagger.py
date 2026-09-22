@@ -44,6 +44,7 @@ import mujoco  # noqa: E402
 from a1x_control import Arm  # noqa: E402
 from planner.eval_policy import (GLASS_MARGIN, MOUTH_ABOVE, Judge, apply_action,  # noqa: E402
                                  find_checkpoint, load_policy, observation, wrist_hand)
+from planner.run_pour import EnvState  # noqa: E402
 from planner.perception import SimPourPerception  # noqa: E402
 from planner.pour import POUR_MIN_SECS, Pour, held_by  # noqa: E402
 from planner.run_pour import STORE_H, STORE_W, LeRobotRecorder, open_lerobot  # noqa: E402
@@ -123,13 +124,14 @@ def rollout(policy, pre, post, cfg, model, data, info, arm, renderer, fps, max_s
     """(snapshots, trouble, t). `trouble` is None when the policy poured."""
     policy.reset()
     judge, mon = Judge(model, data, info), Monitor(model, data, info)
+    env = EnvState(model, info)
     n_sub = max(1, int(round((1.0 / fps) / model.opt.timestep)))
     dt = n_sub * model.opt.timestep
     snaps = []
     while data.time < max_secs:
         if not snaps or data.time >= snaps[-1][0] + SNAP - 1e-9:
             snaps.append((float(data.time), snapshot(model, data)))
-        obs = observation(cfg, renderer, data, arm, info, torch)
+        obs = observation(cfg, renderer, data, arm, info, torch, env)
         with torch.no_grad():
             action = post(policy.select_action(pre(obs)))
         apply_action(model, data, arm, np.asarray(action, dtype=np.float64).reshape(-1))

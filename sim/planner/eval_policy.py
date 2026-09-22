@@ -45,7 +45,7 @@ import mujoco  # noqa: E402
 from a1x_control import Arm  # noqa: E402
 from planner.pour import POUR_MIN_SECS, POUR_MIN_TILT  # noqa: E402
 from planner.run_episodes import write_gif  # noqa: E402
-from planner.run_pour import WRIST_KEY, wrist_frame  # noqa: E402
+from planner.run_pour import ENV_KEY, ENV_NAMES, WRIST_KEY, EnvState, wrist_frame  # noqa: E402
 from planner.topdown import SIDE as TD_SIDE, topdown  # noqa: E402
 from pour_scene import GRIP_CMD, WORKSPACE, build, cam_intrinsics  # noqa: E402
 
@@ -126,7 +126,7 @@ def wrist_hand(cfg, hand="left"):
     return hand if WRIST_KEY in cfg.input_features else ""
 
 
-def observation(cfg, renderer, data, arm, info, torch):
+def observation(cfg, renderer, data, arm, info, torch, env=None):
     """Exactly the features the policy config lists as inputs, in dataset units.
 
     Values go in raw: the preprocessor pipeline normalises them. A batch
@@ -170,9 +170,12 @@ def observation(cfg, renderer, data, arm, info, torch):
         elif key == "observation.cam_T":
             obs[key] = torch.from_numpy(
                 np.asarray(info["cam"]["T_cam2base"], np.float32).ravel()).unsqueeze(0)
-        elif key == "observation.environment_state":
-            # the session's camera calibration, intrinsics then extrinsics,
-            # which is the one key ACT reads as an environment state
+        elif key == ENV_KEY and cfg.input_features[key].shape[0] == len(ENV_NAMES):
+            # a state-based policy: the privileged scene state the recorder wrote
+            obs[key] = torch.from_numpy(env(data)).unsqueeze(0)
+        elif key == ENV_KEY:
+            # the first dataset's use of the key: the session's camera
+            # calibration, intrinsics then extrinsics
             obs[key] = torch.from_numpy(np.concatenate([
                 np.asarray(info["cam"]["K"], np.float32).ravel(),
                 np.asarray(info["cam"]["T_cam2base"], np.float32).ravel()])).unsqueeze(0)
@@ -246,12 +249,13 @@ def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wri
     # because planner.dagger imports this module
     from planner.dagger import Monitor
     mon, trouble = Monitor(model, data, info), None
+    env = EnvState(model, info)
     n_sub = max(1, int(round((1.0 / fps) / model.opt.timestep)))
     dt = n_sub * model.opt.timestep
     r = mujoco.Renderer(model, height=H, width=W)
     try:
         while data.time < max_secs:
-            obs = observation(cfg, r, data, arm, info, torch)
+            obs = observation(cfg, r, data, arm, info, torch, env)
             with torch.no_grad():
                 action = post(policy.select_action(pre(obs)))
             apply_action(model, data, arm, np.asarray(action, dtype=np.float64).reshape(-1))
