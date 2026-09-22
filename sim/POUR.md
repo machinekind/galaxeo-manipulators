@@ -466,7 +466,32 @@ ACT underfit on top. With the same data the MLP fits the approach to 1.7
 degrees where ACT reached 5 to 10, at 50,000 steps of lr 1e-5 and barely two
 epochs. The state payload now trains at lr 1e-4 without the variational
 objective. A state-only ACT trains at 25 steps a second on a laptop's MPS,
-faster than the rented 4090 at 16, so this loop runs locally.
+faster than the rented 4090 at 16, so this loop ran locally.
+
+The recordings with velocities (1,105 episodes) trained with the new recipe
+scored 1/20 unseen at 30,000 steps and 3/20 at 100,000, and showed two more
+faults on video. On some scenes the arm never moved: every demonstration
+ended with the bottle put down at a random spot and the arm idling at home
+for a second, which is the same state as the start of an episode, so "stay"
+was a valid label for it. And the random put-down spot has no predictable
+label at all. The recorders now stop at the end of `upright`, before the
+reset. The last recording adds the servo noise (1.5 degrees, labels clean):
+985 episodes without the reset stages, 532,850 frames, 66 % of the seeds.
+
+| recording | steps | unseen 2000 to 2019 | 1000 to 1019 |
+| --- | --- | --- | --- |
+| state, positions only (the box run) | 50,000 | 0/20 | 0/20 |
+| velocities, 14-float scene | 30,000 | 1/20 | 0/20 |
+| velocities, 14-float scene | 100,000 | 3/20 | |
+| reset cut, servo noise | 30,000 | 11/20 | 11/20 |
+| reset cut, servo noise | 100,000 | **14/20** | **11/20** |
+
+Of the 40 first troubles of the last row, 35 are a carried bottle tipped
+beside the glass, 4 a disturbed bottle on the approach, 1 the glass knocked.
+The action side is no longer the floor: with the true state the policy
+reaches the glass on nearly every scene. The image run carries every one of
+these changes: velocities, the reset cut, the noise, the normalisation
+entry, lr 1e-4 without the variational objective, 100,000 steps.
 
 ### DAgger
 
