@@ -22,14 +22,19 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 
 cores_available() {
-    local q p
-    if [ -r /sys/fs/cgroup/cpu.max ]; then
+    local q p n all
+    all=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+    n=""
+    if [ -r /sys/fs/cgroup/cpu.max ]; then                       # cgroup v2
         read -r q p < /sys/fs/cgroup/cpu.max
-        if [ "$q" != max ] && [ "$p" -gt 0 ] 2>/dev/null; then
-            echo $(( q / p )); return
-        fi
+        [ "$q" != max ] && [ "${p:-0}" -gt 0 ] 2>/dev/null && n=$(( q / p ))
+    elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then       # cgroup v1
+        q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us); p=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+        [ "$q" -gt 0 ] 2>/dev/null && [ "${p:-0}" -gt 0 ] 2>/dev/null && n=$(( q / p ))
     fi
-    if command -v nproc >/dev/null 2>&1; then nproc; else sysctl -n hw.ncpu; fi
+    # a quota under two cores is not a box anyone rents for this; trust nproc then
+    if [ -z "$n" ] || [ "$n" -lt 2 ] || [ "$n" -gt "$all" ]; then n=$all; fi
+    echo "$n"
 }
 
 render_check() {
