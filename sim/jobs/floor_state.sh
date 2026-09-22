@@ -12,7 +12,8 @@ set -euo pipefail
 : "${STEPS:=50000}"
 : "${BATCH:=32}"
 : "${CHUNK:=50}"
-: "${LR:=1e-5}"
+: "${LR:=1e-4}"                       # a state-only ACT fits faster than the image recipe's 1e-5
+: "${VAE:=false}"                     # ACT's variational objective; off, the decoder has only the observation to go on
 : "${SAVE_FREQ:=10000}"
 : "${EVAL_N:=20}"                     # episodes per evaluation range
 : "${EVAL_SEEDS:=2000 1000}"          # first seed of each evaluation range
@@ -44,8 +45,14 @@ echo "generation done at $(( $(date +%s) - t0 )) s"
 if [ ! -f "$OUT/checkpoints/last/pretrained_model/config.json" ]; then
     echo "== training ACT, $STEPS steps"
     rm -rf "$OUT"
+    # lerobot's ACT maps no normalisation onto ENV features, so without the
+    # explicit entry the scene state would go in raw (metres, in the
+    # hundredths) beside standardised joints and actions, and be all but
+    # ignored: that is what the first floor check did.
     lerobot-train --policy.type=act --policy.chunk_size="$CHUNK" --policy.n_action_steps="$CHUNK" \
-        --policy.optimizer_lr="$LR" --dataset.repo_id="galaxeo/${RUN_NAME}" --dataset.root="$DATA/merged" \
+        --policy.optimizer_lr="$LR" --policy.use_vae="$VAE" \
+        --policy.normalization_mapping='{"VISUAL":"MEAN_STD","STATE":"MEAN_STD","ACTION":"MEAN_STD","ENV":"MEAN_STD"}' \
+        --dataset.repo_id="galaxeo/${RUN_NAME}" --dataset.root="$DATA/merged" \
         --policy.device=cuda --policy.push_to_hub=false --output_dir="$OUT" --job_name="$RUN_NAME" \
         --steps="$STEPS" --batch_size="$BATCH" --num_workers=8 --save_freq="$SAVE_FREQ" --log_freq=500 \
         --seed=0 --resume=false --wandb.enable=false 2>&1 | tr '\r' '\n' | tee "$LOGS/train.log" | grep -E "step:|Error|Traceback|End of" | tail -30

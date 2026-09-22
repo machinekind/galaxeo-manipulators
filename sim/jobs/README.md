@@ -81,6 +81,11 @@ leaving out the default `RandomAffine`, which would rotate and shift the frame
 and so break the fixed relation between the image and the camera calibration
 each frame carries.
 
+Both training payloads pass an explicit normalisation mapping with an `ENV`
+entry: lerobot's ACT maps none onto `observation.environment_state`, so
+without it a state-based policy's scene input goes in raw (metres, in the
+hundredths) beside standardised joints and actions, and is all but ignored.
+
 | input | |
 | --- | --- |
 | `DATASET_ROOT` | **required**, repository-relative path of the dataset |
@@ -93,6 +98,7 @@ each frame carries.
 | `BATCH` | default 32 |
 | `CHUNK` | `chunk_size` and `n_action_steps`, default 50 |
 | `LR` | default 1e-5 |
+| `VAE` | ACT's variational objective, default true |
 | `SEED` | default 0 |
 | `WORKERS` | dataloader workers, default 4 |
 | `RESUME` | default false |
@@ -144,7 +150,8 @@ pour, the action side is what is short, and no image run will fix it.
 | `RUN_NAME` | default `pour_state_<JOB_ID>`; the dataset lands in `sim/datasets/<RUN_NAME>` |
 | `EPISODES` | successful episodes wanted, default 1000 |
 | `SEED0` | first scene seed, default 10000 |
-| `STEPS`, `BATCH`, `CHUNK`, `LR`, `SAVE_FREQ` | as in `train_pour.sh`; defaults 50000, 32, 50, 1e-5, 10000 |
+| `STEPS`, `BATCH`, `CHUNK`, `LR`, `SAVE_FREQ` | as in `train_pour.sh`; defaults 50000, 32, 50, 1e-4, 10000 |
+| `VAE` | ACT's variational objective, default false here (true in `train_pour.sh`) |
 | `EVAL_N`, `EVAL_SEEDS` | episodes per range and the first seed of each, default 20 and `2000 1000` |
 | `GEN_WORKERS` | generator processes, default the box's cores minus 2 |
 

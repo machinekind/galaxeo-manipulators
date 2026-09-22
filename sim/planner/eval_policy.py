@@ -45,7 +45,7 @@ import mujoco  # noqa: E402
 from a1x_control import Arm  # noqa: E402
 from planner.pour import POUR_MIN_SECS, POUR_MIN_TILT  # noqa: E402
 from planner.run_episodes import write_gif  # noqa: E402
-from planner.run_pour import ENV_KEY, ENV_NAMES, WRIST_KEY, EnvState, wrist_frame  # noqa: E402
+from planner.run_pour import ENV_KEY, ENV_NAMES, WRIST_KEY, EnvState, robot_state, wrist_frame  # noqa: E402
 from planner.topdown import SIDE as TD_SIDE, topdown  # noqa: E402
 from pour_scene import GRIP_CMD, WORKSPACE, build, cam_intrinsics  # noqa: E402
 
@@ -160,10 +160,15 @@ def observation(cfg, renderer, data, arm, info, torch, env=None):
             t = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float() / 255.0
             obs[key] = t.unsqueeze(0)
         elif key == "observation.state":
-            q = data.qpos[arm.qadr]
-            g = abs(float(data.qpos[arm.fadr[0]]))
-            obs[key] = torch.from_numpy(
-                np.concatenate([q, [g]]).astype(np.float32)).unsqueeze(0)
+            n = cfg.input_features[key].shape[0]
+            if n == 13:
+                obs[key] = torch.from_numpy(robot_state(data, arm)).unsqueeze(0)
+            else:
+                # the datasets before the joint velocities were added
+                q = data.qpos[arm.qadr]
+                g = abs(float(data.qpos[arm.fadr[0]]))
+                obs[key] = torch.from_numpy(
+                    np.concatenate([q, [g]]).astype(np.float32)).unsqueeze(0)
         elif key == "observation.cam_K":
             obs[key] = torch.from_numpy(
                 np.asarray(info["cam"]["K"], np.float32).ravel()).unsqueeze(0)
@@ -173,6 +178,9 @@ def observation(cfg, renderer, data, arm, info, torch, env=None):
         elif key == ENV_KEY and cfg.input_features[key].shape[0] == len(ENV_NAMES):
             # a state-based policy: the privileged scene state the recorder wrote
             obs[key] = torch.from_numpy(env(data)).unsqueeze(0)
+        elif key == ENV_KEY and cfg.input_features[key].shape[0] == 21:
+            raise SystemExit("a state policy of the first, 21-float scene state (bottle rotation matrix, "
+                             "glass height): that layout was retired with the joint velocities")
         elif key == ENV_KEY:
             # the first dataset's use of the key: the session's camera
             # calibration, intrinsics then extrinsics

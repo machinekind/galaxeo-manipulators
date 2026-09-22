@@ -14,7 +14,11 @@ dataset (needs the lerobot package: use sim/.venv-lerobot), with the same
 schema `record_a1x.py` writes on the real arm:
 
     action                       (7,) commanded joint targets + gripper, 0 closed .. 0.05 open
-    observation.state            (7,) measured joints + finger position
+    observation.state            (13,) measured joints + finger position + joint velocities.
+                                 The velocities are what tells a 50-step chunk where in
+                                 a ramp (or a settle wait) the arm is: without them the
+                                 same pose has several futures, and a policy fitted to the
+                                 average of them misses by degrees (see POUR.md)
     observation.images.laptop    (240, 320, 3) the webcam, downscaled from its 640x480 render
     observation.images.topdown   (256, 256, 3) that same frame warped onto the table
                                  plane: a 0.7 m square about the workspace, world +y up
@@ -53,18 +57,31 @@ from pour_scene import WORKSPACE, build  # noqa: E402
 STORE_W, STORE_H = 320, 240        # stored size of the raw webcam stream, and of the wrist stream
 WRIST_KEY = "observation.images.wrist"
 ENV_KEY = "observation.environment_state"
-ENV_NAMES = (["bottle_x", "bottle_y", "bottle_z"] + [f"bottle_R{i}{j}" for i in range(3) for j in range(3)]
-             + ["glass_x", "glass_y", "glass_z", "bottle_body_r", "bottle_body_h", "bottle_height",
-                "bottle_neck_r", "glass_r", "glass_h"])
+ENV_NAMES = ["bottle_x", "bottle_y", "bottle_z", "bottle_up_x", "bottle_up_y", "bottle_up_z",
+             "glass_x", "glass_y", "bottle_body_r", "bottle_body_h", "bottle_height",
+             "bottle_neck_r", "glass_r", "glass_h"]
+STATE_NAMES = ([f"arm_joint{i}" for i in range(1, 7)] + ["gripper"] + [f"arm_joint{i}_vel" for i in range(1, 7)])
+
+
+def robot_state(d, arm):
+    """observation.state: the six measured joints, the finger opening and the
+    six joint velocities, as `STATE_NAMES` lists them."""
+    q, g = d.qpos[arm.qadr], abs(float(d.qpos[arm.fadr[0]]))
+    return np.concatenate([q, [g], d.qvel[arm.dadr]]).astype(np.float32)
 
 
 class EnvState:
     """The privileged state a *state-based* policy reads instead of images: the
-    bottle's pose and the glass's position from the simulator, per frame, in the
-    world frame (the arm base is fixed), plus the geometry that decides where
-    the planner grasps and how far it tilts. 21 floats. Nothing a camera would
-    have to infer is left out, so a policy that fails on this input fails on the
-    action side, not the perception side."""
+    bottle's position and its up vector (the third column of its rotation: the
+    tilt without the yaw, which a round bottle does not have), the glass's
+    position on the table, and the geometry that decides where the planner
+    grasps and how far it tilts. 14 floats, all in the world frame (the arm
+    base is fixed). Nothing a camera would have to infer is left out, so a
+    policy that fails on this input fails on the action side, not the
+    perception side. The glass's height and the bottle's yaw were in the first
+    version and dropped: one is constant to 0.1 mm, which mean-std
+    normalisation turns into noise, the other varies by the full circle and
+    means nothing."""
 
     def __init__(self, model, info):
         self.bottle = model.body(info["bottle"]["name"]).id
@@ -73,7 +90,8 @@ class EnvState:
         self.geom = np.array([b["body_r"], b["body_h"], b["height"], b["neck_r"], g["r"], g["h"]], np.float32)
 
     def __call__(self, d):
-        return np.concatenate([d.xpos[self.bottle], d.xmat[self.bottle], d.xpos[self.glass],
+        R = d.xmat[self.bottle]
+        return np.concatenate([d.xpos[self.bottle], R[2::3], d.xpos[self.glass][:2],
                                self.geom]).astype(np.float32)
 
 
@@ -130,10 +148,8 @@ class StateRecorder:
         if self.n > int(d.time * self.fps):
             return
         self.n += 1
-        q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
-        act = clean_action(pp, self.arm)
-        self.ds.add_frame({"action": act.astype(np.float32),
-                           "observation.state": np.concatenate([q, [g]]).astype(np.float32),
+        self.ds.add_frame({"action": clean_action(pp, self.arm).astype(np.float32),
+                           "observation.state": robot_state(d, self.arm),
                            ENV_KEY: self.env(d), "task": TASK})
 
 
@@ -167,11 +183,10 @@ class LeRobotRecorder:
         td = topdown(full, self.K3, self.T_cam2world, self.centre, self.td_side, self.td_n)
         img = cv2.resize(full, self.wh, interpolation=cv2.INTER_AREA)
         extra = {WRIST_KEY: wrist_frame(self.r, d, self.info, self.wh)} if self.info.get("wrist") else {}
-        q, g = d.qpos[self.arm.qadr], abs(float(d.qpos[self.arm.fadr[0]]))
         act = clean_action(pp, self.arm)
         self.ds.add_frame({**extra,
                            "action": act.astype(np.float32),
-                           "observation.state": np.concatenate([q, [g]]).astype(np.float32),
+                           "observation.state": robot_state(d, self.arm),
                            "observation.images.laptop": img,
                            "observation.images.topdown": td,
                            "observation.cam_K": self.K, "observation.cam_T": self.T,
@@ -184,7 +199,7 @@ def open_state_lerobot(root, repo_id, fps):
     names7 = [f"arm_joint{i}" for i in range(1, 7)] + ["gripper"]
     features = {
         "action": {"dtype": "float32", "shape": (7,), "names": names7},
-        "observation.state": {"dtype": "float32", "shape": (7,), "names": names7},
+        "observation.state": {"dtype": "float32", "shape": (len(STATE_NAMES),), "names": STATE_NAMES},
         ENV_KEY: {"dtype": "float32", "shape": (len(ENV_NAMES),), "names": ENV_NAMES},
     }
     if os.path.exists(root):
@@ -205,7 +220,7 @@ def open_lerobot(root, repo_id, fps, W, H, td_n=TD_N, wrist=None):
     hwc = ["height", "width", "channels"]
     features = {
         "action": {"dtype": "float32", "shape": (7,), "names": names7},
-        "observation.state": {"dtype": "float32", "shape": (7,), "names": names7},
+        "observation.state": {"dtype": "float32", "shape": (len(STATE_NAMES),), "names": STATE_NAMES},
         "observation.images.laptop": {"dtype": "video", "shape": (H, W, 3), "names": hwc},
         "observation.images.topdown": {"dtype": "video", "shape": (td_n, td_n, 3), "names": hwc},
         "observation.cam_K": {"dtype": "float32", "shape": (9,), "names": None},

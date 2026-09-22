@@ -14,6 +14,7 @@ export HF_TOKEN="${HF_TOKEN:-}"    # only needed when DATASET_REPO is private
 : "${BATCH:=32}"
 : "${CHUNK:=50}"                       # chunk_size and n_action_steps
 : "${LR:=1e-5}"
+: "${VAE:=true}"                  # ACT's variational objective
 : "${SEED:=0}"
 : "${WORKERS:=4}"
 : "${RESUME:=false}"
@@ -95,7 +96,8 @@ else
         echo "warm start from $INIT_FROM"
     else
         POLICY=(--policy.type=act --policy.chunk_size="$CHUNK" --policy.n_action_steps="$CHUNK"
-                --policy.optimizer_lr="$LR")
+                --policy.optimizer_lr="$LR" --policy.use_vae="$VAE"
+                --policy.normalization_mapping='{"VISUAL":"MEAN_STD","STATE":"MEAN_STD","ACTION":"MEAN_STD","ENV":"MEAN_STD"}')
     fi
     ARGS=(
         "${POLICY[@]}"

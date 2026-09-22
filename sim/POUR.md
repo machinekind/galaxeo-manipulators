@@ -417,6 +417,57 @@ for ACT to learn that phase from either camera. The DAgger loop below addresses
 this failure directly. The recorder and the collector now carry the wrist
 stream, so DAgger corrections record it too.
 
+### The state-based floor check
+
+Before a bigger image run, a check of the action side alone: the same
+generator records the true scene state instead of images, per frame, and ACT
+is trained on that. If a policy that is handed the bottle pose and the glass
+position cannot pour, no camera will fix it. `sim/jobs/floor_state.sh` does
+the whole thing on one machine: 1,133 state episodes from 1,280 seeds (the
+planner poured on 88 %) in 94 minutes on 40 workers, 848,477 frames; ACT at
+chunk 50, batch 32, lr 1e-5 for 50,000 steps (52 minutes; the L1 loss
+reached 0.146 and was still falling); evaluation with a video of every
+episode. The whole run was one rental of about 3 hours and 1.50 USD.
+
+Closed loop it scores **0/20 on unseen seeds 2000 to 2019 and 0/20 on the
+training range 1000 to 1019**: 30 of the 40 episodes disturb the bottle on
+the approach, at a median of 3 s, six never touch it, four knock the glass.
+The same failure as every image run, with perfect perception.
+
+Three things were wrong, found offline on the pulled checkpoint and dataset.
+
+The policy did not read the scene. Moving the bottle 10 cm in its input
+moved its predicted chunk by 2.6 degrees per joint, where the recorded
+approaches differ by 10 to 29 degrees between scenes; it was fitting an
+average approach. lerobot's ACT maps no normalisation onto
+`observation.environment_state`, so the scene state went in raw, metres in
+the hundredths, beside standardised joints and actions. The payloads now pass
+the mapping with an `ENV` entry. Two of the 21 floats were junk besides: the
+glass's height, constant to 0.1 mm, which standardising turns into noise, and
+the bottle's yaw inside its rotation matrix, which a round bottle does not
+have. The scene state is now 14 floats: bottle position and up vector, glass
+position, six sizes.
+
+The demonstrations were not a function of the state. On its own training
+frames the checkpoint's first predicted step was off by 2.2 degrees per joint
+and its chunk by 5.7, where holding the current joints is off by 0.7; and a
+plain three-layer MLP given the full state, trained on the same frames, gets
+no further than 0.8 and 4.5, with no gap between training and held-out
+frames. Nearest-neighbour frames from different episodes with near-identical
+joints and scene have futures 3.7 degrees apart. The state held joint
+positions only: an arm standing still in a settle wait looks like an arm at
+the end of a ramp, and the phase within a ramp is invisible. With the six
+joint velocities added the MLP's chunk error drops from 4.6 to 1.7 degrees
+(from 1.7 to 1.1 on the first six seconds, the approach); the last command or
+the episode time buy the same. `observation.state` is now 13 floats, the
+velocities included. Every dataset and policy before this one lacked them.
+
+ACT underfit on top. With the same data the MLP fits the approach to 1.7
+degrees where ACT reached 5 to 10, at 50,000 steps of lr 1e-5 and barely two
+epochs. The state payload now trains at lr 1e-4 without the variational
+objective. A state-only ACT trains at 25 steps a second on a laptop's MPS,
+faster than the rented 4090 at 16, so this loop runs locally.
+
 ### DAgger
 
 The planner is an open-loop timed script, so relabelling the policy's own
