@@ -35,8 +35,13 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+# The workers and the merge need lerobot. On the laptop that is the second venv;
+# on a training box the one venv the dispatcher synced has everything, and this
+# script already runs under it.
 LEROBOT_PY = os.path.join(HERE, ".venv-lerobot", "bin", "python")
-LEROBOT_EDIT = os.path.join(HERE, ".venv-lerobot", "bin", "lerobot-edit-dataset")
+if not os.path.exists(LEROBOT_PY):
+    LEROBOT_PY = sys.executable
+LEROBOT_EDIT = os.path.join(os.path.dirname(LEROBOT_PY), "lerobot-edit-dataset")
 RUN_POUR = os.path.join(HERE, "planner", "run_pour.py")
 OVER = 1.25                       # seeds drawn per wanted episode (~85 % of seeds succeed)
 OUTCOME = re.compile(r"^seed\s+(\d+)\s+(SUCCESS|FAIL)")
