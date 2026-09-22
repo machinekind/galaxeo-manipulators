@@ -93,7 +93,7 @@ def find_checkpoint(path):
     raise SystemExit(f"no lerobot checkpoint (a directory with config.json) under {path}")
 
 
-def load_policy(ckpt, device, ensemble=None):
+def load_policy(ckpt, device, ensemble=None, n_action_steps=None):
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
     from lerobot.configs.policies import PreTrainedConfig
 
@@ -105,6 +105,10 @@ def load_policy(ckpt, device, ensemble=None):
         # overlapping predictions, which smooths the jitter of one-shot chunks
         cfg.temporal_ensemble_coeff = float(ensemble)
         cfg.n_action_steps = 1
+    elif n_action_steps is not None and cfg.type == "act":
+        # execute only the first n steps of every predicted chunk, then look
+        # again: the chunk length the policy was trained with stays
+        cfg.n_action_steps = int(n_action_steps)
     policy = get_policy_class(cfg.type).from_pretrained(ckpt, config=cfg)
     policy.to(device)
     policy.eval()
@@ -310,12 +314,14 @@ def main():
     ap.add_argument("--device", default="cpu", help="cpu | cuda | mps")
     ap.add_argument("--ensemble", type=float, default=None,
                     help="ACT temporal ensembling coefficient (e.g. 0.01); off by default")
+    ap.add_argument("--n-action-steps", type=int, default=None,
+                    help="execute only this many steps of each predicted chunk before predicting again")
     args = ap.parse_args()
 
     import torch
 
     ckpt = find_checkpoint(args.ckpt)
-    policy, pre, post, cfg = load_policy(ckpt, args.device, args.ensemble)
+    policy, pre, post, cfg = load_policy(ckpt, args.device, args.ensemble, args.n_action_steps)
     print(f"{cfg.type} checkpoint {os.path.basename(os.path.dirname(ckpt))}, "
           f"chunk {cfg.chunk_size}, n_action_steps {cfg.n_action_steps}, on {args.device}")
     print("inputs: " + ", ".join(cfg.input_features))

@@ -135,6 +135,14 @@ class PourRecorder(Recorder):
 TASK = "pick up the bottle and pour it into the glass"
 
 
+# The stages a recording keeps. The planner goes on to put the bottle down
+# somewhere new and return home, which is the episode's reset, not the task:
+# the put-down spot is random, so those frames have no predictable label, and
+# the second of idling at home with the bottle standing on the table looks
+# exactly like the start of an episode, which taught a policy to stay put.
+RECORDED_STAGES = ("pick", "lift", "pour", "upright")
+
+
 class StateRecorder:
     """Streams one episode's actions, joint states and privileged scene state at
     `fps`, rendering nothing. What `--state` datasets are made of."""
@@ -145,7 +153,7 @@ class StateRecorder:
 
     def __call__(self, pp):
         d = pp.d
-        if self.n > int(d.time * self.fps):
+        if pp.label not in RECORDED_STAGES or self.n > int(d.time * self.fps):
             return
         self.n += 1
         self.ds.add_frame({"action": clean_action(pp, self.arm).astype(np.float32),
@@ -175,7 +183,7 @@ class LeRobotRecorder:
 
     def __call__(self, pp):
         d = pp.d
-        if self.n > int(d.time * self.fps):
+        if pp.label not in RECORDED_STAGES or self.n > int(d.time * self.fps):
             return
         self.n += 1
         self.r.update_scene(d, camera="laptop_cam")
