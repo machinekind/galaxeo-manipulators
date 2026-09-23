@@ -493,6 +493,39 @@ reaches the glass on nearly every scene. The image run carries every one of
 these changes: velocities, the reset cut, the noise, the normalisation
 entry, lr 1e-4 without the variational objective, 100,000 steps.
 
+### The image run with every change
+
+`sim/jobs/pour_full.sh` on one rented box (a 32-core RTX 4090, 0.47 USD an
+hour, 10.5 hours, about 5 USD): 2,759 episodes from 4,800 seeds with the
+laptop camera, the top-down map and the wrist camera, every randomisation
+stream on, the grasp drawn among the feasible candidates and the servo
+noise on (the planner poured on 57 % of the seeds), the reset stages cut,
+the joint velocities in the state. 1,493,434 frames, 11.9 GB, on the Hub as
+`marcinwysocki/a1x_pour_full_v1`. ACT at chunk 50, batch 32, lr 1e-4 for
+the transformer, no variational objective, 100,000 steps; the L1 loss
+reached 0.063, against 0.089 to 0.101 for the three earlier image runs.
+The weights are `marcinwysocki/a1x_pour_act_full_v1`.
+
+Closed loop it scores **3/20 on unseen seeds 2000 to 2019 and 2/20 on
+1000 to 1019**. The redraw checkpoint, re-evaluated on the same box and
+the same seeds as the control, scores 0/20 and 2/20. The failure mix is
+what moved. On the unseen seeds 11 of the 17 failures grasp, lift and
+carry the bottle and tip it beside the glass, 6 disturb it on the
+approach; the control never touches the bottle on 6 and disturbs it on
+13. So the camera policy now gets to the glass on most scenes, where the
+control did not get to the bottle, and misses by the last centimetres.
+The state policy trained the same way scores 14/20 on those seeds, so
+that gap is perception, not action. It is the failure the DAgger round
+is built for: the planner takes over from exactly those states.
+
+| policy | seeds 2000 to 2019 | 1000 to 1019 | reaches the glass, unseen |
+| --- | --- | --- | --- |
+| first run (laptop frame + calibration) | 0/20 | 1/20 | 0 |
+| redraw (frame + map) | 0/20 | 3/20 (2/20 rerun) | 4 |
+| wrist camera added, 360 demos | 0/20 | 0/20 | 3 |
+| this run | **3/20** | **2/20** | 14 |
+| state policy, same recipe | 14/20 | 11/20 | 19 |
+
 ### DAgger
 
 The planner is an open-loop timed script, so relabelling the policy's own
