@@ -23,7 +23,9 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 
 cores_available() {
     local q p n all
-    all=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+    # not plain nproc: it answers OMP_NUM_THREADS when that is set, and this
+    # file sets it to 1 (that once pinned a whole training run to one core)
+    all=$(nproc --all 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)
     n=""
     if [ -r /sys/fs/cgroup/cpu.max ]; then                       # cgroup v2
         read -r q p < /sys/fs/cgroup/cpu.max
