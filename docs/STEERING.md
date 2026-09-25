@@ -124,6 +124,11 @@ python so101_bridge.py --dry-run --signs '+-+++'
 python so101_bridge.py --grip          # streams until Ctrl-C
 ```
 
+When the bridge stops, for any reason, it keeps streaming the pose it
+measured at that moment. A powered arm holds there, and a joint that was
+pushing into a stop is relieved. Press Ctrl-C a second time to exit. If the
+24 V supply is gone nothing holds the arm; the arm has no brakes.
+
 The A1X starts from wherever it is; that pose and the leader's pose at
 start are the zero of the relative mapping. If the arm is folded at its
 rest pose, J2 and J3 sit on a limit and can only move one way from there;
@@ -134,7 +139,8 @@ to have the bridge unfold it (slowly, `--home-rate` deg/s, keep clear).
 | --- | --- | --- |
 | `--mode joint` | joint | 1:1 joint mapping. Preferred — exact and singularity-free |
 | `--mode ik` | | FK the SO-101 tip, scale into the A1X workspace, solve A1X IK |
-| `--follow-rate` | 45 | deg/s slew cap on the follower. The SO-101 can be flicked; the A1X must not follow a flick |
+| `--follow-rate` | 45 | deg/s velocity cap on the follower. The SO-101 can be flicked; the A1X must not follow a flick |
+| `--follow-accel` | 60 | deg/s² acceleration cap. The follower ramps up, cruises, ramps down. This is what keeps current spikes off the supply |
 | `--limit-margin` | 2 | deg kept inside each joint limit so a target never rests on a hard stop |
 | `--max-effort` | 20 | stop streaming when a joint stalls or collides (normal load ~3, saturation 50) |
 | `--gain` | 1.0 | motion gain in joint mode; < 1 for fine work |

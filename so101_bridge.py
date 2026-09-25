@@ -43,13 +43,19 @@ TRANSPORT
 
 SAFETY
     * --dry-run prints targets and transmits nothing. Use it first.
-    * The A1X follower is slew-limited (--follow-rate, 45 deg/s: the SO-101
-      can be flicked 100 deg in half a second, the A1X must not follow that)
-      and clamped --limit-margin inside the URDF limits, widened to wherever
-      it started, so it never drives into a mechanical stop. Targets are
-      relative to its start pose.
+    * The A1X follower runs a velocity- and acceleration-limited profile
+      (--follow-rate deg/s, --follow-accel deg/s^2) toward the leader's pose.
+      The SO-101 can be flicked 100 deg in half a second; the A1X ramps up,
+      caps, and ramps down without overshoot. A fast swing landing on a stop
+      tripped the 24 V supply once; the ramp is what keeps current spikes out.
+    * Targets are clamped --limit-margin inside the URDF limits, widened to
+      wherever the arm started, so they never rest on a mechanical stop.
     * --max-effort: any joint above this |effort| (normal gravity load is
-      ~3, saturation 50) means a stall or a collision; the stream stops.
+      ~3, saturation 50) means a stall or a collision; following stops.
+    * On EVERY stop (Ctrl-C, stall, timer) the bridge keeps streaming the
+      pose it measured at that moment, so a powered arm holds and a stalled
+      joint is relieved. Ctrl-C again exits. If feedback was lost it waits
+      for it to return, then holds there. With the 24 V gone nothing holds.
     * The gripper closes force-limited: if |effort| exceeds --grip-force the
       target freezes, so it grips rather than crushes.
     * Aborts on stale CAN feedback or on losing the SO-101.
@@ -306,7 +312,10 @@ def main():
     ap.add_argument("--kd", type=float, default=1.0)
     ap.add_argument("--rate", type=float, default=200.0, help="CAN stream Hz")
     ap.add_argument("--solve-rate", type=float, default=50.0, help="IK solve Hz")
-    ap.add_argument("--follow-rate", type=float, default=45.0, help="deg/s slew cap")
+    ap.add_argument("--follow-rate", type=float, default=45.0, help="deg/s velocity cap")
+    ap.add_argument("--follow-accel", type=float, default=60.0,
+                    help="deg/s^2 acceleration cap, so the follower ramps instead "
+                         "of jerking; 60 reaches 45 deg/s in 0.75 s")
     ap.add_argument("--limit-margin", type=float, default=2.0,
                     help="deg kept inside each URDF limit, so a target never rests "
                          "on a hard stop (measured: a joint parked on its stop pulls "
@@ -439,7 +448,8 @@ def main():
     goal = q_a0.copy()          # latest retargeted pose, updated at solve rate
     last_can = time.time()      # target is interpolated toward goal at CAN rate
     grip_t = a.grip_open; grip_frozen = False
-    slew = math.radians(a.follow_rate)
+    vmax = math.radians(a.follow_rate); amax = math.radians(a.follow_accel)
+    vel = np.zeros(N)                         # profile velocity per joint, rad/s
     print(f"\n  streaming {'until Ctrl-C' if a.secs <= 0 else f'{a.secs:g}s'} -- MOVE THE SO-101 BY HAND.\n")
     print(f"  {'t':>5}  {'A1X target (deg)':<38} {'tip err':>8} {'grip':>6}")
     signal.signal(signal.SIGINT, lambda *_: _stop.__setitem__("flag", True))
@@ -512,8 +522,14 @@ def main():
             # -- a 20 ms staircase that a stiff position loop turns into
             # visible jitter.
             dt_can = min(0.05, now - last_can); last_can = now
-            step = slew * dt_can
-            target += np.clip(goal - target, -step, step)
+            # Velocity- and acceleration-limited profile per joint: aim for
+            # the speed that can still brake to a stop at the goal
+            # (v = sqrt(2 a |err|)), cap it, then let it change by at most
+            # amax*dt. Ramps up, cruises, ramps down, no overshoot.
+            err = goal - target
+            v_want = np.clip(np.sign(err) * np.sqrt(2.0 * amax * np.abs(err)), -vmax, vmax)
+            vel = np.clip(v_want, vel - amax * dt_can, vel + amax * dt_can)
+            target += vel * dt_can
             if not a.dry_run:
                 arm.send_arm(list(target), a.kp, a.kd)
                 if a.grip: arm.send_grip(grip_t, a.grip_kp, 1.0)
@@ -527,11 +543,47 @@ def main():
         time.sleep(0.0005)
 
     print(f"\n  {reason}   tx={n_tx}  A1X rx={arm.n}")
-    arm.drain()
-    print(f"  A1X final (deg): {np.round(np.degrees(arm.q[:N]),1)}")
-    lead.close(); arm.close()
-    print("  stopped -- a powered A1X re-latches where it is")
+    lead.close()
+    hold(arm, a)
+    arm.close()
     return 0
+
+
+def hold(arm, a):
+    """Stream the measured pose until a second Ctrl-C.
+
+    Streaming nothing leaves a powered A1X latched on its LAST TARGET, which
+    after a stall is a point past the stop; it keeps pushing. Streaming the
+    measured pose moves the target to where the arm is: the push stops and
+    the arm holds. If feedback is gone (power lost, cable), wait for it to
+    come back and hold wherever the arm then is; a re-powered arm boots
+    holding, and this pins it before anything else can move it.
+    """
+    _stop["flag"] = False
+    if a.dry_run:
+        arm.drain()
+        if arm.q is not None:
+            print(f"  A1X final (deg): {np.round(np.degrees(arm.q[:N]),1)}")
+        return
+    print("  HOLDING at the measured pose. Ctrl-C again to exit "
+          "(a powered A1X keeps holding on its own).")
+    pose = None; warned = False; nxt = time.time()
+    while not _stop["flag"]:
+        arm.drain(); now = time.time()
+        fresh = now - arm.t < 0.15
+        if not fresh:
+            pose = None
+            if not warned:
+                print("  no feedback: waiting for the arm to come back ..."); warned = True
+        elif pose is None:
+            pose = list(arm.q[:N])
+            print(f"  holding (deg): {np.round(np.degrees(pose),1)}")
+            warned = False
+        if pose is not None and now >= nxt:
+            nxt = now + 1.0 / a.rate
+            arm.send_arm(pose, a.kp, a.kd)
+        time.sleep(0.0005)
+    print("  released")
 
 
 if __name__ == "__main__":
