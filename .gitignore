@@ -39,3 +39,4 @@ sim/runs/
 .gpu-ops
 sim/datasets/
 sim/resume/
+.venv-mac/

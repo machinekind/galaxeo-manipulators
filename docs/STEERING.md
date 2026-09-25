@@ -14,6 +14,7 @@ isn't any.
 | [2. Hand-guide with an SO-101](#2-hand-guide-with-an-so-101) | + an SO-101 leader | a person driving the arm by hand |
 | [3. ROS 2 driver](#3-ros-2-driver) | + Docker | `/hdas/*` topics, RViz, your own nodes |
 | [4. Script it over raw CAN](#4-script-it-over-raw-can) | Python 3 only | ~40 lines to a moving arm |
+| [5. On-screen jog](#5-on-screen-jog) | Python 3, macOS (libusb) or Linux | hold a key, a joint moves |
 
 ---
 
@@ -258,6 +259,55 @@ Three things that are not optional:
 
 An uncommanded arm holds where it is and does not drift, so stopping your
 sender is safe — it does not fall and does not snap back to an old pose.
+
+---
+
+## 5. On-screen jog
+
+`jog_a1x.py` is a small Tk window: hold a key or a button and one joint moves
+at the speed on the slider. It is the only path here that runs on **macOS**.
+
+```bash
+brew install libusb && pip install pyusb        # macOS
+pip install python-can                          # Linux (SocketCAN backend)
+python jog_a1x.py --check        # read-only: Hz, pose, released or not
+python jog_a1x.py --dry-run      # the window, transmits nothing
+python jog_a1x.py                # ARM starts streaming; space disarms
+```
+
+Keys: `q/a` J1, `w/s` J2, `e/d` J3, `r/f` J4, `t/g` J5, `y/h` J6, `o/c`
+gripper, `space` stop. The setpoint is seeded from the measured pose on ARM
+and only moves at the slider's deg/s, so nothing jumps; stale feedback disarms
+it; targets are clamped to the limits in [HARDWARE.md](HARDWARE.md). The
+Enable button sends FF 1 → 5 → 6 with the setpoint pinned throughout and is
+only for an arm that reports but ignores the jog.
+
+The gripper's setpoint cannot be read back, so its first key press starts it
+from the open position (`--grip-start`). Closing stops above `--grip-force`.
+
+### macOS: the adapter without a kernel
+
+macOS has no SocketCAN. The freeware PCBUSB library (mac-can.com) opens the
+XCAN dongles and even reads their firmware version, but **never receives a
+frame from them** — tested on two units, every timing, listen-only and active.
+So `xcan_usb.py` is a userspace driver: it speaks the uCAN protocol from the
+Linux kernel's `peak_usb` driver directly over libusb. Command and record
+layouts are transcribed from `drivers/net/can/usb/peak_usb/pcan_usb_fd.c` and
+`include/linux/can/dev/peak_canfd.h`.
+
+```bash
+python xcan_usb.py --normal      # standalone: fw info, then 0x052 at ~200 Hz
+```
+
+`jog_a1x.py` uses it by default on macOS (`--iface xcan`, or `xcan:<usb
+address>` to pin one of two dongles; with two plugged in it picks the one that
+hears traffic). Two things learned on the way:
+
+* In **listen-only** mode the adapter does not ACK, so the arm retransmits
+  every frame back-to-back and 0x052 appears at ~6 kHz with a repeating
+  payload. Normal mode (ACK only, nothing sent) gives the true 200 Hz.
+* The dongle is a **full-speed** USB device: command packets go out in
+  64-byte pieces, as the kernel driver does.
 
 ---
 

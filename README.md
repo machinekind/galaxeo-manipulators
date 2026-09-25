@@ -76,6 +76,8 @@ No ROS, no vendor binaries, Python 3 and a Linux kernel with SocketCAN.
 | `record_a1x.py` | the same loop, recording a LeRobot v3 dataset with cameras |
 | `kinematics.py` | URDF serial-chain FK / Jacobian / damped-least-squares IK in numpy |
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
+| `jog_a1x.py` | on-screen jog, one joint per key. The only tool that runs on macOS |
+| `xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
 | `can_up.sh` | bring the arm's adapter up as `can0` at the right timings |
 | `ros2.sh` | build / shell / run against the container |
