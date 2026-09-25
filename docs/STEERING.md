@@ -302,13 +302,13 @@ and prints the `--home` value for next time.
 macOS has no SocketCAN. The freeware PCBUSB library (mac-can.com) opens the
 XCAN dongles and even reads their firmware version, but **never receives a
 frame from them** — tested on two units, every timing, listen-only and active.
-So `xcan_usb.py` is a userspace driver: it speaks the uCAN protocol from the
+So `galaxeo/xcan_usb.py` is a userspace driver: it speaks the uCAN protocol from the
 Linux kernel's `peak_usb` driver directly over libusb. Command and record
 layouts are transcribed from `drivers/net/can/usb/peak_usb/pcan_usb_fd.c` and
 `include/linux/can/dev/peak_canfd.h`.
 
 ```bash
-python xcan_usb.py --normal      # standalone: fw info, then 0x052 at ~200 Hz
+python -m galaxeo.xcan_usb --normal   # standalone: fw info, then 0x052 at ~200 Hz
 ```
 
 `jog_a1x.py` uses it by default on macOS (`--iface xcan`, or `xcan:<usb

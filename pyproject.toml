@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "galaxeo"
+version = "0.1.0"
+description = "Galaxea A1X over CAN-FD: protocol encoders/decoder and CAN transports (SocketCAN, XCAN on macOS, python-can)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# XCAN / PCAN-USB FD dongle on macOS through the userspace driver (also: brew install libusb).
+xcan = ["pyusb>=1.2"]
+# python-can transports: PCAN-Basic on Windows, virtual:x loopback, any <interface>:<channel>.
+pcan = ["python-can>=4"]
+test = ["pytest>=7"]
+
+[tool.setuptools]
+# Only the package; the rest of the repo (ROS 2 workspace, sim, scripts) is not installed.
+packages = ["galaxeo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -45,12 +45,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kinematics import Chain, ik as solve_ik
+from galaxeo import protocol
+from galaxeo.protocol import CMD_ID, FB_ID, FB_LEN, FF_ID, GRIP_ID
 
-N = 6
-CMD_ID, GRIP_ID, FB_ID = 0x050, 0x051, 0x052
-S_POS, S_VEL, S_EFF = 4700.0, 750.0, 600.0
-FIELDS = ((-6.5,6.5,4700.0), (-40.0,40.0,750.0), (0.0,500.0,60.0),
-          (0.0,200.0,150.0), (-50.0,50.0,600.0))
+N = protocol.N_JOINTS
 A1X_JOINTS = [f"arm_joint{i}" for i in range(1, 7)]
 SO_ARM = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 # SO-101 joint -> A1X joint index. arm_joint5 (index 4) is deliberately absent.
@@ -60,29 +58,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 A1X_URDF = os.path.join(HERE, "ros2_ws/src/galaxea_a1xy_description/urdf/a1x.urdf")
 SO_URDF  = os.path.join(HERE, "so101/so101_new_calib.urdf")
 _stop = {"flag": False}
-
-
-def encode(p, v, kp, kd, tff):
-    out = bytearray(60)
-    for j in range(N):
-        for k, vals in enumerate((p, v, kp, kd, tff)):
-            lo, hi, sc = FIELDS[k]
-            x = lo if vals[j] < lo else (hi if vals[j] > hi else vals[j])
-            raw = max(-32768, min(32767, int(x * sc)))
-            o = j*10 + k*2
-            out[o] = (raw >> 8) & 0xFF; out[o+1] = raw & 0xFF
-    return bytes(out)
-
-
-def encode_grip(p, v, kp, kd, tff):
-    """10-byte 0x051: one group, same five fields and scales as an arm joint."""
-    out = bytearray(10)
-    for k, val in enumerate((p, v, kp, kd, tff)):
-        lo, hi, sc = FIELDS[k]
-        x = lo if val < lo else (hi if val > hi else val)
-        raw = max(-32768, min(32767, int(x * sc)))
-        out[k*2] = (raw >> 8) & 0xFF; out[k*2+1] = raw & 0xFF
-    return bytes(out)
 
 
 class A1X:
@@ -107,9 +82,9 @@ class A1X:
             except OSError as ex:            # link went down mid-run
                 raise RuntimeError(f"{self.iface}: {ex}. Run ./can_up.sh") from None
             if (struct.unpack("=I", b[:4])[0] & 0x1FFFFFFF) != FB_ID: continue
-            r = struct.unpack(">21h", b[8:8+42])
-            self.q = [r[g*3]/S_POS for g in range(7)]
-            self.e = [r[g*3+2]/S_EFF for g in range(7)]
+            if b[4] != FB_LEN: continue
+            fb = protocol.decode_feedback(b[8:8+FB_LEN])
+            self.q, self.e = list(fb.pos), list(fb.eff)
             self.t = time.time(); self.n += 1; got = True
         return got
 
@@ -131,15 +106,15 @@ class A1X:
         torque (effort 50.0) because it chased a stale internal target. So
         p_des = q is streamed before, during and after every code.
         """
-        for code in (1, 5, 6):
+        for code in protocol.ENABLE_SEQUENCE:
             t0 = time.time()
             while time.time() - t0 < 0.3:
                 self.drain()
                 if self.q is not None:
                     self.send_arm(self.q[:N], kp, kd)
                 time.sleep(0.005)
-            self.s.send(struct.pack("=IBBBB", 0x053, 1, 0, 0, 0)
-                        + bytes([code]).ljust(8, b"\x00"))
+            self.s.send(struct.pack("=IBBBB", FF_ID, 1, 0, 0, 0)
+                        + protocol.encode_ff(code).ljust(8, b"\x00"))
         t0 = time.time()
         while time.time() - t0 < 0.3:
             self.drain()
@@ -227,12 +202,12 @@ class A1X:
         return False
 
     def send_arm(self, p, kp, kd):
-        self.s.send(struct.pack("=IBBBB", CMD_ID, 60, 0x01, 0, 0)
-                    + encode(p, [0.0]*N, [kp]*N, [kd]*N, [0.0]*N).ljust(64, b"\x00"))
+        self.s.send(struct.pack("=IBBBB", CMD_ID, protocol.CMD_LEN, 0x01, 0, 0)
+                    + protocol.encode_arm(p, kp, kd).ljust(64, b"\x00"))
 
     def send_grip(self, p, kp, kd):
-        self.s.send(struct.pack("=IBBBB", GRIP_ID, 10, 0x01, 0, 0)
-                    + encode_grip(p, 0.0, kp, kd, 0.0).ljust(64, b"\x00"))
+        self.s.send(struct.pack("=IBBBB", GRIP_ID, protocol.GRIP_LEN, 0x01, 0, 0)
+                    + protocol.encode_gripper(p, kp, kd).ljust(64, b"\x00"))
 
 
 class SO101:
@@ -348,6 +323,8 @@ def main():
     ap.add_argument("--allow-missing", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="transmit nothing")
     a = ap.parse_args()
+    if a.kp <= 0 or a.grip_kp <= 0:
+        sys.exit("--kp and --grip-kp must be > 0 (kp 0 leaves the arm deaf, diag/REPORT.md)")
 
     signs = [1.0 if c != "-" else -1.0 for c in a.signs.ljust(5, "+")[:5]]
     a1x_chain = Chain(A1X_URDF, A1X_JOINTS)

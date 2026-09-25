@@ -77,12 +77,45 @@ No ROS, no vendor binaries, Python 3 and a Linux kernel with SocketCAN.
 | `kinematics.py` | URDF serial-chain FK / Jacobian / damped-least-squares IK in numpy |
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
 | `jog_a1x.py` | on-screen jog, one joint per key. The only tool that runs on macOS |
-| `xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
+| `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package) |
+| `galaxeo/xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
 | `can_up.sh` | bring the arm's adapter up as `can0` at the right timings |
 | `ros2.sh` | build / shell / run against the container |
 | `diag/` | the probe scripts behind [`diag/REPORT.md`](diag/REPORT.md) |
 | `ros2_ws/*.py` | one-shot probes from the reverse-engineering work, kept as worked examples |
+
+### Python package — `galaxeo/`
+
+The protocol and the CAN transports as an installable package, so other
+projects drive the arm with the same encoders as the tools here:
+
+```bash
+pip install -e .                 # stdlib only
+pip install -e ".[xcan]"         # + pyusb, for the XCAN dongle on macOS (brew install libusb)
+pip install -e ".[pcan]"         # + python-can: PCAN on Windows, virtual:x loopback
+```
+
+```python
+from galaxeo import protocol, bus
+
+b = bus.open_bus("can0")         # or "xcan", "xcan:6", "PCAN_USBBUS1", "virtual:x"
+fb = protocol.decode_feedback(b.recv(0.1).data)         # when it is a 0x052 frame
+b.send(protocol.CMD_ID, protocol.encode_arm(fb.pos[:6], kp=20.0, kd=1.0))
+```
+
+* `galaxeo.protocol` - CAN ids (`0x050`-`0x055`; the vendor heartbeat `0x023`
+  is documented and never sent), field scales and clamps, `encode_arm` /
+  `encode_gripper` / `encode_ff`, `decode_feedback`, URDF limits,
+  `ENABLE_SEQUENCE`. `encode_arm` refuses `kp <= 0`.
+* `galaxeo.bus` - `open_bus(iface)`: raw SocketCAN (stdlib), the XCAN dongle
+  (macOS), python-can. Frames go out with their true length (10 bytes on
+  `0x051`); the 1-byte `0x053` goes as classic CAN with `fd=False`.
+* `python -m galaxeo.xcan_usb` - read-only check of the XCAN dongle.
+
+`jog_a1x.py` and `so101_bridge.py` import it from the repo root; the ROS 2
+driver keeps its own copy, pinned byte for byte by `tests/test_protocol.py`
+(`python -m pytest tests`).
 
 ### The container — `docker/`
 
