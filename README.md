@@ -76,7 +76,8 @@ No ROS, no vendor binaries, Python 3 and a Linux kernel with SocketCAN.
 | `record_a1x.py` | the same loop, recording a LeRobot v3 dataset with cameras |
 | `kinematics.py` | URDF serial-chain FK / Jacobian / damped-least-squares IK in numpy |
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
-| `jog_a1x.py` | on-screen jog, one joint per key. The only tool that runs on macOS |
+| `jog_a1x.py` | on-screen jog, one joint per key. Runs on macOS |
+| `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package) |
 | `galaxeo/xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
