@@ -71,12 +71,31 @@ def _inv(T):
     return out
 
 
+def _median_R(Rs, R_ref):
+    """Median rotation in the tangent space at R_ref: R_ref @ exp(median(log(R_ref^T R_i)))."""
+    rv = np.array([cv2.Rodrigues(R_ref.T @ R)[0].ravel() for R in Rs])
+    dR, _ = cv2.Rodrigues(np.median(rv, axis=0))
+    return R_ref @ dR
+
+
 def _median_T(Ts):
-    """Elementwise median of a list of transforms, re-orthonormalised."""
+    """Elementwise median of a list of transforms, re-orthonormalised.
+
+    The rotation median is NOT taken over global Rodrigues vectors: for a
+    rotation near 180 deg (a camera off to the side of the base) successive
+    estimates land on both sides of the +-pi wrap (~+v and ~-v) and their
+    elementwise median is a rotation ~180 deg away from every input. Instead,
+    the median of rotation vectors relative to one input (small angles there,
+    far from the wrap), then once more relative to that result in case the
+    first input was an outlier. Away from the wrap the result differs from the
+    old global median by hundredths of a degree.
+    """
+    Ts = [np.asarray(T, float) for T in Ts]
     t = np.median([T[:3, 3] for T in Ts], axis=0)
-    rv = np.array([cv2.Rodrigues(T[:3, :3])[0].ravel() for T in Ts])
-    R, _ = cv2.Rodrigues(np.median(rv, axis=0))
-    out = np.eye(4); out[:3, :3], out[:3, 3] = R, t
+    Rs = [T[:3, :3] for T in Ts]
+    R = _median_R(Rs, _median_R(Rs, Rs[0]))
+    U, _, Vt = np.linalg.svd(R)                        # strips numerical drift from the products
+    out = np.eye(4); out[:3, :3], out[:3, 3] = U @ Vt, t
     return out
 
 
