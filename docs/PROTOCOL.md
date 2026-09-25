@@ -150,9 +150,19 @@ Eight big-endian int16. The first seven are constant `0x0010` and
 one room cannot report equal temperatures to the count. Only the eighth field
 moves (−7, −4, −1, +1).
 
-So the first seven are a per-group status or config word. Anything labelling
+So the first seven are a per-group status word: one per joint, then the
+gripper. `0x0010` is 16, which is the `error_code` bitfield's RECEIVE_TIMEOUT
+bit, so this word is most likely each group's `error_code`. Anything labelling
 `0x054` "temperatures", including earlier versions of this project's own
 `protocol.py`, is wrong.
+
+Seen 2026-09-25, after a run in which the 24 V supply tripped mid-teleop
+with the gripper in use: the gripper's word read `0x1010`, the other six
+still `0x0010`, while a LED on the arm blinked red. Gripper position and
+effort were normal and it still obeyed `0x051`. Bit 12 (4096) is therefore a
+gripper-group fault or warning flag; its meaning is not known.
+`jog_a1x.py --check` prints the seven words and names any group off the
+baseline.
 
 ## 0x055 — version / serial
 
