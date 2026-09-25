@@ -32,9 +32,12 @@ Then the way this actually gets driven — an SO-101 as a hand-held leader, the
 A1X following:
 
 ```bash
-python so101_bridge.py --dry-run          # prints targets, sends nothing
-python so101_bridge.py --secs 60 --grip   # for real
+python so101_bridge.py --dry-run                           # prints targets, sends nothing
+python so101_bridge.py --secs 60 --grip --home "0,60,-90,0,0,0"   # for real
 ```
+
+Runs on macOS too (XCAN dongle through `xcan_usb.py`, leader over pyserial,
+no LeRobot needed).
 
 ## Documentation
 
@@ -68,11 +71,13 @@ Transmit is **off by default** (`command_can_id: -1`). Turn it on deliberately:
 
 ### The standalone tools — top level
 
-No ROS, no vendor binaries, Python 3 and a Linux kernel with SocketCAN.
+No ROS, no vendor binaries, Python 3. Linux with SocketCAN, or macOS with the
+XCAN dongle through `xcan_usb.py`.
 
 | | |
 | --- | --- |
-| `so101_bridge.py` | SO-101 leader → A1X follower. The main teleop path |
+| `so101_bridge.py` | SO-101 leader → A1X follower. The main teleop path; macOS or Linux |
+| `so101_feetech.py` | reads the SO-101's Feetech servos over pyserial, and calibrates them. No LeRobot |
 | `record_a1x.py` | the same loop, recording a LeRobot v3 dataset with cameras |
 | `kinematics.py` | URDF serial-chain FK / Jacobian / damped-least-squares IK in numpy |
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |

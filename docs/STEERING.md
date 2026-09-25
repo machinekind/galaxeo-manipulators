@@ -77,12 +77,29 @@ follows. `so101_bridge.py` is that bridge.
 
 ### Wire-up
 
-* SO-101 on `/dev/ttyACM0`, calibrated through LeRobot with a calibration id
-  (`my_leader` by default).
-* A1X on `can0`, powered, bus up.
-* Run it with a Python that has **lerobot, numpy and `AF_CAN` in one process**.
-  On this machine that is `/home/v1/miniconda3/envs/lerobot_v6/bin/python`;
-  anywhere else, any Linux Python 3.10+ with `lerobot>=0.6` installed.
+* SO-101 on its USB serial adapter: `/dev/cu.usbmodem*` on macOS,
+  `/dev/ttyACM*` on Linux. The bridge finds it when there is exactly one;
+  otherwise `--port`. Servo torque off, so it moves by hand.
+* A1X on the XCAN dongle (macOS, `--follower xcan`, the default there) or on
+  `can0` (Linux, bus up via `./can_up.sh`).
+* Python with numpy, pyserial, and pyusb (macOS) or python-can (Linux). On
+  the Mac that is `.venv-mac`. **No LeRobot needed**: `so101_feetech.py`
+  reads the servos directly. If you have LeRobot and its calibration,
+  `--leader lerobot` uses that instead.
+
+### Calibrate the leader once (gripper and IK mode)
+
+Joint mode works with no calibration: the mapping is relative and a servo
+tick is a known angle. The gripper needs one, because only a calibration says
+which end of its travel is closed; so does `--mode ik`, which needs absolute
+angles.
+
+```bash
+python so101_feetech.py --calibrate     # move every joint end to end, then hold the gripper closed
+python so101_feetech.py                 # live readout, check the gripper reads 0% closed / 100% open
+```
+
+Writes `so101/calib_my_leader.json` (`--cal-id` for another name).
 
 ### Dry run first, always
 
@@ -102,8 +119,12 @@ python so101_bridge.py --dry-run --signs '+-+++'
 ### Then for real
 
 ```bash
-python so101_bridge.py --secs 60 --grip
+python so101_bridge.py --secs 60 --grip --home "0,60,-90,0,0,0"
 ```
+
+The folded rest pose has J2 and J3 sitting on a limit, and a relative mapping
+can only move away from a limit, so `--home` unfolds the arm first (slowly,
+at `--home-rate` deg/s). Keep clear while it does.
 
 | flag | default | what it does |
 | --- | --- | --- |
@@ -115,7 +136,9 @@ python so101_bridge.py --secs 60 --grip
 | `--grip` | off | map the gripper too |
 | `--grip-force` | 1.2 | freeze the grip target above this effort — grips, doesn't crush |
 | `--kp` / `--kd` | 20 / 1 | follower gains |
-| `--home` | | drive to a named/explicit pose before engaging |
+| `--home` | | drive to an explicit pose (degrees) before engaging |
+| `--leader` | raw | `raw` = pyserial reader, `lerobot` = LeRobot's bus + calibration |
+| `--follower` | xcan / can0 | A1X bus, by platform |
 
 The mapping is **relative to the pose both arms start in**, so nothing jumps on
 start and no absolute calibration is needed. Put both arms roughly where you

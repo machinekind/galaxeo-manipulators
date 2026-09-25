@@ -30,6 +30,17 @@ TWO RETARGETING MODES
       orientation. Position is prioritised (--w-rot, default 0.15); demanding
       exact orientation costs ~10 mm of position error on reachable targets.
 
+LEADER READERS
+    --leader raw      (default) so101_feetech.py: pyserial only, no LeRobot.
+                      Joint mode needs no calibration. The gripper and ik mode
+                      need one:  python so101_feetech.py --calibrate
+    --leader lerobot  the LeRobot FeetechMotorsBus with its own calibration
+                      file, for a machine that already has LeRobot installed.
+
+TRANSPORT
+    Same backends as jog_a1x.py: --follower xcan on macOS (xcan_usb.py, the
+    libusb driver), can0 on Linux (SocketCAN). Proven on hardware from a Mac.
+
 SAFETY
     * --dry-run prints targets and transmits nothing. Use it first.
     * The A1X follower is slew-limited (--follow-rate) and clamped to URDF
@@ -40,11 +51,13 @@ SAFETY
     * Ctrl-C stops streaming; an uncommanded A1X holds where it is.
 """
 from __future__ import annotations
-import argparse, math, os, signal, socket, struct, sys, time
+import argparse, math, os, platform, signal, sys, time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kinematics import Chain, ik as solve_ik
+from jog_a1x import A1X as _Transport
+from so101_feetech import SO101Raw
 
 N = 6
 CMD_ID, GRIP_ID, FB_ID = 0x050, 0x051, 0x052
@@ -62,56 +75,17 @@ SO_URDF  = os.path.join(HERE, "so101/so101_new_calib.urdf")
 _stop = {"flag": False}
 
 
-def encode(p, v, kp, kd, tff):
-    out = bytearray(60)
-    for j in range(N):
-        for k, vals in enumerate((p, v, kp, kd, tff)):
-            lo, hi, sc = FIELDS[k]
-            x = lo if vals[j] < lo else (hi if vals[j] > hi else vals[j])
-            raw = max(-32768, min(32767, int(x * sc)))
-            o = j*10 + k*2
-            out[o] = (raw >> 8) & 0xFF; out[o+1] = raw & 0xFF
-    return bytes(out)
+class A1X(_Transport):
+    """jog_a1x's transport (xcan on macOS, SocketCAN on Linux) plus the
+    enable / liveness probes this bridge needs before it streams."""
 
-
-def encode_grip(p, v, kp, kd, tff):
-    """10-byte 0x051: one group, same five fields and scales as an arm joint."""
-    out = bytearray(10)
-    for k, val in enumerate((p, v, kp, kd, tff)):
-        lo, hi, sc = FIELDS[k]
-        x = lo if val < lo else (hi if val > hi else val)
-        raw = max(-32768, min(32767, int(x * sc)))
-        out[k*2] = (raw >> 8) & 0xFF; out[k*2+1] = raw & 0xFF
-    return bytes(out)
-
-
-class A1X:
-    def __init__(self, iface):
-        self.iface = iface
-        self.s = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
-        self.s.setsockopt(socket.SOL_CAN_RAW, socket.CAN_RAW_FD_FRAMES, 1)
+    def __init__(self, iface, dry_run=False):
         try:
-            self.s.bind((iface,))
-        except OSError as ex:
-            raise SystemExit(f"  cannot bind {iface}: {ex}\n"
-                             f"  The CAN link is down. Run:  ./can_up.sh") from None
-        self.s.settimeout(0.0)
-        self.q = None; self.e = None; self.t = 0.0; self.n = 0
-
-    def drain(self):
-        """Read every queued frame; a partial drain yields seconds-stale data."""
-        got = False
-        while True:
-            try: b = self.s.recv(72)
-            except (BlockingIOError, socket.timeout): break
-            except OSError as ex:            # link went down mid-run
-                raise RuntimeError(f"{self.iface}: {ex}. Run ./can_up.sh") from None
-            if (struct.unpack("=I", b[:4])[0] & 0x1FFFFFFF) != FB_ID: continue
-            r = struct.unpack(">21h", b[8:8+42])
-            self.q = [r[g*3]/S_POS for g in range(7)]
-            self.e = [r[g*3+2]/S_EFF for g in range(7)]
-            self.t = time.time(); self.n += 1; got = True
-        return got
+            super().__init__(iface, dry_run)
+        except Exception as ex:
+            raise SystemExit(f"  cannot open {iface}: {ex}\n"
+                             f"  macOS: is the XCAN dongle plugged in (brew install libusb)?\n"
+                             f"  Linux: ./can_up.sh") from None
 
     def wait(self, secs=3.0):
         end = time.time() + secs
@@ -138,8 +112,7 @@ class A1X:
                 if self.q is not None:
                     self.send_arm(self.q[:N], kp, kd)
                 time.sleep(0.005)
-            self.s.send(struct.pack("=IBBBB", 0x053, 1, 0, 0, 0)
-                        + bytes([code]).ljust(8, b"\x00"))
+            self.send_ff(code)
         t0 = time.time()
         while time.time() - t0 < 0.3:
             self.drain()
@@ -226,18 +199,13 @@ class A1X:
         print(f"  gripper STILL DEAD. Run without --grip, or power-cycle.")
         return False
 
-    def send_arm(self, p, kp, kd):
-        self.s.send(struct.pack("=IBBBB", CMD_ID, 60, 0x01, 0, 0)
-                    + encode(p, [0.0]*N, [kp]*N, [kd]*N, [0.0]*N).ljust(64, b"\x00"))
-
-    def send_grip(self, p, kp, kd):
-        self.s.send(struct.pack("=IBBBB", GRIP_ID, 10, 0x01, 0, 0)
-                    + encode_grip(p, 0.0, kp, kd, 0.0).ljust(64, b"\x00"))
-
 
 class SO101:
-    """Reads the SO-101. Falls back to the raw bus so a missing servo can be
-    skipped for dry runs -- lerobot's SOLeader refuses to connect at all."""
+    """Reads the SO-101 through LeRobot. Falls back to the raw bus so a missing
+    servo can be skipped for dry runs -- lerobot's SOLeader refuses to connect
+    at all. Joints come back NORMALISED (-100..100), converted to radians with
+    norm_to_rad against the URDF limits."""
+    units = "norm"
     def __init__(self, port, cal_id, allow_missing=False):
         from lerobot.motors import Motor, MotorNormMode
         from lerobot.motors.feetech.feetech import FeetechMotorsBus
@@ -269,6 +237,8 @@ class SO101:
                 f"Check the cable and power at those servos, or pass --allow-missing "
                 f"to run degraded (missing joints are held at their start value).")
         self.missing = missing
+        self.port = port
+        self.gripper_ok = "gripper" in self.present
 
     def read(self, retries=3):
         """Keys come back as bare motor names; the rest of this file (and
@@ -294,6 +264,14 @@ class SO101:
         except Exception: pass
 
 
+def leader_rad(lead, chain, s, name, default=0.0):
+    """One SO-101 joint in radians, whichever reader produced the sample."""
+    v = s.get(f"{name}.pos")
+    if v is None:
+        return default
+    return v if getattr(lead, "units", "rad") == "rad" else norm_to_rad(chain, name, v)
+
+
 def norm_to_rad(chain, name, val):
     """lerobot normalized (-100..100, or 0..100 for the gripper) -> radians,
     using the URDF limits for that joint."""
@@ -309,9 +287,14 @@ def norm_to_rad(chain, name, val):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("joint", "ik"), default="joint")
-    ap.add_argument("--follower", default="can0", help="A1X CAN interface")
-    ap.add_argument("--port", default="/dev/ttyACM0")
-    ap.add_argument("--cal-id", default="my_leader")
+    ap.add_argument("--follower", default="xcan" if platform.system() == "Darwin" else "can0",
+                    help="A1X bus: xcan[:addr] (macOS libusb), can0 (Linux SocketCAN)")
+    ap.add_argument("--leader", choices=("raw", "lerobot"), default="raw",
+                    help="raw = so101_feetech.py over pyserial; lerobot = FeetechMotorsBus")
+    ap.add_argument("--port", default=None,
+                    help="SO-101 serial port (default: the one usbmodem/ttyACM found)")
+    ap.add_argument("--cal-id", default="my_leader",
+                    help="raw: so101/calib_<id>.json; lerobot: its calibration id")
     ap.add_argument("--secs", type=float, default=60.0)
     ap.add_argument("--kp", type=float, default=20.0)
     ap.add_argument("--kd", type=float, default=1.0)
@@ -359,10 +342,22 @@ def main():
           f"{'  [DRY RUN]' if a.dry_run else ''}")
     print("=" * 74)
 
-    lead = SO101(a.port, a.cal_id, a.allow_missing)
+    if a.leader == "raw":
+        lead = SO101Raw(a.port, a.cal_id, a.allow_missing)
+    else:
+        lead = SO101(a.port or "/dev/ttyACM0", a.cal_id, a.allow_missing)
+    print(f"  leader: {a.leader} on {lead.port}")
     if lead.missing:
         print(f"  WARNING degraded: {lead.missing} not responding, held at start value")
-    arm = A1X(a.follower)
+    if a.leader == "raw" and lead.cal is None:
+        print("  no calibration (so101/calib_%s.json): joint mode only, gripper off.\n"
+              "  Make one with:  python so101_feetech.py --calibrate" % a.cal_id)
+        if a.mode == "ik":
+            print("  FAIL: --mode ik needs absolute SO-101 angles, so it needs the calibration."); return 1
+    if a.grip and not lead.gripper_ok:
+        print("  WARNING --grip requested but the gripper cannot be read; disabling it")
+        a.grip = False
+    arm = A1X(a.follower, a.dry_run)
     if not arm.wait(3.0):
         print(f"  FAIL: no 0x052 on {a.follower}. Arm off, or bus down?"); return 1
     t0 = time.time()
@@ -396,7 +391,10 @@ def main():
     print(f"  SO-101 raw read: { {k: round(v,1) for k,v in s0.items()} }")
     if not any(k.endswith(".pos") for k in s0):
         print("  FAIL: unexpected key format from the SO-101 bus"); return 1
-    q_so0 = np.array([norm_to_rad(so_chain, n, s0.get(f"{n}.pos", 0.0)) for n in SO_ARM])
+    q_so0 = np.array([leader_rad(lead, so_chain, s0, n) for n in SO_ARM])
+    if a.grip:
+        print(f"  SO-101 gripper now {s0.get('gripper.pos', float('nan')):.0f}% open "
+              f"(100 = open; --grip maps it straight through)")
     q_a0 = np.array(arm.q[:N])
     print(f"  SO-101 start (deg): {np.round(np.degrees(q_so0),1)}")
     print(f"  A1X    start (deg): {np.round(np.degrees(q_a0),1)}")
@@ -441,8 +439,8 @@ def main():
             try: s = lead.read()
             except Exception as ex:
                 reason = f"ABORT: SO-101 read failed: {ex}"; break
-            q_raw = np.array([norm_to_rad(so_chain, n, s.get(f"{n}.pos", 0.0))
-                              for n in SO_ARM])
+            q_raw = np.array([leader_rad(lead, so_chain, s, n, q_so0[i])
+                              for i, n in enumerate(SO_ARM)])
             for i, n in enumerate(SO_ARM):
                 if n in lead.missing: q_raw[i] = q_so0[i]
             if q_filt is None:
@@ -505,7 +503,7 @@ def main():
     print(f"\n  {reason}   tx={n_tx}  A1X rx={arm.n}")
     arm.drain()
     print(f"  A1X final (deg): {np.round(np.degrees(arm.q[:N]),1)}")
-    lead.close()
+    lead.close(); arm.close()
     print("  stopped -- the A1X re-latches where it is")
     return 0
 
