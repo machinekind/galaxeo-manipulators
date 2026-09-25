@@ -87,17 +87,19 @@ follows. `so101_bridge.py` is that bridge.
   reads the servos directly. If you have LeRobot and its calibration,
   `--leader lerobot` uses that instead.
 
-### Calibrate the leader once (gripper and IK mode)
+### Calibrate the gripper once
 
 Joint mode works with no calibration: the mapping is relative and a servo
 tick is a known angle. The gripper needs one, because only a calibration says
-which end of its travel is closed; so does `--mode ik`, which needs absolute
-angles.
+which end of its travel is closed. Six seconds:
 
 ```bash
-python so101_feetech.py --calibrate     # move every joint end to end, then hold the gripper closed
-python so101_feetech.py                 # live readout, check the gripper reads 0% closed / 100% open
+python so101_feetech.py --calibrate-gripper   # hold it closed, then fully open
+python so101_feetech.py                       # live readout: 0% closed, 100% open
 ```
+
+`--mode ik` needs absolute angles too: `--calibrate` does every joint end to
+end, then the gripper.
 
 Writes `so101/calib_my_leader.json` (`--cal-id` for another name).
 
@@ -119,12 +121,14 @@ python so101_bridge.py --dry-run --signs '+-+++'
 ### Then for real
 
 ```bash
-python so101_bridge.py --secs 60 --grip --home "0,60,-90,0,0,0"
+python so101_bridge.py --grip          # streams until Ctrl-C
 ```
 
-The folded rest pose has J2 and J3 sitting on a limit, and a relative mapping
-can only move away from a limit, so `--home` unfolds the arm first (slowly,
-at `--home-rate` deg/s). Keep clear while it does.
+The A1X starts from wherever it is; that pose and the leader's pose at
+start are the zero of the relative mapping. If the arm is folded at its
+rest pose, J2 and J3 sit on a limit and can only move one way from there;
+either jog it to an unfolded pose first or pass `--home "0,60,-90,0,0,0"`
+to have the bridge unfold it (slowly, `--home-rate` deg/s, keep clear).
 
 | flag | default | what it does |
 | --- | --- | --- |

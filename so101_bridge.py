@@ -295,7 +295,8 @@ def main():
                     help="SO-101 serial port (default: the one usbmodem/ttyACM found)")
     ap.add_argument("--cal-id", default="my_leader",
                     help="raw: so101/calib_<id>.json; lerobot: its calibration id")
-    ap.add_argument("--secs", type=float, default=60.0)
+    ap.add_argument("--secs", type=float, default=0.0,
+                    help="stop after this many seconds; 0 (default) = until Ctrl-C")
     ap.add_argument("--kp", type=float, default=20.0)
     ap.add_argument("--kd", type=float, default=1.0)
     ap.add_argument("--rate", type=float, default=200.0, help="CAN stream Hz")
@@ -318,8 +319,9 @@ def main():
     ap.add_argument("--grip-force", type=float, default=1.2,
                     help="freeze the close target above this |effort|")
     ap.add_argument("--home", default="",
-                    help='comma-separated degrees, e.g. "0,60,-90,0,0,0". The '
-                         'A1X is slewed here BEFORE teleop starts. Relative '
+                    help='optional. comma-separated degrees, e.g. "0,60,-90,0,0,0". The '
+                         'A1X is slewed here BEFORE teleop starts; without it the arm '
+                         'stays where it is and that pose is the start. Relative '
                          'mapping can only move AWAY from a limit, so a folded '
                          'home pose (J2 at 0, J3 at 0) gives one-directional '
                          'range on the shoulder and elbow.')
@@ -349,13 +351,11 @@ def main():
     print(f"  leader: {a.leader} on {lead.port}")
     if lead.missing:
         print(f"  WARNING degraded: {lead.missing} not responding, held at start value")
-    if a.leader == "raw" and lead.cal is None:
-        print("  no calibration (so101/calib_%s.json): joint mode only, gripper off.\n"
-              "  Make one with:  python so101_feetech.py --calibrate" % a.cal_id)
-        if a.mode == "ik":
-            print("  FAIL: --mode ik needs absolute SO-101 angles, so it needs the calibration."); return 1
+    if a.leader == "raw" and a.mode == "ik" and not lead.joints_calibrated:
+        print("  FAIL: --mode ik needs absolute SO-101 angles: run  python so101_feetech.py --calibrate"); return 1
     if a.grip and not lead.gripper_ok:
-        print("  WARNING --grip requested but the gripper cannot be read; disabling it")
+        print("  --grip needs the gripper calibration: run  python so101_feetech.py --calibrate-gripper\n"
+              "  continuing WITHOUT the gripper")
         a.grip = False
     arm = A1X(a.follower, a.dry_run)
     if not arm.wait(3.0):
@@ -422,13 +422,13 @@ def main():
     last_can = time.time()      # target is interpolated toward goal at CAN rate
     grip_t = a.grip_open; grip_frozen = False
     slew = math.radians(a.follow_rate)
-    print(f"\n  streaming {a.secs:g}s -- MOVE THE SO-101 BY HAND.  Ctrl-C stops.\n")
+    print(f"\n  streaming {'until Ctrl-C' if a.secs <= 0 else f'{a.secs:g}s'} -- MOVE THE SO-101 BY HAND.\n")
     print(f"  {'t':>5}  {'A1X target (deg)':<38} {'tip err':>8} {'grip':>6}")
     signal.signal(signal.SIGINT, lambda *_: _stop.__setitem__("flag", True))
 
     t0 = time.time(); nxt = t0; nxt_solve = t0; prev = t0; last_rep = 0.0
     tip_err = float("nan"); reason = "completed"; n_tx = 0
-    while time.time() - t0 < a.secs and not _stop["flag"]:
+    while (a.secs <= 0 or time.time() - t0 < a.secs) and not _stop["flag"]:
         arm.drain(); now = time.time()
         if now - arm.t > 0.15:
             reason = f"ABORT: stale A1X feedback ({(now-arm.t)*1e3:.0f} ms)"; break

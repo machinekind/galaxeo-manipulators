@@ -7,8 +7,9 @@ free to move by hand and they keep reporting position, which is all a leader
 needs. This module reads them; it never enables torque and never writes a
 register.
 
-    python so101_feetech.py                  # print positions live, Ctrl-C stops
-    python so101_feetech.py --calibrate      # record joint ranges + closed gripper
+    python so101_feetech.py                    # print positions live, Ctrl-C stops
+    python so101_feetech.py --calibrate-gripper  # hold it closed, then open: 6 s
+    python so101_feetech.py --calibrate          # every joint end to end (ik mode)
 
 UNITS
     Present_Position is 0..4095 ticks per turn, so one tick is 2*pi/4096 rad.
@@ -21,8 +22,9 @@ UNITS
 
 CALIBRATION FILE  so101/calib_<id>.json
     {"<joint>": {"min": ticks, "max": ticks}, ..., "gripper": {..., "closed": ticks}}
-    Made by --calibrate: move every joint end to end, then hold the gripper
-    closed when asked.
+    --calibrate-gripper records only the gripper entry (closed first, then
+    open) and leaves any joint entries alone. --calibrate does every joint
+    end to end as well, which only --mode ik needs.
 """
 from __future__ import annotations
 import argparse
@@ -158,6 +160,10 @@ class SO101Raw:
         self.bad = 0
 
     @property
+    def joints_calibrated(self) -> bool:
+        return bool(self.cal) and all(n in self.cal for n in ARM)
+
+    @property
     def gripper_ok(self) -> bool:
         return "gripper" in self.present and bool(self.cal) and "gripper" in self.cal
 
@@ -206,6 +212,48 @@ class SO101Raw:
         self.bus.close()
 
 
+def _hold(bus: FeetechBus, what: str, secs: float = 2.0) -> int:
+    print(f"  HOLD THE GRIPPER {what} ... {secs:g} s")
+    time.sleep(1.0)
+    got = []
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        p = bus.sync_positions([IDS["gripper"]])
+        if IDS["gripper"] in p:
+            got.append(p[IDS["gripper"]])
+        time.sleep(0.02)
+    if not got:
+        raise SystemExit("  no gripper reading; calibration NOT saved")
+    t = int(round(sum(got) / len(got)))
+    print(f"    {what.lower()} = {t} ticks")
+    return t
+
+
+def _save(cal_id: str, entries: dict):
+    """Merge into the existing file so a gripper-only calibration keeps
+    joint ranges recorded earlier, and vice versa."""
+    path = calib_path(cal_id)
+    cal = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            cal = json.load(f)
+    cal.update(entries)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(cal, f, indent=2)
+    print(f"  saved {path}")
+
+
+def calibrate_gripper(bus: FeetechBus, cal_id: str):
+    closed = _hold(bus, "CLOSED")
+    opened = _hold(bus, "FULLY OPEN")
+    if abs(opened - closed) < 100:
+        raise SystemExit(f"  closed {closed} and open {opened} are too close; "
+                         f"did the gripper move? NOT saved")
+    _save(cal_id, {"gripper": {"min": min(closed, opened),
+                               "max": max(closed, opened), "closed": closed}})
+
+
 def calibrate(bus: FeetechBus, cal_id: str, secs: float):
     ids = list(IDS.values())
     lo = {i: TICKS for i in ids}
@@ -225,45 +273,35 @@ def calibrate(bus: FeetechBus, cal_id: str, secs: float):
             print(f"    {left:4.0f}s  " + "  ".join(
                 f"{n[:7]}:{lo[i]:4d}-{hi[i]:4d}" for n, i in IDS.items()))
         time.sleep(0.02)
-    print("\n  now HOLD THE GRIPPER CLOSED for 3 s ...")
-    time.sleep(1.0)
-    closed = []
-    t0 = time.time()
-    while time.time() - t0 < 2.0:
-        p = bus.sync_positions([IDS["gripper"]])
-        if IDS["gripper"] in p:
-            closed.append(p[IDS["gripper"]])
-        time.sleep(0.02)
-    if not closed:
-        raise SystemExit("  no gripper reading; calibration NOT saved")
-    closed_t = int(round(sum(closed) / len(closed)))
+    print()
+    closed_t = _hold(bus, "CLOSED")
     cal = {n: {"min": lo[i], "max": hi[i]} for n, i in IDS.items()}
     cal["gripper"]["closed"] = closed_t
     narrow = [n for n, i in IDS.items() if hi[i] - lo[i] < 200]
     if narrow:
         print(f"  WARNING tiny range on {narrow} -- did those joints move?")
-    path = calib_path(cal_id)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(cal, f, indent=2)
-    print(f"  saved {path}")
-    print(f"  gripper: closed={closed_t}, range {lo[IDS['gripper']]}-{hi[IDS['gripper']]}")
+    _save(cal_id, cal)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--port", default=None, help="serial port (default: the one adapter found)")
     ap.add_argument("--cal-id", default="my_leader")
-    ap.add_argument("--calibrate", action="store_true")
+    ap.add_argument("--calibrate", action="store_true", help="every joint + gripper")
+    ap.add_argument("--calibrate-gripper", action="store_true",
+                    help="gripper only: hold closed, then open")
     ap.add_argument("--secs", type=float, default=20.0, help="calibration recording time")
     a = ap.parse_args()
 
-    if a.calibrate:
+    if a.calibrate or a.calibrate_gripper:
         bus = FeetechBus(a.port)
         print(f"  {bus.port}: servos answering: "
               f"{[n for n, i in IDS.items() if bus.ping(i)]}")
         try:
-            calibrate(bus, a.cal_id, a.secs)
+            if a.calibrate:
+                calibrate(bus, a.cal_id, a.secs)
+            else:
+                calibrate_gripper(bus, a.cal_id)
         finally:
             bus.close()
         return 0

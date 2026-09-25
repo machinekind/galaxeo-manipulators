@@ -33,7 +33,8 @@ A1X following:
 
 ```bash
 python so101_bridge.py --dry-run                           # prints targets, sends nothing
-python so101_bridge.py --secs 60 --grip --home "0,60,-90,0,0,0"   # for real
+python so101_feetech.py --calibrate-gripper                # once: hold closed, then open
+python so101_bridge.py --grip                              # for real, until Ctrl-C
 ```
 
 Runs on macOS too (XCAN dongle through `xcan_usb.py`, leader over pyserial,
