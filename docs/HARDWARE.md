@@ -93,6 +93,24 @@ Worth knowing, because it looks like a fault and isn't:
 * An arm that has been released (function frame 2) goes limp **and stops
   reporting** — the same payload repeats forever.
 
+## The wrist camera
+
+A 32 mm UVC board camera with a wide M12 lens on a printed strut behind the
+G1 housing, looking down the jaw gap at the fingertips. Fitted 2026-09-25.
+
+* macOS reports it as `USB Camera`, UVC vendor 4283 / product 11016. It
+  streams **1920 x 1080**, a 16:9 sensor.
+* It is mounted **upside down**: rotate every frame 180 deg. `wrist_cam.py`
+  does; the recorder must do the same.
+* Focus is the M12 barrel, by hand. `uv run wrist_cam.py` shows the live feed
+  in a browser with a focus score; turn until it peaks.
+* Position is a compromise for pick-and-place, not for the bottle pour: it sits
+  over the housing where a body-grasped bottle would hit it. The outboard
+  bracket on PR #2 was designed around that bottle and is not needed for this
+  task.
+* Aim: the fingertips should sit about a third of the way up from the bottom
+  edge of the frame, so the object beyond the tips stays in view.
+
 ## The SO-101 leader
 
 The arm cannot be hand-guided (see
