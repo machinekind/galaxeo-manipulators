@@ -170,7 +170,9 @@ pose and prints the words once a second:
   a `0x051` sweep over half its travel (effort stayed at 0). The enable
   sequence FF 1 → 5 → 6 cleared bit 4 and left bit 12 set; the gripper
   stayed dead. So bit 12 (`0x1000`) is a gripper fault: the gripper is not
-  driving. What clears it, short of a power cycle, is not known.
+  driving. A power cycle cleared it: the LED went green, the word returned
+  to `0x0010`, and the same `0x051` sweep then moved the gripper 85 deg.
+  Nothing short of a power cycle is known to clear it.
 
 `jog_a1x.py --check` prints the seven words and names any group off the
 `0x0010` idle baseline. `--hold SECS [--hold-grip]` shows them live while
