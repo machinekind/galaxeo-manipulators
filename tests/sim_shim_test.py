@@ -15,7 +15,7 @@ sys.path.insert(0, 'sim')
 
 import numpy as np
 import calibrate_real as cr
-from real_robot_a1x import GripperFK
+from a1x_arm import GripperFK
 
 from pour_scene import build
 import mujoco

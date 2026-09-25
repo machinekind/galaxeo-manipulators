@@ -4,7 +4,7 @@
     # 0. power on, bus up (outside this script):
     #    48V supply ON, arm switch ON, ./can_up.sh
     # 1. is the arm alive? (read-only, transmits nothing)
-    python3 real_robot_a1x.py --check
+    python3 move_to_point_a1x.py --iface can0 --check
     # 2. camera intrinsics, once per webcam:
     python3 calib_intrinsics.py --camera 0 --out calib_session/K.npz
     # 3. put the calibration card in the gripper, pinched between the pads,
@@ -16,9 +16,9 @@
 Fills the slot `sim/calib/calibrate.py` leaves open ("only --sim is
 implemented; the real-arm Robot needs the CAN driver"): the same session
 code -- `collect` (the wave), `solve` (reprojection LM), the residual and
-conditioning gates -- driven by `RealRobot` from `real_robot_a1x.py` instead
+conditioning gates -- driven by `RealRobot` from `a1x_arm.py` instead
 of the MuJoCo `SimRobot`. Forward kinematics for the fit comes from the URDF
-at the MEASURED joint angles (`real_robot_a1x.GripperFK`), so servo error is
+at the MEASURED joint angles (`a1x_arm.GripperFK`), so servo error is
 included, exactly as in sim.
 
 What differs from sim, and why:
@@ -63,7 +63,7 @@ sys.path.insert(0, os.path.join(HERE, "sim"))
 from calib.handeye import rotation_spread_R                       # noqa: E402  (sim)
 from calib.tags import detect, tag_pose                           # noqa: E402  (sim)
 from kinematics import Chain, ik                                  # noqa: E402
-from real_robot_a1x import A1XArm, GripperFK, RealRobot, deg     # noqa: E402
+from a1x_arm import A1XArm, GripperFK, RealRobot, deg     # noqa: E402
 
 
 def _inv(T):
@@ -232,7 +232,7 @@ def _Observation(T_frame2base, T_tag2mount, corners, tag_id, mount):
 # ------------------------------------------------------------------ session
 def run_real(a):
     """One real-arm session. Returns (fit, obs, seen, n_poses)."""
-    from real_robot_a1x import Webcam
+    from a1x_arm import Webcam
     ccal, MAX_PX, MIN_OBS, MIN_POSES, MIN_SPREAD, WAVE = _sim()
 
     K, dist = load_K(a.K, a.size)

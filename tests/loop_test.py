@@ -1,10 +1,10 @@
-"""Loop test: feed synthetic 0x052 frames through real_robot_a1x's control loop.
+"""Loop test: feed synthetic 0x052 frames through a1x_arm's control loop.
 
 vcan needs root this session does not have, so the fake arm and the code under
 test talk through an in-process queue while stubbing only the socket layer.
 Everything else -- the 200 Hz stream, the int16 decode, the lag and staleness
 checks, the streamed slew, the URDF IK and FK in the loop -- is the real path
-in real_robot_a1x.A1XArm/RealRobot, driven through the same send/drain
+in a1x_arm.A1XArm/RealRobot, driven through the same send/drain
 contract.
 
     python3 /tmp/rv/loop_test.py
@@ -15,7 +15,7 @@ import numpy as np
 sys.path.insert(0, '/home/ljaniec/Repositories/galaxeo-manipulators')
 sys.path.insert(0, '/home/ljaniec/Repositories/galaxeo-manipulators/ros2_ws/src/galaxea_a1xy_driver/galaxea_a1xy_driver')
 
-import real_robot_a1x as rr
+import a1x_arm as rr
 
 txq = queue.Queue()
 fbq = queue.Queue()

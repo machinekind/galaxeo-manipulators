@@ -30,7 +30,7 @@ def rot(x_axis, y_axis):
     return np.column_stack([x, y, np.cross(x, y)])
 
 
-from real_robot_a1x import GripperFK
+from a1x_arm import GripperFK
 
 fk = GripperFK()
 q0 = np.array([0.0, 1.0, -1.6, 0.6, 0.0, 0.0])
