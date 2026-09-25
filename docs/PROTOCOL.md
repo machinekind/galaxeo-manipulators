@@ -156,13 +156,25 @@ bit, so this word is most likely each group's `error_code`. Anything labelling
 `0x054` "temperatures", including earlier versions of this project's own
 `protocol.py`, is wrong.
 
-Seen 2026-09-25, after a run in which the 24 V supply tripped mid-teleop
-with the gripper in use: the gripper's word read `0x1010`, the other six
-still `0x0010`, while a LED on the arm blinked red. Gripper position and
-effort were normal and it still obeyed `0x051`. Bit 12 (4096) is therefore a
-gripper-group fault or warning flag; its meaning is not known.
+Measured 2026-09-25 with `jog_a1x.py --hold`, which streams the measured
+pose and prints the words once a second:
+
+* Bit 4 (`0x0010`) on a joint clears to `0x0000` the moment `0x050` is
+  streamed and returns when it stops. On the gripper it clears only while
+  `0x051` is streamed. So bit 4 is RECEIVE_TIMEOUT per command id, and the
+  word is each group's `error_code`. Idle arms show `0x0010` everywhere;
+  that is normal.
+* After a run in which the 24 V supply tripped mid-teleop with the gripper
+  in use, the gripper's word read `0x1010` and a LED on the arm blinked red.
+  The gripper reported position and effort normally but **did not move** for
+  a `0x051` sweep over half its travel (effort stayed at 0). The enable
+  sequence FF 1 → 5 → 6 cleared bit 4 and left bit 12 set; the gripper
+  stayed dead. So bit 12 (`0x1000`) is a gripper fault: the gripper is not
+  driving. What clears it, short of a power cycle, is not known.
+
 `jog_a1x.py --check` prints the seven words and names any group off the
-baseline.
+`0x0010` idle baseline. `--hold SECS [--hold-grip]` shows them live while
+the host streams.
 
 ## 0x055 — version / serial
 

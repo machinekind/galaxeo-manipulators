@@ -380,6 +380,42 @@ def check(arm, secs):
     return 0
 
 
+def hold(arm, a, secs, grip=False):
+    """Diagnostic: stream the MEASURED pose for `secs` (nothing moves) and
+    print the 0x054 status words once a second, so a status bit can be
+    watched against the arm's LED while the host is talking. With --grip
+    the gripper is also ramped open and back (p_des 0 -> -1.5 -> 0, a bit
+    over half its travel) to see whether the gripper's word reacts."""
+    t0 = time.time()
+    while time.time() - t0 < 3.0 and arm.q is None:
+        arm.drain(); time.sleep(0.002)
+    if arm.q is None:
+        print("no feedback, not streaming"); return 2
+    pose = list(arm.q[:N])
+    print(f"streaming the measured pose {[round(math.degrees(x), 1) for x in pose]} "
+          f"for {secs:g}s{' + gripper open/close' if grip else ''}. Watch the LED.")
+    nxt = t0 = time.time(); last_rep = 0.0; g = 0.0
+    while time.time() - t0 < secs:
+        arm.drain(); now = time.time()
+        if now - arm.t > 0.15:
+            print("feedback lost, stopped"); return 2
+        if now >= nxt:
+            nxt = now + 1.0 / a.rate
+            arm.send_arm(pose, a.kp, a.kd)
+            if grip:
+                f = (now - t0) / secs                       # 0..1
+                g = -1.5 * math.sin(math.pi * f)            # 0 -> -1.5 -> 0
+                arm.send_grip(g, a.grip_kp, a.kd)
+        if now - last_rep >= 1.0 and arm.status:
+            last_rep = now
+            words = " ".join(f"{w:04x}" for w in arm.status[:7])
+            print(f"  {now - t0:4.0f}s  0x054: {words}   grip p_des {g:+.2f}  "
+                  f"grp7 {math.degrees(arm.q[6]):5.1f} deg  eff {arm.e[6]:+.2f}")
+        time.sleep(0.0005)
+    print("done; the arm re-latches where it is")
+    return 0
+
+
 def gui(jog, a):
     import tkinter as tk
     from tkinter import ttk
@@ -487,6 +523,11 @@ def main():
                     help="xcan[:<usb addr>] (macOS, libusb driver), a SocketCAN name like can0 "
                          "(Linux), PCAN_USBBUSn (Windows), or <python-can interface>:<channel>")
     ap.add_argument("--check", action="store_true", help="read-only feedback report, then exit")
+    ap.add_argument("--hold", type=float, default=0.0, metavar="SECS",
+                    help="diagnostic: stream the measured pose for SECS and print "
+                         "the 0x054 status words each second (nothing moves)")
+    ap.add_argument("--hold-grip", action="store_true",
+                    help="with --hold: also ramp the gripper open and back")
     ap.add_argument("--dry-run", action="store_true", help="run the GUI but transmit nothing")
     ap.add_argument("--rate", type=float, default=200.0, help="stream rate, Hz")
     ap.add_argument("--speed", type=float, default=8.0, help="initial jog speed, deg/s")
@@ -520,6 +561,8 @@ def main():
     try:
         if a.check:
             return check(arm, 3.0)
+        if a.hold > 0:
+            return hold(arm, a, a.hold, a.hold_grip)
         jog = Jog(arm, a)
         try:
             gui(jog, a)
