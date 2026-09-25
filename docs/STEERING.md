@@ -121,13 +121,28 @@ python so101_bridge.py --dry-run --signs '+-+++'
 ### Then for real
 
 ```bash
-python so101_bridge.py --grip          # streams until Ctrl-C
+python so101_bridge.py --grip          # streams until Ctrl-C, then h / r / q
 ```
 
-When the bridge stops, for any reason, it keeps streaming the pose it
-measured at that moment. A powered arm holds there, and a joint that was
-pushing into a stop is relieved. Press Ctrl-C a second time to exit. If the
-24 V supply is gone nothing holds the arm; the arm has no brakes.
+### Stalls, and what happens when it stops
+
+A joint whose effort goes above `--max-effort` (20; gravity load is about 3)
+is stalled: on a stop, on the table, on something in the way. Following
+stops and that joint backs off 3 deg, slowly, away from the push, while the
+other joints hold.
+
+Every stop, whether a stall, Ctrl-C, or the timer, then holds the measured
+pose and asks:
+
+| key | does |
+| --- | --- |
+| `h` | go home on the motion profile, then ask again. Home is `--home`, or the pose the A1X was in when teleop started |
+| `r` | resume following, re-zeroed on both arms so nothing jumps |
+| `q` | quit. A powered arm keeps holding on its own. Ctrl-C does the same |
+
+Holding streams the measured pose, so a joint that was pushing into a stop
+is relieved. If the 24 V supply is gone nothing holds the arm; it has no
+brakes.
 
 The A1X starts from wherever it is; that pose and the leader's pose at
 start are the zero of the relative mapping. If the arm is folded at its
@@ -142,7 +157,8 @@ to have the bridge unfold it (slowly, `--home-rate` deg/s, keep clear).
 | `--follow-rate` | 45 | deg/s velocity cap on the follower. The SO-101 can be flicked; the A1X must not follow a flick |
 | `--follow-accel` | 60 | deg/s² acceleration cap. The follower ramps up, cruises, ramps down. This is what keeps current spikes off the supply |
 | `--limit-margin` | 2 | deg kept inside each joint limit so a target never rests on a hard stop |
-| `--max-effort` | 20 | stop streaming when a joint stalls or collides (normal load ~3, saturation 50) |
+| `--max-effort` | 20 | a joint above this effort is stalled: stop following, back it off (normal load ~3, saturation 50) |
+| `--backoff` | 3 | deg a stalled joint retreats, at `--backoff-rate` 8 deg/s |
 | `--gain` | 1.0 | motion gain in joint mode; < 1 for fine work |
 | `--smooth` | 0.35 | low-pass on the leader |
 | `--grip` | off | map the gripper too |
