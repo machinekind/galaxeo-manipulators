@@ -81,6 +81,11 @@ leaving out the default `RandomAffine`, which would rotate and shift the frame
 and so break the fixed relation between the image and the camera calibration
 each frame carries.
 
+Both training payloads pass an explicit normalisation mapping with an `ENV`
+entry: lerobot's ACT maps none onto `observation.environment_state`, so
+without it a state-based policy's scene input goes in raw (metres, in the
+hundredths) beside standardised joints and actions, and is all but ignored.
+
 | input | |
 | --- | --- |
 | `DATASET_ROOT` | **required**, repository-relative path of the dataset |
@@ -93,11 +98,14 @@ each frame carries.
 | `BATCH` | default 32 |
 | `CHUNK` | `chunk_size` and `n_action_steps`, default 50 |
 | `LR` | default 1e-5 |
+| `VAE` | ACT's variational objective, default true |
 | `SEED` | default 0 |
 | `WORKERS` | dataloader workers, default 4 |
 | `RESUME` | default false |
 | `RESUME_ARCHIVE` | optional tar of `checkpoints/` (with its `last` link), unpacked into the run dir when it has no checkpoint; run dirs do not travel with a sync |
 | `INIT_FROM` | optional `pretrained_model` directory (repository-relative) or Hub model id; a new run starts from those weights and their config with a fresh optimizer, so `CHUNK` and `LR` are ignored. `HF_TOKEN` is exported for a private model repo |
+| `PIN_CPUS` | default 0 (off). On a container that sees far more CPUs than it was given, pin the run to this many: each PyAV decoder starts a thread per visible CPU, and `WORKERS` times that can exceed the container's thread limit (`avcodec_open2 ... Cannot allocate memory`) |
+| `RETRIES` | default 5: a `lerobot-train` that exits non-zero is continued from the run's last checkpoint (or started again if there is none yet) this many times before the payload gives up |
 | `WANDB` | default false; `true` adds `--wandb.enable=true`. `WANDB_MODE`, `WANDB_DIR` and `WANDB_API_KEY` come from the caller |
 | `SAVE_FREQ`, `LOG_FREQ` | default `STEPS/10` (min 1000) and 100 |
 | `GPUS`, `ON_FAILURE` | for the dispatcher |
@@ -116,6 +124,85 @@ repo id is only a label (used for the run's metadata and for anything pushed to
 the Hub). `galaxeo/a1x_pour_sim` is the default `run_pour.py --lerobot` writes
 with, so both payloads default to the same string; override `REPO_ID` if you
 recorded the dataset under another name.
+
+## render.sh
+
+Sourced by the payloads that render or run many simulator processes
+(`floor_state.sh`, `pour_full.sh`). On Linux it sets `MUJOCO_GL=egl`, test
+renders one frame, and if that fails installs the GLVND front library
+(`libegl1`, `libgl1`) and writes the NVIDIA EGL vendor file, which a CUDA
+container image usually lacks even though it carries the driver's own
+`libEGL_nvidia.so.0`. It also pins numpy's BLAS to one thread per process
+(a container on a 88-core host shows all 88 to every worker, and 40 workers
+times 88 threads is over the thread limit) and provides `cores_available`,
+the cgroup CPU quota rather than `nproc`, which reports the host.
+
+## floor_state.sh
+
+The state-based floor check on one machine: generate a dataset of the true
+scene state with `gen_dataset.py --state` (no images), train ACT on it, and
+evaluate it closed loop on the same box, with a video of every evaluation
+episode. If a policy that sees the bottle pose and the glass position cannot
+pour, the action side is what is short, and no image run will fix it.
+
+| input | |
+| --- | --- |
+| `RUN_NAME` | default `pour_state_<JOB_ID>`; the dataset lands in `sim/datasets/<RUN_NAME>` |
+| `EPISODES` | successful episodes wanted, default 1000 |
+| `SEED0` | first scene seed, default 10000 |
+| `STEPS`, `BATCH`, `CHUNK`, `LR`, `SAVE_FREQ` | as in `train_pour.sh`; defaults 50000, 32, 50, 1e-4, 10000 |
+| `VAE` | ACT's variational objective, default false here (true in `train_pour.sh`) |
+| `EVAL_N`, `EVAL_SEEDS` | episodes per range and the first seed of each, default 20 and `2000 1000` |
+| `GEN_WORKERS` | generator processes, default the box's cores minus 2 |
+
+    RUN_NAME=pour_state_floor EPISODES=1000 STEPS=50000 bash sim/jobs/floor_state.sh
+
+## pour_full.sh
+
+The image run on one machine: generate a dataset with the laptop camera, the
+top-down map and the wrist camera, train ACT on it through `train_pour.sh`
+(so the recipe is the one the earlier runs used), evaluate the checkpoint,
+and evaluate a control checkpoint on the same seeds. The generator runs with
+planner variation (the grasp drawn among the feasible pitches and yaws of
+the preferred place) and noise injection (a smooth drift on the executed
+joint commands, the planner's clean command kept as the label), both from
+`run_pour.py --vary --servo-noise`.
+
+| input | |
+| --- | --- |
+| `RUN_NAME` | default `pour_full_<JOB_ID>` |
+| `EPISODES`, `SEED0`, `OVER` | wanted successes, first seed, seeds per success; defaults 3000, 10000, 1.6 |
+| `VARY`, `SERVO_NOISE`, `WRIST` | 1/0, degrees, hand; defaults 1, 1.5, left |
+| `STEPS`, `BATCH`, `CHUNK`, `LR`, `VAE`, `WORKERS`, `INIT_FROM` | passed to `train_pour.sh`; defaults 100000, 32, 50, 1e-4, false, 16 |
+| `DATASET_REPO` | optional Hub dataset to train on instead of generating |
+| `PUSH_DATASET`, `PUSH_MODEL` | optional private Hub repos the merged set and the final weights are pushed to (`HF_TOKEN`) |
+| `CONTROL_CKPT` | optional Hub model id or repo-relative `pretrained_model` dir evaluated as the control |
+| `EVAL_N`, `EVAL_SEEDS`, `GEN_WORKERS` | as in `floor_state.sh` |
+
+Results: `sim/runs/<RUN_NAME>/eval` and `eval_control`, each with
+`seeds_*.json`, `all.json` and `video/seed*_{ok,fail}.mp4` (laptop camera
+with the wrist stream beside it). `planner/eval_summary.py` prints the
+success counts and the failure-mode mix from those files.
+
+## pour_dagger.sh
+
+One DAgger round on one machine: roll a policy out on fresh scenes from seed
+5000 with `gen_dagger.py`, let the planner take over from the states it
+reaches, merge the recoveries with the base dataset, warm-start training from
+the rolled-out weights, and evaluate the result and the rolled-out policy on
+the same seeds (`eval` and `eval_control`).
+
+| input | |
+| --- | --- |
+| `POLICY` | **required**, Hub model id or repo-relative `pretrained_model` dir to roll out and warm-start from |
+| `BASE_DATASET` | **required**, Hub dataset id or repo-relative root the recoveries are merged with |
+| `RUN_NAME` | default `pour_dagger_<JOB_ID>` |
+| `SEEDS`, `SEED0`, `TAKEOVERS`, `REWIND`, `WRIST` | scenes to roll out and the collector's knobs; defaults 1500, 5000, 1, `1.0,2.5,5.0`, left |
+| `STEPS`, `BATCH`, `WORKERS` | passed to `train_pour.sh`; default 30000 steps |
+| `PUSH_DATASET`, `PUSH_MODEL`, `CONTROL_CKPT`, `EVAL_N`, `EVAL_SEEDS`, `GEN_WORKERS` | as in `pour_full.sh`; the control defaults to `POLICY` |
+
+The next round takes this round's `PUSH_MODEL` as `POLICY` and its
+`PUSH_DATASET` as `BASE_DATASET`.
 
 ## Evaluating a checkpoint
 

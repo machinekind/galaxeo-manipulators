@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--takeovers", type=int, default=1)
     ap.add_argument("--rewind", default="1.0,2.5,5.0")
     ap.add_argument("--max-secs", type=float, default=45.0)
+    ap.add_argument("--wrist", choices=("left", "right"), default="left",
+                    help="hand the wrist camera is on, for a policy that reads it")
     ap.add_argument("--keep-parts", action="store_true")
     args = ap.parse_args()
 
@@ -88,7 +90,7 @@ def main():
 
     t0 = time.time()
     extra = ["--ckpt", os.path.abspath(args.ckpt), "--takeovers", str(args.takeovers),
-             "--rewind", args.rewind, "--max-secs", str(args.max_secs)]
+             "--rewind", args.rewind, "--max-secs", str(args.max_secs), "--wrist", args.wrist]
     states = run_workers(root, args.repo_id, n_workers, n_each, args.seed0, args.fps,
                          script=DAGGER, extra=extra)
     for k, st in enumerate(states):

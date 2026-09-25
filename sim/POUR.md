@@ -257,6 +257,7 @@ Features match `record_a1x.py`:
     observation.state             (7,)  measured joints + finger position
     observation.images.laptop     320 x 240, downscaled from the 640 x 480 render
     observation.images.topdown    256 x 256, that frame warped onto the table plane
+    observation.images.wrist      320 x 240, the G1 wrist camera, only with `--wrist`
     observation.cam_K, cam_T      (9,) (16,)  the session's camera calibration, for
                                   provenance (`cam_K` is the 640 x 480 intrinsics)
 
@@ -275,6 +276,19 @@ Each generated set also lives on the Hub as a private dataset
 (`marcinwysocki/a1x_pour_sim`, `marcinwysocki/a1x_pour_sim_td`), which is
 where a training box fetches it from (`DATASET_REPO`); shipping the 1.9 GB
 archive from a laptop took hours per rental.
+
+`gen_dataset.py --wrist left` mounts the printed wrist camera of
+`hardware/g1_camera_mounts` on the gripper (`pour_scene.build(seed, wrist="left")`,
+or `WRIST_CAMERA=left` for a whole process) and records its stream next to the
+other two. That is a different robot, not only a third video: 104 g on the
+wrist and 57 collision boxes the planner routes around (`planner/motion.py`
+refuses a configuration that puts the mount against the arm's own links or
+anything else it may not touch). The camera's pose is jittered per seed by the
+bracket's re-seating play (2 mm, 1.5 deg) and the frame gets a per-seed exposure
+draw (gain 0.75 to 1.25, gamma 0.8 to 1.25), both from their own RNG stream, so
+a seed's bottle, glass, table and webcam are what they were without the mount.
+`eval_policy.py` and `dagger.py` read the checkpoint's config and build the
+scene with the camera when the policy lists the stream, without it otherwise.
 
 `gen_dataset.py` runs N `run_pour.py` processes on disjoint seed ranges, each
 into its own part, and merges the parts with `lerobot-edit-dataset`. Eight
@@ -366,6 +380,152 @@ be a DAgger loop, rolling the policy out, relabelling its visited states with
 the planner's actions, and retraining on the union. A wrist camera is the
 lever after that; the photorealism step waits until a sim policy pours in sim.
 
+
+### The wrist-camera run
+
+The printed G1 wrist camera from `hardware/g1_camera_mounts` was mounted on the
+simulated arm's left hand. A third dataset was recorded with the same generator
+and the same seeds as the redraw set. It is `marcinwysocki/a1x_pour_sim_wrist`:
+360 episodes from 416 seeds, 269,584 frames, 2.2 GB. The planner poured on 87 %
+of seeds with the 104 g payload and its 57 collision boxes on the wrist, the
+same rate as without them. The policy sees the wrist stream at 320 x 240 next to
+the laptop frame and the map. The camera's pose is jittered per seed by the
+bracket's re-seating play, and each seed draws an exposure for the frame.
+Training used the redraw run's recipe unchanged: 80,000 steps of ACT at chunk
+50, batch 32, lr 1e-5. One rental of an RTX 4090 took 2 h 28 min and about
+1.30 USD. The L1 loss reached **0.089** and was still falling. The redraw run
+ended at 0.099 and the first run at 0.101.
+
+Closed loop, the checkpoint scores **0/20 on unseen seeds 2000 to 2019 and 0/20
+on training-range seeds 1000 to 1019**. The 60,000-step checkpoint scores 0/10
+on the training range. The redraw run scored 0/20 and 3/20. The redraw
+checkpoint re-run through the same evaluator still gives 3/20 on those training
+seeds, so the evaluator is sound. The failure mix on the training range moved.
+With the wrist camera 13 of 20 episodes grasp, lift and carry the bottle. Of
+those, 5 drop it, 5 tip it beside the glass and 3 knock the glass over. For the
+redraw run 9 of 17 failures carried the bottle. On unseen seeds 17 of 20 still
+disturb the bottle on the approach, between 2 and 4.6 s. The wrist camera sees
+only the table at that point.
+
+A lower action loss bought a policy that grasps more often on scenes it has seen
+and pours on none. The approach is decided from the laptop frame and the map.
+The wrist camera does not cover that distance: it sees the fingertips and 60 mm
+past them. It does cover the phase from grasp to pour, and the carried episodes
+fail there, on the last centimetres to the rim. The redraw run failed in the
+same place. Three hundred and sixty demonstrations of one behaviour are too few
+for ACT to learn that phase from either camera. The DAgger loop below addresses
+this failure directly. The recorder and the collector now carry the wrist
+stream, so DAgger corrections record it too.
+
+### The state-based floor check
+
+Before a bigger image run, a check of the action side alone: the same
+generator records the true scene state instead of images, per frame, and ACT
+is trained on that. If a policy that is handed the bottle pose and the glass
+position cannot pour, no camera will fix it. `sim/jobs/floor_state.sh` does
+the whole thing on one machine: 1,133 state episodes from 1,280 seeds (the
+planner poured on 88 %) in 94 minutes on 40 workers, 848,477 frames; ACT at
+chunk 50, batch 32, lr 1e-5 for 50,000 steps (52 minutes; the L1 loss
+reached 0.146 and was still falling); evaluation with a video of every
+episode. The whole run was one rental of about 3 hours and 1.50 USD.
+
+Closed loop it scores **0/20 on unseen seeds 2000 to 2019 and 0/20 on the
+training range 1000 to 1019**: 30 of the 40 episodes disturb the bottle on
+the approach, at a median of 3 s, six never touch it, four knock the glass.
+The same failure as every image run, with perfect perception.
+
+Three things were wrong, found offline on the pulled checkpoint and dataset.
+
+The policy did not read the scene. Moving the bottle 10 cm in its input
+moved its predicted chunk by 2.6 degrees per joint, where the recorded
+approaches differ by 10 to 29 degrees between scenes; it was fitting an
+average approach. lerobot's ACT maps no normalisation onto
+`observation.environment_state`, so the scene state went in raw, metres in
+the hundredths, beside standardised joints and actions. The payloads now pass
+the mapping with an `ENV` entry. Two of the 21 floats were junk besides: the
+glass's height, constant to 0.1 mm, which standardising turns into noise, and
+the bottle's yaw inside its rotation matrix, which a round bottle does not
+have. The scene state is now 14 floats: bottle position and up vector, glass
+position, six sizes.
+
+The demonstrations were not a function of the state. On its own training
+frames the checkpoint's first predicted step was off by 2.2 degrees per joint
+and its chunk by 5.7, where holding the current joints is off by 0.7; and a
+plain three-layer MLP given the full state, trained on the same frames, gets
+no further than 0.8 and 4.5, with no gap between training and held-out
+frames. Nearest-neighbour frames from different episodes with near-identical
+joints and scene have futures 3.7 degrees apart. The state held joint
+positions only: an arm standing still in a settle wait looks like an arm at
+the end of a ramp, and the phase within a ramp is invisible. With the six
+joint velocities added the MLP's chunk error drops from 4.6 to 1.7 degrees
+(from 1.7 to 1.1 on the first six seconds, the approach); the last command or
+the episode time buy the same. `observation.state` is now 13 floats, the
+velocities included. Every dataset and policy before this one lacked them.
+
+ACT underfit on top. With the same data the MLP fits the approach to 1.7
+degrees where ACT reached 5 to 10, at 50,000 steps of lr 1e-5 and barely two
+epochs. The state payload now trains at lr 1e-4 without the variational
+objective. A state-only ACT trains at 25 steps a second on a laptop's MPS,
+faster than the rented 4090 at 16, so this loop ran locally.
+
+The recordings with velocities (1,105 episodes) trained with the new recipe
+scored 1/20 unseen at 30,000 steps and 3/20 at 100,000, and showed two more
+faults on video. On some scenes the arm never moved: every demonstration
+ended with the bottle put down at a random spot and the arm idling at home
+for a second, which is the same state as the start of an episode, so "stay"
+was a valid label for it. And the random put-down spot has no predictable
+label at all. The recorders now stop at the end of `upright`, before the
+reset. The last recording adds the servo noise (1.5 degrees, labels clean):
+985 episodes without the reset stages, 532,850 frames, 66 % of the seeds.
+
+| recording | steps | unseen 2000 to 2019 | 1000 to 1019 |
+| --- | --- | --- | --- |
+| state, positions only (the box run) | 50,000 | 0/20 | 0/20 |
+| velocities, 14-float scene | 30,000 | 1/20 | 0/20 |
+| velocities, 14-float scene | 100,000 | 3/20 | |
+| reset cut, servo noise | 30,000 | 11/20 | 11/20 |
+| reset cut, servo noise | 100,000 | **14/20** | **11/20** |
+
+Of the 40 first troubles of the last row, 35 are a carried bottle tipped
+beside the glass, 4 a disturbed bottle on the approach, 1 the glass knocked.
+The action side is no longer the floor: with the true state the policy
+reaches the glass on nearly every scene. The image run carries every one of
+these changes: velocities, the reset cut, the noise, the normalisation
+entry, lr 1e-4 without the variational objective, 100,000 steps.
+
+### The image run with every change
+
+`sim/jobs/pour_full.sh` on one rented box (a 32-core RTX 4090, 0.47 USD an
+hour, 10.5 hours, about 5 USD): 2,759 episodes from 4,800 seeds with the
+laptop camera, the top-down map and the wrist camera, every randomisation
+stream on, the grasp drawn among the feasible candidates and the servo
+noise on (the planner poured on 57 % of the seeds), the reset stages cut,
+the joint velocities in the state. 1,493,434 frames, 11.9 GB, on the Hub as
+`marcinwysocki/a1x_pour_full_v1`. ACT at chunk 50, batch 32, lr 1e-4 for
+the transformer, no variational objective, 100,000 steps; the L1 loss
+reached 0.063, against 0.089 to 0.101 for the three earlier image runs.
+The weights are `marcinwysocki/a1x_pour_act_full_v1`.
+
+Closed loop it scores **3/20 on unseen seeds 2000 to 2019 and 2/20 on
+1000 to 1019**. The redraw checkpoint, re-evaluated on the same box and
+the same seeds as the control, scores 0/20 and 2/20. The failure mix is
+what moved. On the unseen seeds 11 of the 17 failures grasp, lift and
+carry the bottle and tip it beside the glass, 6 disturb it on the
+approach; the control never touches the bottle on 6 and disturbs it on
+13. So the camera policy now gets to the glass on most scenes, where the
+control did not get to the bottle, and misses by the last centimetres.
+The state policy trained the same way scores 14/20 on those seeds, so
+that gap is perception, not action. It is the failure the DAgger round
+is built for: the planner takes over from exactly those states.
+
+| policy | seeds 2000 to 2019 | 1000 to 1019 | reaches the glass, unseen |
+| --- | --- | --- | --- |
+| first run (laptop frame + calibration) | 0/20 | 1/20 | 0 |
+| redraw (frame + map) | 0/20 | 3/20 (2/20 rerun) | 4 |
+| wrist camera added, 360 demos | 0/20 | 0/20 | 3 |
+| this run | **3/20** | **2/20** | 14 |
+| state policy, same recipe | 14/20 | 11/20 | 19 |
+
 ### DAgger
 
 The planner is an open-loop timed script, so relabelling the policy's own
@@ -424,7 +584,7 @@ and the next round rolls out the new checkpoint with the previous `merged` as
 ## Known limits
 
 No liquid, so the pour is verified geometrically. Bottles are round; flat
-sided ones need a box body and a different closing rule. No wrist camera,
-which is the one addition that would most help the pour. The real-arm
+sided ones need a box body and a different closing rule. The wrist camera is
+in the simulator and the datasets but not yet in a policy that pours. The real-arm
 `Robot` and camera perception (bottle and glass from one image via the
 table plane) are not written.

@@ -1,9 +1,23 @@
 # Adding the wrist stream to the datasets
 
-Everything here is a change to `sim/`, not to this package. Nothing below is
-applied: the mount is proven in simulation (`test_wrist_camera.py`), the stream
-is opt-in, and turning it on is a choice about the next dataset, not about this
-PR.
+Everything here is a change to `sim/`, not to this package. The sections below
+are the recipe as it was written against the pour branch; **`sim/` now carries
+it**, with three differences worth knowing before reading the diffs:
+
+* The switch is `pour_scene.build(seed, wrist="left")` as well as the
+  `WRIST_CAMERA` environment variable, and the arm spec is cached per hand, so
+  an evaluator can build the robot a checkpoint was trained on without touching
+  the environment. `gen_dataset.py --wrist left` sets the variable for its workers.
+* The stream is stored at **320 x 240**, downscaled from the 640 x 480 render like
+  the laptop stream, not at full size: three streams through one ResNet18 at
+  640 x 480 would quadruple the wrist tokens for a first run. `run_pour.wrist_frame`
+  is the single place that renders, applies the exposure draw and downsizes; the
+  recorder, the DAgger collector and `eval_policy.py` all call it.
+* The pose jitter and the exposure draw of section 4 are made in `build()` from
+  the RNG stream `[seed, 0xCA11]` and travel in `info["wrist"]`.
+
+The stream stays opt-in: without the switch every scene, dataset and checkpoint
+is what it was before.
 
 ## 1. Put the camera on the arm
 

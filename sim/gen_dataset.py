@@ -35,8 +35,13 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+# The workers and the merge need lerobot. On the laptop that is the second venv;
+# on a training box the one venv the dispatcher synced has everything, and this
+# script already runs under it.
 LEROBOT_PY = os.path.join(HERE, ".venv-lerobot", "bin", "python")
-LEROBOT_EDIT = os.path.join(HERE, ".venv-lerobot", "bin", "lerobot-edit-dataset")
+if not os.path.exists(LEROBOT_PY):
+    LEROBOT_PY = sys.executable
+LEROBOT_EDIT = os.path.join(os.path.dirname(LEROBOT_PY), "lerobot-edit-dataset")
 RUN_POUR = os.path.join(HERE, "planner", "run_pour.py")
 OVER = 1.25                       # seeds drawn per wanted episode (~85 % of seeds succeed)
 OUTCOME = re.compile(r"^seed\s+(\d+)\s+(SUCCESS|FAIL)")
@@ -138,20 +143,37 @@ def main():
     ap.add_argument("--fps", type=int, default=20)
     ap.add_argument("--repo-id", default="galaxeo/a1x_pour_sim")
     ap.add_argument("--keep-parts", action="store_true", help="do not delete part_k/ after merging")
+    ap.add_argument("--state", action="store_true",
+                    help="record the privileged scene state instead of images (a state-based dataset)")
+    ap.add_argument("--wrist", choices=("left", "right"),
+                    help="mount the G1 wrist camera on that hand and record observation.images.wrist")
+    ap.add_argument("--vary", action="store_true",
+                    help="planner variation: the grasp is drawn among the feasible candidates")
+    ap.add_argument("--servo-noise", type=float, default=0.0, metavar="DEG",
+                    help="noise injection: std of the drift added to the executed joint commands")
+    ap.add_argument("--over", type=float, default=OVER,
+                    help="seeds drawn per wanted episode; raise it when noise lowers the planner's success rate")
     args = ap.parse_args()
+    if args.wrist:
+        os.environ["WRIST_CAMERA"] = args.wrist       # inherited by every worker
 
     for exe in (LEROBOT_PY, LEROBOT_EDIT):
         if not os.path.exists(exe):
             sys.exit(f"missing {exe}: create sim/.venv-lerobot (see POUR.md)")
     n_workers = max(1, args.workers)
-    n_each = max(1, math.ceil(args.episodes * OVER / n_workers))
+    n_each = max(1, math.ceil(args.episodes * args.over / n_workers))
     root = os.path.abspath(args.root)
     os.makedirs(root, exist_ok=True)
     print(f"{args.episodes} episode(s) wanted: {n_workers} worker(s) x {n_each} seed(s) "
           f"from {args.seed0}, {args.fps} fps, into {root}", flush=True)
 
     t0 = time.time()
-    states = run_workers(root, args.repo_id, n_workers, n_each, args.seed0, args.fps)
+    extra = ["--state"] if args.state else []
+    if args.vary:
+        extra.append("--vary")
+    if args.servo_noise > 0:
+        extra += ["--servo-noise", str(args.servo_noise)]
+    states = run_workers(root, args.repo_id, n_workers, n_each, args.seed0, args.fps, extra=extra)
     for k, st in enumerate(states):
         if st["rc"]:
             print(f"[w{k}] exited {st['rc']}; last of {st['log']}:", flush=True)

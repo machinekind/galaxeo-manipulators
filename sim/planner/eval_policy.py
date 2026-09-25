@@ -14,8 +14,10 @@ the dataset, because that is the rate the actions were recorded at). Every tick
 renders `laptop_cam` once at its native size, hands the policy exactly the
 features its config lists as inputs -- the raw frame downscaled to the shape
 the config asks for, and, if the config asks for it, the top-down table map
-`planner.topdown` warps out of the same frame with the session's calibration --
-and writes the returned 7-vector to the actuators: six joint targets
+`planner.topdown` warps out of the same frame with the session's calibration;
+a policy whose config lists `observation.images.wrist` gets the scene built
+with the G1 wrist camera on `--wrist` (left by default) and that camera's frame
+through the recorder's own `wrist_frame` -- and writes the returned 7-vector to the actuators: six joint targets
 straight into `data.ctrl[arm.acts]`, and the gripper through the same mapping
 the recorder inverted -- anything under 20 mm means "closed", which on this
 model is a command 30 mm past the stop so the fingers squeeze with a set force.
@@ -43,6 +45,7 @@ import mujoco  # noqa: E402
 from a1x_control import Arm  # noqa: E402
 from planner.pour import POUR_MIN_SECS, POUR_MIN_TILT  # noqa: E402
 from planner.run_episodes import write_gif  # noqa: E402
+from planner.run_pour import ENV_KEY, ENV_NAMES, WRIST_KEY, EnvState, robot_state, wrist_frame  # noqa: E402
 from planner.topdown import SIDE as TD_SIDE, topdown  # noqa: E402
 from pour_scene import GRIP_CMD, WORKSPACE, build, cam_intrinsics  # noqa: E402
 
@@ -51,6 +54,24 @@ MOUTH_ABOVE = 0.08        # ... and no higher than this above it [m]
 UPRIGHT = 0.95            # glass R[2,2] at the end
 FLOOR_DROP = 0.05         # bottle centre this far below the table top = on the floor [m]
 GRIP_CLOSED = 0.02        # commanded finger opening under this means "close hard" [m]
+
+
+def write_mp4(frames, path, fps=20, crf=23):
+    """H.264 through PyAV, whose wheel carries libx264: no ffmpeg binary needed."""
+    import av
+    h, w = frames[0].shape[:2]
+    h, w = h - h % 2, w - w % 2                     # yuv420p needs even sides
+    out = av.open(path, "w")
+    stream = out.add_stream("libx264", rate=fps)
+    stream.width, stream.height, stream.pix_fmt = w, h, "yuv420p"
+    stream.options = {"crf": str(crf), "preset": "medium"}
+    for f in frames:
+        for packet in stream.encode(av.VideoFrame.from_ndarray(np.ascontiguousarray(f[:h, :w]), format="rgb24")):
+            out.mux(packet)
+    for packet in stream.encode():
+        out.mux(packet)
+    out.close()
+    print(f"wrote {path} ({len(frames)} frames)")
 
 
 def find_checkpoint(path):
@@ -72,7 +93,7 @@ def find_checkpoint(path):
     raise SystemExit(f"no lerobot checkpoint (a directory with config.json) under {path}")
 
 
-def load_policy(ckpt, device, ensemble=None):
+def load_policy(ckpt, device, ensemble=None, n_action_steps=None):
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
     from lerobot.configs.policies import PreTrainedConfig
 
@@ -84,6 +105,10 @@ def load_policy(ckpt, device, ensemble=None):
         # overlapping predictions, which smooths the jitter of one-shot chunks
         cfg.temporal_ensemble_coeff = float(ensemble)
         cfg.n_action_steps = 1
+    elif n_action_steps is not None and cfg.type == "act":
+        # execute only the first n steps of every predicted chunk, then look
+        # again: the chunk length the policy was trained with stays
+        cfg.n_action_steps = int(n_action_steps)
     policy = get_policy_class(cfg.type).from_pretrained(ckpt, config=cfg)
     policy.to(device)
     policy.eval()
@@ -98,7 +123,14 @@ def load_policy(ckpt, device, ensemble=None):
     return policy, pre, post, cfg
 
 
-def observation(cfg, renderer, data, arm, info, torch):
+def wrist_hand(cfg, hand="left"):
+    """The hand the scene must carry the wrist camera on for this policy: `hand`
+    if its config reads the wrist stream, otherwise none -- the mount changes the
+    arm's mass and collision shape, so a policy gets the robot it was trained on."""
+    return hand if WRIST_KEY in cfg.input_features else ""
+
+
+def observation(cfg, renderer, data, arm, info, torch, env=None):
     """Exactly the features the policy config lists as inputs, in dataset units.
 
     Values go in raw: the preprocessor pipeline normalises them. A batch
@@ -112,7 +144,11 @@ def observation(cfg, renderer, data, arm, info, torch):
     at the config's map size."""
     obs, frame = {}, None
     for key in cfg.input_features:
-        if key.startswith("observation.images."):
+        if key == WRIST_KEY:
+            H, W = cfg.input_features[key].shape[1:]
+            img = wrist_frame(renderer, data, info, (W, H))
+            obs[key] = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float().div(255.0).unsqueeze(0)
+        elif key.startswith("observation.images."):
             if frame is None:
                 renderer.update_scene(data, camera="laptop_cam")
                 frame = renderer.render().copy()                 # HWC uint8, native size
@@ -128,19 +164,30 @@ def observation(cfg, renderer, data, arm, info, torch):
             t = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float() / 255.0
             obs[key] = t.unsqueeze(0)
         elif key == "observation.state":
-            q = data.qpos[arm.qadr]
-            g = abs(float(data.qpos[arm.fadr[0]]))
-            obs[key] = torch.from_numpy(
-                np.concatenate([q, [g]]).astype(np.float32)).unsqueeze(0)
+            n = cfg.input_features[key].shape[0]
+            if n == 13:
+                obs[key] = torch.from_numpy(robot_state(data, arm)).unsqueeze(0)
+            else:
+                # the datasets before the joint velocities were added
+                q = data.qpos[arm.qadr]
+                g = abs(float(data.qpos[arm.fadr[0]]))
+                obs[key] = torch.from_numpy(
+                    np.concatenate([q, [g]]).astype(np.float32)).unsqueeze(0)
         elif key == "observation.cam_K":
             obs[key] = torch.from_numpy(
                 np.asarray(info["cam"]["K"], np.float32).ravel()).unsqueeze(0)
         elif key == "observation.cam_T":
             obs[key] = torch.from_numpy(
                 np.asarray(info["cam"]["T_cam2base"], np.float32).ravel()).unsqueeze(0)
-        elif key == "observation.environment_state":
-            # the session's camera calibration, intrinsics then extrinsics,
-            # which is the one key ACT reads as an environment state
+        elif key == ENV_KEY and cfg.input_features[key].shape[0] == len(ENV_NAMES):
+            # a state-based policy: the privileged scene state the recorder wrote
+            obs[key] = torch.from_numpy(env(data)).unsqueeze(0)
+        elif key == ENV_KEY and cfg.input_features[key].shape[0] == 21:
+            raise SystemExit("a state policy of the first, 21-float scene state (bottle rotation matrix, "
+                             "glass height): that layout was retired with the joint velocities")
+        elif key == ENV_KEY:
+            # the first dataset's use of the key: the session's camera
+            # calibration, intrinsics then extrinsics
             obs[key] = torch.from_numpy(np.concatenate([
                 np.asarray(info["cam"]["K"], np.float32).ravel(),
                 np.asarray(info["cam"]["T_cam2base"], np.float32).ravel()])).unsqueeze(0)
@@ -197,34 +244,55 @@ class Judge:
                     glass_fell=self.glass_fell or not glass_up, on_floor=on_floor, why=why)
 
 
-def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None):
+def episode(policy, pre, post, cfg, seed, fps, max_secs, torch, frames=None, wrist="left",
+            wrist_frames=None, small=False, show_wrist=False):
+    """`frames` collects laptop_cam, `wrist_frames` the wrist stream when the
+    scene has one; `small` keeps both at half size, which is what makes holding
+    every episode of a long evaluation affordable."""
     policy.reset()
-    model, data, info = build(seed)
+    # `show_wrist` mounts the camera for the recording even when the policy does
+    # not read it, so a state-based or laptop-only policy can be watched from
+    # the hand too; it carries the mount's mass, which that policy never saw.
+    model, data, info = build(seed, wrist=wrist if show_wrist else wrist_hand(cfg, wrist))
     arm = Arm(model, "arm/")
     # Always render at the camera's native size: the top-down warp wants the
     # full frame, and the raw stream is downscaled from it, which is what the
     # recorder did when the dataset was written.
     W, H = info["cam"]["W"], info["cam"]["H"]
     judge = Judge(model, data, info)
+    # what went wrong first, in the DAgger monitor's words; the import is here
+    # because planner.dagger imports this module
+    from planner.dagger import Monitor
+    mon, trouble = Monitor(model, data, info), None
+    env = EnvState(model, info)
     n_sub = max(1, int(round((1.0 / fps) / model.opt.timestep)))
     dt = n_sub * model.opt.timestep
     r = mujoco.Renderer(model, height=H, width=W)
     try:
         while data.time < max_secs:
-            obs = observation(cfg, r, data, arm, info, torch)
+            obs = observation(cfg, r, data, arm, info, torch, env)
             with torch.no_grad():
                 action = post(policy.select_action(pre(obs)))
             apply_action(model, data, arm, np.asarray(action, dtype=np.float64).reshape(-1))
             for _ in range(n_sub):
                 mujoco.mj_step(model, data)
             judge.tick(dt)
+            if trouble is None:
+                t = mon.tick(dt)
+                if t:
+                    trouble = dict(trouble=t, t_trouble=round(float(data.time), 2))
             if frames is not None:
                 r.update_scene(data, camera="laptop_cam")
-                frames.append(r.render().copy())
+                f = r.render()
+                frames.append(cv2.resize(f, (W // 2, H // 2), interpolation=cv2.INTER_AREA) if small else f.copy())
+                if wrist_frames is not None and info.get("wrist"):
+                    wrist_frames.append(wrist_frame(r, data, info, (W // 2, H // 2) if small else (W, H)))
     finally:
         r.close()
     out = judge.result()
     out["duration"] = float(data.time)
+    out.update(trouble or dict(trouble=None, t_trouble=None))
+    out["carried"] = bool(mon.carried)
     return out
 
 
@@ -236,31 +304,57 @@ def main():
     ap.add_argument("--fps", type=int, default=20, help="control rate; must match the dataset")
     ap.add_argument("--max-secs", type=float, default=45.0, help="wall clock budget per episode")
     ap.add_argument("--gif", help="record the first episode from laptop_cam")
+    ap.add_argument("--video", metavar="DIR", help="record every episode as DIR/seedN_{ok,fail}.mp4: laptop_cam, "
+                    "with the wrist stream beside it when the policy reads one")
+    ap.add_argument("--wrist", choices=("left", "right"), default="left",
+                    help="hand the wrist camera is mounted on, for a policy that reads it")
+    ap.add_argument("--show-wrist", action="store_true",
+                    help="with --video: mount the wrist camera and record it even if the policy does not read it")
+    ap.add_argument("--json", help="write the per-seed results here")
     ap.add_argument("--device", default="cpu", help="cpu | cuda | mps")
     ap.add_argument("--ensemble", type=float, default=None,
                     help="ACT temporal ensembling coefficient (e.g. 0.01); off by default")
+    ap.add_argument("--n-action-steps", type=int, default=None,
+                    help="execute only this many steps of each predicted chunk before predicting again")
     args = ap.parse_args()
 
     import torch
 
     ckpt = find_checkpoint(args.ckpt)
-    policy, pre, post, cfg = load_policy(ckpt, args.device, args.ensemble)
+    policy, pre, post, cfg = load_policy(ckpt, args.device, args.ensemble, args.n_action_steps)
     print(f"{cfg.type} checkpoint {os.path.basename(os.path.dirname(ckpt))}, "
           f"chunk {cfg.chunk_size}, n_action_steps {cfg.n_action_steps}, on {args.device}")
     print("inputs: " + ", ".join(cfg.input_features))
 
-    n_ok = 0
+    if args.video:
+        os.makedirs(args.video, exist_ok=True)
+    n_ok, rows = 0, []
     for i in range(args.n):
         seed = args.seed + i
-        frames = [] if (args.gif and i == 0) else None
-        res = episode(policy, pre, post, cfg, seed, args.fps, args.max_secs, torch, frames)
+        frames = [] if (args.video or (args.gif and i == 0)) else None
+        wframes = [] if args.video else None
+        res = episode(policy, pre, post, cfg, seed, args.fps, args.max_secs, torch, frames,
+                      wrist=args.wrist, wrist_frames=wframes, small=bool(args.video),
+                      show_wrist=bool(args.show_wrist and args.video))
         n_ok += res["success"]
+        rows.append(dict(seed=seed, **{k: (bool(v) if isinstance(v, (bool, np.bool_)) else v)
+                                        for k, v in res.items()}))
         print(f"seed {seed:3d}  {'SUCCESS' if res['success'] else 'FAIL   '} "
               f"poured {res['secs']:4.1f}s  max tilt {np.degrees(res['max_tilt']):5.1f}deg  "
               f"glass {'FELL' if res['glass_fell'] else 'ok  '}  t={res['duration']:5.1f}s"
-              + (f"  {res['why']}" if res["why"] else ""), flush=True)
-        if frames:
+              + (f"  {res['why']}" if res["why"] else "")
+              + (f"  first trouble: {res['trouble']} at {res['t_trouble']}s" if res["trouble"] else "")
+              + ("  carried" if res["carried"] else ""), flush=True)
+        if frames and args.gif and i == 0:
             write_gif(frames, args.gif, fps=args.fps)
+        if args.video:
+            both = [np.concatenate(fw, axis=1) for fw in zip(frames, wframes)] if wframes else frames
+            write_mp4(both, os.path.join(args.video, f"seed{seed}_{'ok' if res['success'] else 'fail'}.mp4"),
+                      fps=args.fps)
+    if args.json:
+        import json
+        with open(args.json, "w") as f:
+            json.dump(dict(ckpt=ckpt, n=args.n, ok=int(n_ok), episodes=rows), f, indent=1)
     print(f"\n{n_ok}/{args.n} success ({100 * n_ok / args.n:.0f}%)")
 
 
