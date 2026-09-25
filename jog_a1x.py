@@ -20,7 +20,10 @@ Keys (hold to move, release to stop):
 The on-screen [-] [+] buttons do the same thing with the mouse. "Go home"
 slews every joint to --home (default all zeros: the folded pose) at
 --home-speed, 9 deg/s by default; any jog key cancels it, and it reports
-"safe to disarm" once there.
+"safe to disarm" once there. "Set home = here" takes the measured pose as
+home and prints the --home value to reuse. Prefer that over the zeros: a
+joint commanded even 0.2 deg into its mechanical stop pushes there forever,
+visible as steady effort at rest.
 
 How it moves the arm, and why it is safe to start:
 
@@ -226,6 +229,20 @@ class Jog:
                 self.status = "arm first, then enable"; return
             self._enable_req = True
 
+    def set_home_here(self):
+        """Take the measured pose as this session's home, and print it so it can
+        be passed as --home next time. Use it in the pose the arm rests in
+        naturally: commanding a joint even 0.2 deg into its mechanical stop
+        makes the motor push there forever, which shows up as effort."""
+        with self.lock:
+            if self.arm.q is None or time.time() - self.arm.t > 0.15:
+                self.status = "no fresh feedback"; return
+            self.a.home_rad = list(self.arm.q[:N])
+            self.homing = False
+            deg = ",".join(f"{math.degrees(x):.1f}" for x in self.a.home_rad)
+            self.status = f"home set to here. Next time: --home {deg}"
+            print(f"home = current pose. Next time start with:  --home {deg}")
+
     def go_home(self):
         """Slew every joint to --home at --home-speed. Any jog key cancels it.
         The gripper is left alone."""
@@ -367,6 +384,7 @@ def gui(jog, a):
     ttk.Button(ctl, text="STOP / disarm", command=lambda: jog.arm_off("disarmed")).pack(side="left", padx=2)
     ttk.Button(ctl, text="Enable FF 1→5→6", command=jog.request_enable).pack(side="left", padx=2)
     ttk.Button(ctl, text=f"Go home ({a.home_speed:g}°/s)", command=jog.go_home).pack(side="left", padx=2)
+    ttk.Button(ctl, text="Set home = here", command=jog.set_home_here).pack(side="left", padx=2)
     ttk.Label(ctl, text="speed deg/s").pack(side="left", padx=(12, 2))
     speed = tk.DoubleVar(value=a.speed)
     ttk.Scale(ctl, from_=1, to=a.max_speed, variable=speed, length=140,

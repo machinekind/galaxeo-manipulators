@@ -291,6 +291,12 @@ URDF zero, shoulder and elbow at their limits, the arm folded) at
 to disarm" on arrival; the arm holds there uncommanded, and a folded arm is
 the one to cut power on, since there are no brakes.
 
+Set home to the pose the arm *rests* in, not the exact zeros: at rest the
+shoulder reads −0.2° and the elbow +0.2° (plus its known +1.5° offset), and
+a joint commanded into its mechanical stop pushes there forever, which shows
+up as steady effort at home. **Set home = here** captures the measured pose
+and prints the `--home` value for next time.
+
 ### macOS: the adapter without a kernel
 
 macOS has no SocketCAN. The freeware PCBUSB library (mac-can.com) opens the
