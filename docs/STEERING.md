@@ -134,7 +134,9 @@ to have the bridge unfold it (slowly, `--home-rate` deg/s, keep clear).
 | --- | --- | --- |
 | `--mode joint` | joint | 1:1 joint mapping. Preferred — exact and singularity-free |
 | `--mode ik` | | FK the SO-101 tip, scale into the A1X workspace, solve A1X IK |
-| `--follow-rate` | 90 | deg/s slew cap on the follower |
+| `--follow-rate` | 45 | deg/s slew cap on the follower. The SO-101 can be flicked; the A1X must not follow a flick |
+| `--limit-margin` | 2 | deg kept inside each joint limit so a target never rests on a hard stop |
+| `--max-effort` | 20 | stop streaming when a joint stalls or collides (normal load ~3, saturation 50) |
 | `--gain` | 1.0 | motion gain in joint mode; < 1 for fine work |
 | `--smooth` | 0.35 | low-pass on the leader |
 | `--grip` | off | map the gripper too |

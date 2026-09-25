@@ -43,8 +43,13 @@ TRANSPORT
 
 SAFETY
     * --dry-run prints targets and transmits nothing. Use it first.
-    * The A1X follower is slew-limited (--follow-rate) and clamped to URDF
-      limits; targets are relative to its start pose.
+    * The A1X follower is slew-limited (--follow-rate, 45 deg/s: the SO-101
+      can be flicked 100 deg in half a second, the A1X must not follow that)
+      and clamped --limit-margin inside the URDF limits, widened to wherever
+      it started, so it never drives into a mechanical stop. Targets are
+      relative to its start pose.
+    * --max-effort: any joint above this |effort| (normal gravity load is
+      ~3, saturation 50) means a stall or a collision; the stream stops.
     * The gripper closes force-limited: if |effort| exceeds --grip-force the
       target freezes, so it grips rather than crushes.
     * Aborts on stale CAN feedback or on losing the SO-101.
@@ -301,7 +306,14 @@ def main():
     ap.add_argument("--kd", type=float, default=1.0)
     ap.add_argument("--rate", type=float, default=200.0, help="CAN stream Hz")
     ap.add_argument("--solve-rate", type=float, default=50.0, help="IK solve Hz")
-    ap.add_argument("--follow-rate", type=float, default=90.0, help="deg/s slew cap")
+    ap.add_argument("--follow-rate", type=float, default=45.0, help="deg/s slew cap")
+    ap.add_argument("--limit-margin", type=float, default=2.0,
+                    help="deg kept inside each URDF limit, so a target never rests "
+                         "on a hard stop (measured: a joint parked on its stop pulls "
+                         "effort 25, a stall, until power is cut)")
+    ap.add_argument("--max-effort", type=float, default=20.0,
+                    help="stop streaming when any joint's |effort| exceeds this; "
+                         "0 disables")
     ap.add_argument("--signs", default="+++++",
                     help="sign per SO-101 arm joint, in order "
                          "pan,lift,elbow,wristflex,wristroll. Flip any that "
@@ -396,6 +408,12 @@ def main():
         print(f"  SO-101 gripper now {s0.get('gripper.pos', float('nan')):.0f}% open "
               f"(100 = open; --grip maps it straight through)")
     q_a0 = np.array(arm.q[:N])
+    # Clamp bounds: --limit-margin inside the URDF range, but never tighter
+    # than where the arm already is (a folded start sits ON J2/J3's limits and
+    # J3 reads past its limit at rest); the start pose is always reachable.
+    mrg = math.radians(a.limit_margin)
+    lo_b = np.minimum(a1x_chain.lower + mrg, q_a0)
+    hi_b = np.maximum(a1x_chain.upper - mrg, q_a0)
     print(f"  SO-101 start (deg): {np.round(np.degrees(q_so0),1)}")
     print(f"  A1X    start (deg): {np.round(np.degrees(q_a0),1)}")
     T_so0 = so_chain.fk(q_so0); T_a0 = a1x_chain.fk(q_a0)
@@ -431,7 +449,15 @@ def main():
     while (a.secs <= 0 or time.time() - t0 < a.secs) and not _stop["flag"]:
         arm.drain(); now = time.time()
         if now - arm.t > 0.15:
-            reason = f"ABORT: stale A1X feedback ({(now-arm.t)*1e3:.0f} ms)"; break
+            reason = (f"ABORT: A1X feedback stopped ({(now-arm.t)*1e3:.0f} ms): the arm lost "
+                      f"power (supply tripped?), or the CAN cable / dongle dropped. "
+                      f"NO BRAKES: with power gone the arm falls."); break
+        if a.max_effort > 0 and arm.e and not a.dry_run:
+            worst = max(range(N), key=lambda j: abs(arm.e[j]))
+            if abs(arm.e[worst]) > a.max_effort:
+                reason = (f"ABORT: J{worst+1} effort {arm.e[worst]:+.1f} exceeds --max-effort "
+                          f"{a.max_effort:g}: stalled against a stop or a collision. "
+                          f"Jog it off before restarting."); break
         dt = max(1e-4, now - prev); prev = now
 
         if now >= nxt_solve:
@@ -464,7 +490,7 @@ def main():
                 goal[:] = seed
                 tip_err = float(np.linalg.norm(T_got[:3, 3] - T_des[:3, 3]))
 
-            goal[:] = np.clip(goal, a1x_chain.lower, a1x_chain.upper)
+            goal[:] = np.clip(goal, lo_b, hi_b)
             if a.grip and "gripper" in lead.present:
                 g_raw = np.clip(s.get("gripper.pos", 0.0), 0.0, 100.0) / 100.0
                 g_filt = g_raw if g_filt is None else g_filt + a.smooth*(g_raw-g_filt)
@@ -504,7 +530,7 @@ def main():
     arm.drain()
     print(f"  A1X final (deg): {np.round(np.degrees(arm.q[:N]),1)}")
     lead.close(); arm.close()
-    print("  stopped -- the A1X re-latches where it is")
+    print("  stopped -- a powered A1X re-latches where it is")
     return 0
 
 
