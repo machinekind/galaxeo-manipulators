@@ -1,0 +1,2684 @@
+{
+  "revision": 6,
+  "reduced_run": false,
+  "quick": false,
+  "bottle_samples": 320,
+  "gripper_measurements": {
+    "housing_dia": 60.0,
+    "housing_x0": -76.65,
+    "rail_back_x": -15.65,
+    "rail_front_x": 0.0,
+    "rail_half_y": 54.158,
+    "rail_half_z": 25.881,
+    "carriage_back_x": -13.605,
+    "carriage_min_abs_z": 10.622,
+    "carriage_max_abs_y": 51.891,
+    "finger_front_x": -0.705,
+    "fingertip_x": 78.355
+  },
+  "G1_bottle_in_hand": {
+    "bottles": 320,
+    "parameter_box_corners": 32,
+    "checks": 2816,
+    "payload_points": 26562,
+    "min_clearance_mm": 8.07,
+    "collisions": 0,
+    "per_candidate": {
+      "body-high pitch0.30": {
+        "n": 352,
+        "min_mm": 35.26,
+        "mean_mm": 42.56,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "body-high pitch0.45": {
+        "n": 352,
+        "min_mm": 28.86,
+        "mean_mm": 36.94,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "body-high pitch0.60": {
+        "n": 352,
+        "min_mm": 21.5,
+        "mean_mm": 30.9,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "neck pitch0.55": {
+        "n": 352,
+        "min_mm": 33.59,
+        "mean_mm": 35.83,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "neck pitch0.40": {
+        "n": 352,
+        "min_mm": 33.54,
+        "mean_mm": 35.83,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "neck pitch0.70": {
+        "n": 352,
+        "min_mm": 33.75,
+        "mean_mm": 35.86,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "body-mid pitch0.45": {
+        "n": 352,
+        "min_mm": 22.95,
+        "mean_mm": 29.24,
+        "collisions": 0,
+        "under_gate": 0
+      },
+      "body-mid pitch0.70": {
+        "n": 352,
+        "min_mm": 8.07,
+        "mean_mm": 14.6,
+        "collisions": 0,
+        "under_gate": 0
+      }
+    }
+  },
+  "G1_gripper_meshes": {
+    "min_free_clearance_mm": 5.0,
+    "min_locating_clearance_mm": 0.0,
+    "non_locating_sample_points": 17996,
+    "non_locating_bracket_clearance_mm": 5.01,
+    "tightest_non_locating_point_mm": [
+      -46.0,
+      32.5,
+      12.9
+    ],
+    "tightest": {
+      "jaw0:upper_bracket-gripper_link": 0.0,
+      "jaw0:lower_bracket-gripper_link": 0.0,
+      "jaw20:upper_bracket-gripper_link": 0.0,
+      "jaw20:lower_bracket-gripper_link": 0.0,
+      "jaw50:upper_bracket-gripper_link": 0.0,
+      "jaw50:lower_bracket-gripper_link": 0.0,
+      "jaw0:dowel_-1-gripper_link": 5.0,
+      "jaw0:dowel_1-gripper_link": 5.0,
+      "jaw20:dowel_-1-gripper_link": 5.0,
+      "jaw20:dowel_1-gripper_link": 5.0
+    },
+    "note": "'locating' = the clamp bore annulus, the stop-pad plane and the key ears' inner faces, by region (design.locating_region), against gripper_link: contact there is the point of the part. Everything else on the brackets is held to the full gate, including against gripper_link."
+  },
+  "G1_locating_features": {
+    "min_clearance_mm": 5.4,
+    "per_pair": {
+      "jaw0:upper_bracket-gripper_finger_link1": 5.73,
+      "jaw0:lower_bracket-gripper_finger_link1": 12.49,
+      "jaw0:upper_bracket-gripper_finger_link2": 12.49,
+      "jaw0:lower_bracket-gripper_finger_link2": 5.73,
+      "jaw10:upper_bracket-gripper_finger_link1": 7.67,
+      "jaw10:lower_bracket-gripper_finger_link1": 14.25,
+      "jaw10:upper_bracket-gripper_finger_link2": 14.25,
+      "jaw10:lower_bracket-gripper_finger_link2": 7.67,
+      "jaw20:upper_bracket-gripper_finger_link1": 7.77,
+      "jaw20:lower_bracket-gripper_finger_link1": 14.38,
+      "jaw20:upper_bracket-gripper_finger_link2": 14.38,
+      "jaw20:lower_bracket-gripper_finger_link2": 7.77,
+      "jaw35:upper_bracket-gripper_finger_link1": 8.09,
+      "jaw35:lower_bracket-gripper_finger_link1": 10.36,
+      "jaw35:upper_bracket-gripper_finger_link2": 10.36,
+      "jaw35:lower_bracket-gripper_finger_link2": 8.09,
+      "jaw50:upper_bracket-gripper_finger_link1": 5.4,
+      "jaw50:lower_bracket-gripper_finger_link1": 5.4,
+      "jaw50:upper_bracket-gripper_finger_link2": 5.4,
+      "jaw50:lower_bracket-gripper_finger_link2": 5.4
+    }
+  },
+  "G1_arm_links": {
+    "payload_min_x_mm": -52.0,
+    "arm_max_x_upper_bound_mm": {
+      "arm_link3": -62.128,
+      "arm_link4": -66.655,
+      "arm_link5": -77.653,
+      "arm_link6": -69.65
+    },
+    "clearance_mm": {
+      "arm_link3": 10.13,
+      "arm_link4": 14.65,
+      "arm_link5": 25.65,
+      "arm_link6": 17.65
+    },
+    "min_mm": 10.13,
+    "pitch_interpolation_bound_mm": 0.1952,
+    "method": "continuous separating-plane bound over the full joint 4/5/6 ranges, independent of wrist roll (v4 method)",
+    "excludes": "arm links 0-2 can fold into the tool; they are only covered by the random full-arm audit"
+  },
+  "bottle_corridor": {
+    "keepout_x_mm": -24.0,
+    "keepout_radius_mm": 30.0,
+    "bottle_slab_y_mm": 42.0,
+    "parts_forward_of_keepout": {
+      "upper_bracket": {
+        "points": 3139,
+        "max_x_mm": -5.0,
+        "min_abs_y_mm": 30.21,
+        "abs_z_range_mm": [
+          0.8,
+          69.16
+        ]
+      },
+      "lower_bracket": {
+        "points": 1779,
+        "max_x_mm": -5.0,
+        "min_abs_y_mm": 30.21,
+        "abs_z_range_mm": [
+          0.8,
+          7.0
+        ]
+      },
+      "camera_body": {
+        "points": 444,
+        "max_x_mm": -14.79,
+        "min_abs_y_mm": 47.93,
+        "abs_z_range_mm": [
+          40.39,
+          64.44
+        ]
+      },
+      "camera_holder": {
+        "points": 660,
+        "max_x_mm": -14.62,
+        "min_abs_y_mm": 40.6,
+        "abs_z_range_mm": [
+          35.49,
+          57.97
+        ]
+      },
+      "camera_lens": {
+        "points": 1713,
+        "max_x_mm": -10.05,
+        "min_abs_y_mm": 35.34,
+        "abs_z_range_mm": [
+          33.14,
+          52.71
+        ]
+      },
+      "camera_usb": {
+        "points": 83,
+        "max_x_mm": -20.88,
+        "min_abs_y_mm": 60.81,
+        "abs_z_range_mm": [
+          23.1,
+          32.15
+        ]
+      }
+    },
+    "points": 7818,
+    "min_abs_y_forward_mm": 30.21,
+    "max_abs_z_forward_mm": 69.16,
+    "gated_by": "G1_bottle_in_hand.min_clearance_mm"
+  },
+  "G2prime_sightlines": {
+    "pupil_mm": [
+      -19.78,
+      45.24,
+      42.93
+    ],
+    "object_zone_z_mm": 10.0,
+    "a_blade_tips": {
+      "opening10": {
+        "gripper_finger_link1": {
+          "visible": true,
+          "point_mm": [
+            77.8,
+            5.92,
+            5.18
+          ]
+        },
+        "gripper_finger_link2": {
+          "visible": true,
+          "point_mm": [
+            77.58,
+            -6.03,
+            5.34
+          ]
+        }
+      },
+      "opening20": {
+        "gripper_finger_link1": {
+          "visible": true,
+          "point_mm": [
+            77.8,
+            10.92,
+            5.18
+          ]
+        },
+        "gripper_finger_link2": {
+          "visible": true,
+          "point_mm": [
+            77.58,
+            -11.03,
+            5.34
+          ]
+        }
+      },
+      "opening40": {
+        "gripper_finger_link1": {
+          "visible": true,
+          "point_mm": [
+            77.8,
+            20.92,
+            5.18
+          ]
+        },
+        "gripper_finger_link2": {
+          "visible": true,
+          "point_mm": [
+            77.58,
+            -21.03,
+            5.34
+          ]
+        }
+      },
+      "opening70": {
+        "gripper_finger_link1": {
+          "visible": true,
+          "point_mm": [
+            77.8,
+            35.92,
+            5.18
+          ]
+        },
+        "gripper_finger_link2": {
+          "visible": true,
+          "point_mm": [
+            77.58,
+            -36.03,
+            5.34
+          ]
+        }
+      },
+      "opening100": {
+        "gripper_finger_link1": {
+          "visible": true,
+          "point_mm": [
+            77.8,
+            50.92,
+            5.18
+          ]
+        },
+        "gripper_finger_link2": {
+          "visible": true,
+          "point_mm": [
+            77.58,
+            -51.03,
+            5.34
+          ]
+        }
+      }
+    },
+    "b_object_zone": {
+      "opening10": {
+        "n": 10,
+        "blocked": 0
+      },
+      "opening20": {
+        "n": 10,
+        "blocked": 0
+      },
+      "opening40": {
+        "n": 10,
+        "blocked": 0
+      },
+      "opening70": {
+        "n": 10,
+        "blocked": 0
+      },
+      "opening100": {
+        "n": 10,
+        "blocked": 0
+      }
+    },
+    "c_far_jaw": {
+      "opening10": {
+        "n": 25,
+        "visible_fraction": 0.52
+      },
+      "opening20": {
+        "n": 25,
+        "visible_fraction": 1.0
+      },
+      "opening40": {
+        "n": 25,
+        "visible_fraction": 1.0
+      },
+      "opening70": {
+        "n": 25,
+        "visible_fraction": 1.0
+      },
+      "opening100": {
+        "n": 25,
+        "visible_fraction": 1.0
+      }
+    },
+    "d_grasp_zone_z0": {
+      "opening10": {
+        "n": 45,
+        "blocked": 45,
+        "visible_fraction": 0.0
+      },
+      "opening20": {
+        "n": 45,
+        "blocked": 18,
+        "visible_fraction": 0.6
+      },
+      "opening40": {
+        "n": 45,
+        "blocked": 6,
+        "visible_fraction": 0.867
+      },
+      "opening70": {
+        "n": 45,
+        "blocked": 4,
+        "visible_fraction": 0.911
+      },
+      "opening100": {
+        "n": 45,
+        "blocked": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    "blocked_by_mount_alone": 0,
+    "note": "the near blade hides a sliver of the Z=0 gap directly behind itself; that is the (d) shortfall and it is geometric, not a mount shadow"
+  },
+  "G3_forward_view": {
+    "recommended_wide": {
+      "fov_deg": [
+        101.4,
+        85.0
+      ],
+      "pitch_deg": 25.0,
+      "total_off_axis_deg": 39.77,
+      "yaw_deg": 32.0,
+      "worst_margin_deg": 19.15,
+      "gated_margin_deg": 25.16,
+      "gated_targets": [
+        "tool axis at the fingertips",
+        "near fingertip (jaw 40)",
+        "far fingertip (jaw 40)",
+        "250 mm past the tips"
+      ],
+      "targets": {
+        "tool axis at the fingertips": {
+          "h_deg": -6.7,
+          "v_deg": 3.2,
+          "in_frame": true
+        },
+        "near fingertip (jaw 40)": {
+          "h_deg": -16.1,
+          "v_deg": 1.0,
+          "in_frame": true
+        },
+        "far fingertip (jaw 40)": {
+          "h_deg": 1.5,
+          "v_deg": 5.0,
+          "in_frame": true
+        },
+        "near fingertip (jaw 100)": {
+          "h_deg": -31.5,
+          "v_deg": -3.0,
+          "in_frame": true
+        },
+        "far fingertip (jaw 100)": {
+          "h_deg": 11.7,
+          "v_deg": 7.2,
+          "in_frame": true
+        },
+        "250 mm past the tips": {
+          "h_deg": -25.4,
+          "v_deg": 17.3,
+          "in_frame": true
+        },
+        "grasp zone centre": {
+          "h_deg": -4.3,
+          "v_deg": 1.4,
+          "in_frame": true
+        }
+      },
+      "forward_point_in_frame": true,
+      "fingertips_in_frame": true
+    },
+    "alternative_standard": {
+      "fov_deg": [
+        69.53,
+        55.0
+      ],
+      "pitch_deg": 25.0,
+      "total_off_axis_deg": 39.77,
+      "yaw_deg": 32.0,
+      "worst_margin_deg": 3.22,
+      "gated_margin_deg": 9.34,
+      "gated_targets": [
+        "tool axis at the fingertips",
+        "near fingertip (jaw 40)",
+        "far fingertip (jaw 40)",
+        "250 mm past the tips"
+      ],
+      "targets": {
+        "tool axis at the fingertips": {
+          "h_deg": -6.7,
+          "v_deg": 3.2,
+          "in_frame": true
+        },
+        "near fingertip (jaw 40)": {
+          "h_deg": -16.1,
+          "v_deg": 1.0,
+          "in_frame": true
+        },
+        "far fingertip (jaw 40)": {
+          "h_deg": 1.5,
+          "v_deg": 5.0,
+          "in_frame": true
+        },
+        "near fingertip (jaw 100)": {
+          "h_deg": -31.5,
+          "v_deg": -3.0,
+          "in_frame": true
+        },
+        "far fingertip (jaw 100)": {
+          "h_deg": 11.7,
+          "v_deg": 7.2,
+          "in_frame": true
+        },
+        "250 mm past the tips": {
+          "h_deg": -25.4,
+          "v_deg": 17.3,
+          "in_frame": true
+        },
+        "grasp zone centre": {
+          "h_deg": -4.3,
+          "v_deg": 1.4,
+          "in_frame": true
+        }
+      },
+      "forward_point_in_frame": true,
+      "fingertips_in_frame": true
+    }
+  },
+  "G3_occlusion": {
+    "recommended_wide": {
+      "body-high pitch0.30": {
+        "mean_image_fraction": 0.257,
+        "max_image_fraction": 0.319,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "body-high pitch0.45": {
+        "mean_image_fraction": 0.262,
+        "max_image_fraction": 0.324,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "body-high pitch0.60": {
+        "mean_image_fraction": 0.275,
+        "max_image_fraction": 0.345,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "neck pitch0.55": {
+        "mean_image_fraction": 0.084,
+        "max_image_fraction": 0.095,
+        "mouth_in_frame": "16/16",
+        "mid_neck_in_frame": "16/16"
+      },
+      "neck pitch0.40": {
+        "mean_image_fraction": 0.098,
+        "max_image_fraction": 0.112,
+        "mouth_in_frame": "16/16",
+        "mid_neck_in_frame": "16/16"
+      },
+      "neck pitch0.70": {
+        "mean_image_fraction": 0.076,
+        "max_image_fraction": 0.086,
+        "mouth_in_frame": "16/16",
+        "mid_neck_in_frame": "16/16"
+      },
+      "body-mid pitch0.45": {
+        "mean_image_fraction": 0.295,
+        "max_image_fraction": 0.351,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "body-mid pitch0.70": {
+        "mean_image_fraction": 0.354,
+        "max_image_fraction": 0.411,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "self_and_gripper": {
+        "mount_alone_image_fraction": 0.032,
+        "mount_depth_in_frustum_mm": [
+          51.4,
+          77.6
+        ],
+        "gripper_image_fraction_opening20": 0.39,
+        "mount_image_fraction_opening20": 0.0,
+        "gripper_image_fraction_opening100": 0.438,
+        "mount_image_fraction_opening100": 0.0,
+        "mount_image_fraction": 0.0,
+        "note": "mount_image_fraction is the mount where nothing is nearer; mount_alone_image_fraction is the same cast with the gripper removed, which is the number the first revision published"
+      }
+    },
+    "alternative_standard": {
+      "body-high pitch0.30": {
+        "mean_image_fraction": 0.522,
+        "max_image_fraction": 0.612,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "body-high pitch0.45": {
+        "mean_image_fraction": 0.533,
+        "max_image_fraction": 0.629,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "body-high pitch0.60": {
+        "mean_image_fraction": 0.541,
+        "max_image_fraction": 0.642,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "neck pitch0.55": {
+        "mean_image_fraction": 0.207,
+        "max_image_fraction": 0.228,
+        "mouth_in_frame": "16/16",
+        "mid_neck_in_frame": "16/16"
+      },
+      "neck pitch0.40": {
+        "mean_image_fraction": 0.198,
+        "max_image_fraction": 0.223,
+        "mouth_in_frame": "16/16",
+        "mid_neck_in_frame": "16/16"
+      },
+      "neck pitch0.70": {
+        "mean_image_fraction": 0.217,
+        "max_image_fraction": 0.237,
+        "mouth_in_frame": "16/16",
+        "mid_neck_in_frame": "16/16"
+      },
+      "body-mid pitch0.45": {
+        "mean_image_fraction": 0.536,
+        "max_image_fraction": 0.633,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "body-mid pitch0.70": {
+        "mean_image_fraction": 0.553,
+        "max_image_fraction": 0.639,
+        "mouth_in_frame": "0/16",
+        "mid_neck_in_frame": "0/16"
+      },
+      "self_and_gripper": {
+        "mount_alone_image_fraction": 0.0,
+        "mount_depth_in_frustum_mm": null,
+        "gripper_image_fraction_opening20": 0.4,
+        "mount_image_fraction_opening20": 0.0,
+        "gripper_image_fraction_opening100": 0.383,
+        "mount_image_fraction_opening100": 0.0,
+        "mount_image_fraction": 0.0,
+        "note": "mount_image_fraction is the mount where nothing is nearer; mount_alone_image_fraction is the same cast with the gripper removed, which is the number the first revision published"
+      }
+    }
+  },
+  "G3_pitch": {
+    "pitch_below_tool_axis_deg": 25.0,
+    "total_off_axis_deg": 39.77,
+    "window_deg": [
+      25.0,
+      50.0
+    ],
+    "margin_deg": [
+      0.0,
+      25.0
+    ],
+    "note": "a range check on params.CAM_PITCH_DEG, not an independent measurement; the pitch component sits on the window's lower bound with no margin, the total off-axis angle has 14.8 deg"
+  },
+  "G4_datum": {
+    "axial_stop": "four pads on the rail back face at X = -15.65, |Z| <= 6.0 mm, |Y| = 30.2..54.309999999999995 mm",
+    "anti_rotation": "ears across both rail end faces (|Y| = 54.16 mm), the only non-round feature on the gripper, over |Z| <= 7.0 mm",
+    "nominal_fit_mm": 0.15,
+    "grub_screw": "M3 tapped into the camera-side ear at X = -10.5 (2.5 mm core, 8.0 mm deep). Running it in presses the far ear's inner face flat against the far rail end face; that plane-on-plane contact, not the fit, is what fixes the clocking. Mirrored to -Y on the left-hand build.",
+    "clearance_to_fingers_mm": 5.4,
+    "pupil_radius_from_roll_axis_mm": 62.4,
+    "pupil_displacement_per_slop_mm": 4.82,
+    "stop_area_mm2": 480.7,
+    "rail_back_face_area_mm2": 5484.8,
+    "rail_back_face_in_key_band_mm2": 573.1,
+    "cell_mm": 0.25,
+    "method": "both brackets' +X faces at X = RAIL_BACK_X, rasterised against the -X-facing triangles of gripper_link.STL at the rail step; no parameter formula",
+    "clocking": {
+      "free_rotation_deg": {
+        "positive_deg": 1.77,
+        "negative_deg": 2.66
+      },
+      "total_slop_deg": 4.43,
+      "lever_arm_mm": 7.0,
+      "nominal_fit_mm": 0.15,
+      "pupil_radius_mm": 62.4,
+      "formula_the_first_revision_used_deg": 0.159,
+      "method": "the rail's own vertices from gripper_link.STL rotated about X in 0.01 deg steps until they enter the key ears' pocket, both ways. The first revision computed atan(2 * fit / (2 * RAIL_HALF_Y)) instead, which uses the rail's 54.16 mm Y half-width as the lever arm; the ears only touch over |Z| <= 7.0 mm, so it read an order of magnitude low",
+      "note": "this is the slop with the grub screw NOT fitted. Running the M3 in bears on the near rail end face and presses the far ear's inner face flat against the far one, which is a plane on a plane over 10.65 x 12.4 mm -- after that the clocking is set by print flatness, not by the fit."
+    }
+  },
+  "G5_swept_radius": {
+    "swept_radius_mm": 95.2,
+    "at_point_mm": [
+      -20.1,
+      66.9,
+      67.7
+    ],
+    "per_part": {
+      "upper_bracket": 95.2,
+      "lower_bracket": 59.1,
+      "camera_body": 90.3,
+      "camera_holder": 81.9,
+      "camera_lens": 72.4,
+      "camera_usb": 76.6,
+      "dowel_-1": 38.3,
+      "m4_-1": 47.9,
+      "dowel_1": 38.3,
+      "m4_1": 47.5
+    }
+  },
+  "v4_reference": {
+    "commit": "c80b163",
+    "path": "hardware/g1_camera_mounts/v4/collision",
+    "frame": "gripper_link",
+    "method": "max hypot(y, z) over every vertex of v4's collision STLs, which its URDF fixes to gripper_link with an identity origin and scales by 0.001 -- the same quantity checks.g5_swept_radius measures here",
+    "source": "recomputed from the history where it is available, read back from the tracked v4_reference.json where it is not; a run that has both asserts they agree",
+    "variants": {
+      "board": {
+        "swept_radius_mm": 118.1,
+        "per_part_mm": {
+          "board_upper": 117.6,
+          "board_lower": 48.1,
+          "board_camera": 109.3,
+          "board_clamp_fastener_-1": 45.9,
+          "board_clamp_fastener_1": 45.9,
+          "board_pcb_fastener_-1_-1": 110.9,
+          "board_pcb_fastener_-1_1": 118.1,
+          "board_pcb_fastener_1_-1": 110.9,
+          "board_pcb_fastener_1_1": 118.1
+        },
+        "at_part": "board_pcb_fastener_-1_1"
+      },
+      "webcam": {
+        "swept_radius_mm": 142.7,
+        "per_part_mm": {
+          "webcam_upper": 131.1,
+          "webcam_lower": 48.1,
+          "webcam_camera": 142.7,
+          "webcam_tripod_head": 108.7,
+          "webcam_clamp_fastener_-1": 45.9,
+          "webcam_clamp_fastener_1": 45.9
+        },
+        "at_part": "webcam_camera"
+      }
+    },
+    "available": true,
+    "agrees_with_cache": true
+  },
+  "G5_arm_audit": {
+    "samples": 10000,
+    "seed": 20260919,
+    "per_hand": {
+      "right": {
+        "bare_arm_clear": 9403,
+        "payload_collisions": 61,
+        "per_part_configs": {
+          "upper_bracket": 56,
+          "camera_body": 31,
+          "camera_holder": 22,
+          "camera_usb": 18,
+          "lower_bracket": 11,
+          "camera_lens": 10,
+          "m4_1": 1,
+          "dowel_1": 1,
+          "m4_-1": 1
+        },
+        "examples": [
+          {
+            "q_deg": [
+              14.608,
+              136.878,
+              -41.808,
+              81.764,
+              35.241,
+              159.768
+            ],
+            "jaw_half_gap_mm": 20.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "arm_link2"
+              ],
+              [
+                "camera_body",
+                "arm_link2"
+              ],
+              [
+                "camera_holder",
+                "arm_link2"
+              ],
+              [
+                "camera_lens",
+                "arm_link2"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              -123.046,
+              86.625,
+              -1.094,
+              -3.773,
+              -18.788,
+              -145.913
+            ],
+            "jaw_half_gap_mm": 50.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "arm_link1"
+              ],
+              [
+                "camera_body",
+                "arm_link1"
+              ],
+              [
+                "camera_holder",
+                "arm_link1"
+              ],
+              [
+                "upper_bracket",
+                "arm_link2"
+              ],
+              [
+                "camera_body",
+                "arm_link2"
+              ],
+              [
+                "camera_holder",
+                "arm_link2"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              59.608,
+              107.749,
+              -10.547,
+              29.439,
+              43.279,
+              -35.952
+            ],
+            "jaw_half_gap_mm": 50.0,
+            "pairs": [
+              [
+                "lower_bracket",
+                "arm_link1"
+              ],
+              [
+                "lower_bracket",
+                "arm_link2"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              38.398,
+              155.341,
+              -27.885,
+              47.921,
+              47.71,
+              137.404
+            ],
+            "jaw_half_gap_mm": 0.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "base_link"
+              ],
+              [
+                "camera_body",
+                "base_link"
+              ],
+              [
+                "camera_holder",
+                "base_link"
+              ],
+              [
+                "camera_lens",
+                "base_link"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              5.07,
+              24.494,
+              -38.635,
+              87.645,
+              -38.418,
+              -92.42
+            ],
+            "jaw_half_gap_mm": 50.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "arm_link2"
+              ],
+              [
+                "camera_body",
+                "arm_link2"
+              ],
+              [
+                "camera_holder",
+                "arm_link2"
+              ],
+              [
+                "camera_lens",
+                "arm_link2"
+              ],
+              [
+                "camera_usb",
+                "arm_link2"
+              ]
+            ]
+          }
+        ]
+      },
+      "left": {
+        "bare_arm_clear": 9403,
+        "payload_collisions": 74,
+        "per_part_configs": {
+          "upper_bracket": 69,
+          "camera_body": 38,
+          "camera_holder": 26,
+          "camera_usb": 19,
+          "camera_lens": 19,
+          "lower_bracket": 11,
+          "m4_-1": 2,
+          "dowel_-1": 1,
+          "m4_1": 1
+        },
+        "examples": [
+          {
+            "q_deg": [
+              59.608,
+              107.749,
+              -10.547,
+              29.439,
+              43.279,
+              -35.952
+            ],
+            "jaw_half_gap_mm": 50.0,
+            "pairs": [
+              [
+                "lower_bracket",
+                "arm_link1"
+              ],
+              [
+                "lower_bracket",
+                "arm_link2"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              38.398,
+              155.341,
+              -27.885,
+              47.921,
+              47.71,
+              137.404
+            ],
+            "jaw_half_gap_mm": 0.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "arm_link2"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              79.947,
+              25.832,
+              -3.493,
+              0.433,
+              58.808,
+              97.742
+            ],
+            "jaw_half_gap_mm": 0.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "arm_link1"
+              ],
+              [
+                "upper_bracket",
+                "arm_link2"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              78.524,
+              172.309,
+              -28.875,
+              3.104,
+              -35.498,
+              149.59
+            ],
+            "jaw_half_gap_mm": 0.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "base_link"
+              ]
+            ]
+          },
+          {
+            "q_deg": [
+              81.461,
+              153.911,
+              -27.346,
+              62.939,
+              66.265,
+              35.643
+            ],
+            "jaw_half_gap_mm": 20.0,
+            "pairs": [
+              [
+                "upper_bracket",
+                "arm_link2"
+              ],
+              [
+                "camera_usb",
+                "arm_link2"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "gate_hand": "right",
+    "gate_hand_collisions": 61,
+    "reported_not_gated": {
+      "left": 74
+    },
+    "v4_board_reference": 64,
+    "bare_arm_clear": 9403,
+    "counting_note": "one number is the gate and it is the right hand's, because v4's 64 is one hand's number. The other hand is measured and reported here, not folded into a worse-of-two figure that v4 has no counterpart for.",
+    "method": "one jaw opening per configuration, (0, 20, 50)[i % 3]; a configuration where the bare arm already self-collides is skipped, not counted; the count is configurations, not (configuration, jaw) pairs"
+  },
+  "G5_arm_audit_spread": {
+    "seeds": [
+      20260919,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "samples": 10000,
+    "per_seed": [
+      {
+        "seed": 20260919,
+        "bare_arm_clear": 9403,
+        "right": 61,
+        "left": 74
+      },
+      {
+        "seed": 1,
+        "bare_arm_clear": 9386,
+        "right": 65,
+        "left": 61
+      },
+      {
+        "seed": 2,
+        "bare_arm_clear": 9389,
+        "right": 63,
+        "left": 63
+      },
+      {
+        "seed": 3,
+        "bare_arm_clear": 9437,
+        "right": 74,
+        "left": 85
+      },
+      {
+        "seed": 4,
+        "bare_arm_clear": 9437,
+        "right": 59,
+        "left": 59
+      },
+      {
+        "seed": 5,
+        "bare_arm_clear": 9443,
+        "right": 61,
+        "left": 55
+      },
+      {
+        "seed": 6,
+        "bare_arm_clear": 9417,
+        "right": 51,
+        "left": 60
+      },
+      {
+        "seed": 7,
+        "bare_arm_clear": 9416,
+        "right": 65,
+        "left": 79
+      }
+    ],
+    "right": {
+      "mean": 62.4,
+      "sd": 6.5,
+      "min": 51,
+      "max": 74,
+      "under_v4_reference": 5
+    },
+    "left": {
+      "mean": 67.0,
+      "sd": 10.9,
+      "min": 55,
+      "max": 85,
+      "under_v4_reference": 5
+    },
+    "left_minus_right": {
+      "mean": 4.6,
+      "sd": 8.0,
+      "min": -6,
+      "max": 14
+    },
+    "note": "the gated seed (20260919) is the first row. The mirrored payload really does meet this arm a little worse -- the mean difference is positive -- but the difference is smaller than the spread of either hand, and on 5 of 8 draws the left hand comes in under v4's 64 with no design change at all."
+  },
+  "G5_arm_audit_what_if": {
+    "seed": 20260919,
+    "samples": 10000,
+    "per_case": [
+      {
+        "name": "as shipped",
+        "override": {},
+        "gates": {
+          "G2'c far jaw visible, openings >= 20 mm": {
+            "measured": 1.0,
+            "threshold": 0.9,
+            "ok": true
+          },
+          "G7 module fit": {
+            "measured": 0.0,
+            "threshold": 1.0,
+            "ok": true
+          },
+          "G3 pitch window": {
+            "measured": 25.0,
+            "threshold": [
+              25.0,
+              50.0
+            ],
+            "ok": true
+          },
+          "G5 swept radius": {
+            "measured": 95.2,
+            "threshold": 100.0,
+            "ok": true
+          }
+        },
+        "spends": "nothing",
+        "right": 61,
+        "left": 74
+      },
+      {
+        "name": "camera 3 mm closer to the roll axis",
+        "override": {
+          "CAM_POS": [
+            -29.0,
+            51.0,
+            45.0
+          ]
+        },
+        "gates": {
+          "G2'c far jaw visible, openings >= 20 mm": {
+            "measured": 0.96,
+            "threshold": 0.9,
+            "ok": true
+          },
+          "G7 module fit": {
+            "measured": 0.0,
+            "threshold": 1.0,
+            "ok": true
+          },
+          "G3 pitch window": {
+            "measured": 25.0,
+            "threshold": [
+              25.0,
+              50.0
+            ],
+            "ok": true
+          },
+          "G5 swept radius": {
+            "measured": 93.1,
+            "threshold": 100.0,
+            "ok": true
+          }
+        },
+        "spends": "nothing",
+        "right": 59,
+        "left": 73
+      },
+      {
+        "name": "camera 6 mm closer to the roll axis",
+        "override": {
+          "CAM_POS": [
+            -29.0,
+            51.0,
+            42.0
+          ]
+        },
+        "gates": {
+          "G2'c far jaw visible, openings >= 20 mm": {
+            "measured": 0.8,
+            "threshold": 0.9,
+            "ok": false
+          },
+          "G7 module fit": {
+            "measured": 0.0,
+            "threshold": 1.0,
+            "ok": true
+          },
+          "G3 pitch window": {
+            "measured": 25.0,
+            "threshold": [
+              25.0,
+              50.0
+            ],
+            "ok": true
+          },
+          "G5 swept radius": {
+            "measured": 91.0,
+            "threshold": 100.0,
+            "ok": true
+          }
+        },
+        "spends": "G2'c far jaw visible, openings >= 20 mm: 0.8 against 0.9",
+        "right": 57,
+        "left": 67
+      },
+      {
+        "name": "camera 5 mm inboard in Y",
+        "override": {
+          "CAM_POS": [
+            -29.0,
+            46.0,
+            48.0
+          ]
+        },
+        "gates": {
+          "G2'c far jaw visible, openings >= 20 mm": {
+            "measured": 1.0,
+            "threshold": 0.9,
+            "ok": true
+          },
+          "G7 module fit": {
+            "measured": 49.595,
+            "threshold": 1.0,
+            "ok": false
+          },
+          "G3 pitch window": {
+            "measured": 25.0,
+            "threshold": [
+              25.0,
+              50.0
+            ],
+            "ok": true
+          },
+          "G5 swept radius": {
+            "measured": 91.8,
+            "threshold": 100.0,
+            "ok": true
+          }
+        },
+        "spends": "G7 module fit: 49.595 against 1.0",
+        "right": 57,
+        "left": 67
+      },
+      {
+        "name": "camera pitch 5 deg shallower",
+        "override": {
+          "CAM_PITCH_DEG": 20.0
+        },
+        "gates": {
+          "G2'c far jaw visible, openings >= 20 mm": {
+            "measured": 1.0,
+            "threshold": 0.9,
+            "ok": true
+          },
+          "G7 module fit": {
+            "measured": 0.0,
+            "threshold": 1.0,
+            "ok": true
+          },
+          "G3 pitch window": {
+            "measured": 20.0,
+            "threshold": [
+              25.0,
+              50.0
+            ],
+            "ok": false
+          },
+          "G5 swept radius": {
+            "measured": 95.7,
+            "threshold": 100.0,
+            "ok": true
+          }
+        },
+        "spends": "G3 pitch window: 20.0 against [25.0, 50.0]",
+        "right": 63,
+        "left": 71
+      },
+      {
+        "name": "USB keep-out 25 mm -> 18 mm",
+        "override": {
+          "USB_KEEPOUT": [
+            12.0,
+            8.0,
+            18.0
+          ]
+        },
+        "gates": {
+          "G2'c far jaw visible, openings >= 20 mm": {
+            "measured": 1.0,
+            "threshold": 0.9,
+            "ok": true
+          },
+          "G7 module fit": {
+            "measured": 0.0,
+            "threshold": 1.0,
+            "ok": true
+          },
+          "G3 pitch window": {
+            "measured": 25.0,
+            "threshold": [
+              25.0,
+              50.0
+            ],
+            "ok": true
+          },
+          "G5 swept radius": {
+            "measured": 95.2,
+            "threshold": 100.0,
+            "ok": true
+          }
+        },
+        "spends": "nothing",
+        "right": 61,
+        "left": 74
+      }
+    ],
+    "best_left": 67,
+    "best_left_no_gate_spent": 73,
+    "reaches_reference": false,
+    "reference": 64,
+    "note": "one draw each, at the gated seed, and a draw of this size carries about 8 of sampling noise -- so these are the size of the move each change buys, not exact counts. The gates column is measured on the perturbed design, not asserted. Reported, not gated."
+  },
+  "parts": {
+    "upper_bracket_right": {
+      "orientation": "as_modelled",
+      "volume_cm3": 37.44
+    },
+    "lower_bracket": {
+      "orientation": "flip_x",
+      "volume_cm3": 18.57
+    },
+    "bore_gauge": {
+      "orientation": "lay_flat",
+      "volume_cm3": 1.31
+    },
+    "rail_key_gauge": {
+      "orientation": "flat",
+      "volume_cm3": 5.58
+    },
+    "m2_standoff_3mm": {
+      "orientation": "flat",
+      "volume_cm3": 0.12
+    },
+    "upper_bracket_left": {
+      "orientation": "as_modelled",
+      "volume_cm3": 37.44
+    }
+  },
+  "mass_properties": {
+    "mass_g": 103.7,
+    "per_part_g": {
+      "upper_bracket_right": 43.7,
+      "lower_bracket": 21.7,
+      "camera_module": 22.0,
+      "pigtail": 6.0,
+      "dowel_-1": 0.6,
+      "m4_-1": 3.4,
+      "dowel_1": 0.6,
+      "m4_1": 3.4,
+      "m2_hardware": 2.4
+    },
+    "com_mm": [
+      -33.83,
+      27.05,
+      19.41
+    ],
+    "inertia_about_origin_g_mm2": [
+      [
+        322374.9,
+        90464.7,
+        62072.4
+      ],
+      [
+        90464.7,
+        233702.8,
+        -106198.1
+      ],
+      [
+        62072.4,
+        -106198.1,
+        342235.1
+      ]
+    ],
+    "principal_about_com_g_mm2": [
+      48514.5,
+      174371.9,
+      208003.6
+    ],
+    "effective_fill": 0.92,
+    "note": "printed parts at PETG 1.27 g/cc x effective fill; the camera module and the pigtail use their catalogue mass over their envelopes; bolts, dowels and M2 screws are nominal masses at their real positions"
+  },
+  "stl_validation": {
+    "bore_gauge.stl": {
+      "watertight": true,
+      "winding_consistent": true,
+      "single_body": true,
+      "volume_cm3": 1.31,
+      "size_mm": [
+        40.8,
+        69.6,
+        3.0
+      ],
+      "sits_on_bed": true,
+      "fits_bed": true
+    },
+    "lower_bracket.stl": {
+      "watertight": true,
+      "winding_consistent": true,
+      "single_body": true,
+      "volume_cm3": 18.57,
+      "size_mm": [
+        47.0,
+        117.4,
+        34.2
+      ],
+      "sits_on_bed": true,
+      "fits_bed": true
+    },
+    "m2_standoff_3mm.stl": {
+      "watertight": true,
+      "winding_consistent": true,
+      "single_body": true,
+      "volume_cm3": 0.12,
+      "size_mm": [
+        7.6,
+        7.6,
+        3.0
+      ],
+      "sits_on_bed": true,
+      "fits_bed": true
+    },
+    "rail_key_gauge.stl": {
+      "watertight": true,
+      "winding_consistent": true,
+      "single_body": true,
+      "volume_cm3": 5.58,
+      "size_mm": [
+        13.2,
+        117.4,
+        14.0
+      ],
+      "sits_on_bed": true,
+      "fits_bed": true
+    },
+    "upper_bracket_left.stl": {
+      "watertight": true,
+      "winding_consistent": true,
+      "single_body": true,
+      "volume_cm3": 37.44,
+      "size_mm": [
+        47.0,
+        138.2,
+        72.7
+      ],
+      "sits_on_bed": true,
+      "fits_bed": true
+    },
+    "upper_bracket_right.stl": {
+      "watertight": true,
+      "winding_consistent": true,
+      "single_body": true,
+      "volume_cm3": 37.44,
+      "size_mm": [
+        47.0,
+        138.2,
+        72.7
+      ],
+      "sits_on_bed": true,
+      "fits_bed": true
+    }
+  },
+  "printability": {
+    "bore_gauge.stl": {
+      "downward_area_mm2": 0.0,
+      "unsupported_area_mm2": 0.0,
+      "arch_area_mm2": 0.0,
+      "other_area_mm2": 0.0,
+      "free_area_mm2": 0.0,
+      "free_highest_z_mm": 0.0,
+      "worst_overhang_deg": 0.0,
+      "height_mm": 3.0,
+      "footprint_mm": [
+        40.8,
+        69.6
+      ]
+    },
+    "lower_bracket.stl": {
+      "downward_area_mm2": 2769.6,
+      "unsupported_area_mm2": 1216.6,
+      "arch_area_mm2": 1200.5,
+      "other_area_mm2": 16.1,
+      "free_area_mm2": 16.1,
+      "free_highest_z_mm": 4.6,
+      "worst_overhang_deg": 90.0,
+      "height_mm": 34.2,
+      "footprint_mm": [
+        47.0,
+        117.4
+      ]
+    },
+    "m2_standoff_3mm.stl": {
+      "downward_area_mm2": 0.0,
+      "unsupported_area_mm2": 0.0,
+      "arch_area_mm2": 0.0,
+      "other_area_mm2": 0.0,
+      "free_area_mm2": 0.0,
+      "free_highest_z_mm": 0.0,
+      "worst_overhang_deg": 0.0,
+      "height_mm": 3.0,
+      "footprint_mm": [
+        7.6,
+        7.6
+      ]
+    },
+    "rail_key_gauge.stl": {
+      "downward_area_mm2": 0.0,
+      "unsupported_area_mm2": 0.0,
+      "arch_area_mm2": 0.0,
+      "other_area_mm2": 0.0,
+      "free_area_mm2": 0.0,
+      "free_highest_z_mm": 0.0,
+      "worst_overhang_deg": 0.0,
+      "height_mm": 14.0,
+      "footprint_mm": [
+        13.2,
+        117.4
+      ]
+    },
+    "upper_bracket_left.stl": {
+      "downward_area_mm2": 6345.0,
+      "unsupported_area_mm2": 1855.0,
+      "arch_area_mm2": 1200.5,
+      "other_area_mm2": 654.5,
+      "free_area_mm2": 441.0,
+      "free_highest_z_mm": 57.9,
+      "worst_overhang_deg": 90.0,
+      "height_mm": 72.7,
+      "footprint_mm": [
+        47.0,
+        138.2
+      ]
+    },
+    "upper_bracket_right.stl": {
+      "downward_area_mm2": 6345.0,
+      "unsupported_area_mm2": 1855.0,
+      "arch_area_mm2": 1200.5,
+      "other_area_mm2": 654.5,
+      "free_area_mm2": 441.0,
+      "free_highest_z_mm": 57.9,
+      "worst_overhang_deg": 90.0,
+      "height_mm": 72.7,
+      "footprint_mm": [
+        47.0,
+        138.2
+      ]
+    },
+    "limit_deg": 50.0,
+    "worst_free_area_mm2": 441.0,
+    "note": "Three numbers, not one. `arch_area_mm2` is the crown of the bore -- unavoidable on any split clamp printed on its split face, self-supporting as an arch, and relieved by 0.4 mm radially over the top +-25 deg (design._bore_cut) so the droop lands in the relief and the clamp bears on the flanks. `other_area_mm2` is everything else: the M4 counterbore ceilings, which bridge over 7.4 mm, and the underside of the strut root and camera plate where they cantilever out over the bolt ear. `free_area_mm2` is the part of that with nothing under it at all, and it is the gated one -- the README used to charge the whole figure to the arch. The nut pockets have no ceiling -- they open through the ear's outside face, so no pause at height is needed. The gauges and the standoff have zero overhang in their poses."
+  },
+  "wall_thickness": {
+    "bore_gauge": {
+      "samples": 60000,
+      "wall_samples": 59139,
+      "min_wall_mm": 3.0,
+      "p0_1_mm": 3.0,
+      "p1_mm": 3.0,
+      "fraction_under_min_wall": 0.0,
+      "thinnest_at_mm": [
+        3.0,
+        -17.1,
+        25.8
+      ],
+      "declared_exceptions": {},
+      "unfiltered_p0_1_mm": 3.0,
+      "unfiltered_fraction_under_min_wall": 0.0003
+    },
+    "lower_bracket": {
+      "samples": 60000,
+      "wall_samples": 56435,
+      "min_wall_mm": 2.65,
+      "p0_1_mm": 2.91,
+      "p1_mm": 3.79,
+      "fraction_under_min_wall": 0.0,
+      "thinnest_at_mm": [
+        -41.5,
+        37.7,
+        -5.0
+      ],
+      "declared_exceptions": {
+        "grub screw surround in the key ear": {
+          "samples": 2533,
+          "min_mm": 3.39,
+          "floor_mm": 1.8,
+          "reason": "the ear is 6.2 mm tall because the carriages cap it at |Z| = 7 mm, so a tapped M3 cannot have MIN_WALL above and below it",
+          "ok": true
+        }
+      },
+      "unfiltered_p0_1_mm": 1.4,
+      "unfiltered_fraction_under_min_wall": 0.0015
+    },
+    "m2_standoff_3mm": {
+      "samples": 60000,
+      "wall_samples": 60000,
+      "min_wall_mm": 2.6,
+      "p0_1_mm": 2.6,
+      "p1_mm": 2.6,
+      "fraction_under_min_wall": 0.0,
+      "thinnest_at_mm": [
+        1.2,
+        0.2,
+        2.5
+      ],
+      "declared_exceptions": {},
+      "unfiltered_p0_1_mm": 2.6,
+      "unfiltered_fraction_under_min_wall": 0.0
+    },
+    "rail_key_gauge": {
+      "samples": 60000,
+      "wall_samples": 60000,
+      "min_wall_mm": 2.6,
+      "p0_1_mm": 2.6,
+      "p1_mm": 2.6,
+      "fraction_under_min_wall": 0.0,
+      "thinnest_at_mm": [
+        13.2,
+        43.0,
+        -6.2
+      ],
+      "declared_exceptions": {},
+      "unfiltered_p0_1_mm": 2.6,
+      "unfiltered_fraction_under_min_wall": 0.0
+    },
+    "upper_bracket_right": {
+      "samples": 60000,
+      "wall_samples": 55414,
+      "min_wall_mm": 2.4,
+      "p0_1_mm": 2.4,
+      "p1_mm": 2.42,
+      "fraction_under_min_wall": 0.0009,
+      "thinnest_at_mm": [
+        -33.5,
+        33.0,
+        64.8
+      ],
+      "declared_exceptions": {
+        "grub screw surround in the key ear": {
+          "samples": 1498,
+          "min_mm": 1.85,
+          "floor_mm": 1.8,
+          "reason": "the ear is 6.2 mm tall because the carriages cap it at |Z| = 7 mm, so a tapped M3 cannot have MIN_WALL above and below it",
+          "ok": true
+        }
+      },
+      "unfiltered_p0_1_mm": 1.21,
+      "unfiltered_fraction_under_min_wall": 0.004
+    },
+    "min_wall_mm": 2.4,
+    "method": "even surface samples, ray cast inward along -normal, first hit; counted as a wall only where the face it lands on faces back (normal dot <= -0.7), which excludes convex edges and chamfer wedges"
+  },
+  "G9_split_plane": {
+    "per_part": {
+      "upper_bracket": {
+        "side": "+Z",
+        "allowed_from_mm": 0.8,
+        "leak_mm3": 0.0,
+        "leak_solids": 0,
+        "leak_bbox_mm": null
+      },
+      "lower_bracket": {
+        "side": "-Z",
+        "allowed_from_mm": -0.8,
+        "leak_mm3": 0.0,
+        "leak_solids": 0,
+        "leak_bbox_mm": null
+      }
+    },
+    "assembly_intersection_mm3": 0.0,
+    "total_leak_mm3": 0.0,
+    "declared_interlocks": [],
+    "note": "both halves close onto a rubber liner and both print on this face, so material past it collides with the other half and lifts the print off its own split face"
+  },
+  "G9_part_pairs": {
+    "pairs_tested": 45,
+    "parts_tested": [
+      "camera_body",
+      "camera_holder",
+      "camera_lens",
+      "camera_usb",
+      "dowel_-1",
+      "dowel_1",
+      "lower_bracket",
+      "m4_-1",
+      "m4_1",
+      "upper_bracket"
+    ],
+    "parts_expected": [
+      "camera_body",
+      "camera_holder",
+      "camera_lens",
+      "camera_usb",
+      "dowel_-1",
+      "dowel_1",
+      "lower_bracket",
+      "m4_-1",
+      "m4_1",
+      "upper_bracket"
+    ],
+    "parts_missing": [],
+    "parts_unexpected": [],
+    "intersecting": {
+      "camera_body^upper_bracket": {
+        "pair": [
+          "camera_body",
+          "upper_bracket"
+        ],
+        "volume_mm3": 332.937,
+        "declared_limit_mm3": 800.0,
+        "reason": "the four printed standoff pads stand inside the module's rear envelope on purpose -- that envelope starts at the plate's own front face (BODY_BACK) because that is the clearance the README promises a module, and the PCB sits ON the pads.  They are the one thing allowed inside it; module_keepout() adds them back after the cut rather than exempting them, and G7_module_fit measures the rest at 0 mm3."
+      }
+    },
+    "undeclared": {},
+    "over_limit": {},
+    "declared": [
+      {
+        "pair": [
+          "upper_bracket",
+          "camera_body"
+        ],
+        "limit_mm3": 800.0,
+        "reason": "the four printed standoff pads stand inside the module's rear envelope on purpose -- that envelope starts at the plate's own front face (BODY_BACK) because that is the clearance the README promises a module, and the PCB sits ON the pads.  They are the one thing allowed inside it; module_keepout() adds them back after the cut rather than exempting them, and G7_module_fit measures the rest at 0 mm3."
+      }
+    ]
+  },
+  "G9_fastener_seating": {
+    "per_fastener": {
+      "m4_n": {
+        "holes": [
+          "upper_bracket",
+          "lower_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 8.2,
+          "lower_bracket": 8.2
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.0,
+          "lower_bracket": 0.0
+        },
+        "engaged_best_mm": 8.2,
+        "insertion_blocked_mm3": {
+          "head": 0.0,
+          "nut": 0.0
+        },
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      },
+      "dowel_n": {
+        "holes": [
+          "upper_bracket",
+          "lower_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 4.2,
+          "lower_bracket": 4.2
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.1,
+          "lower_bracket": 0.1
+        },
+        "engaged_best_mm": 4.2,
+        "insertion_blocked_mm3": "captured before the halves close",
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      },
+      "m4_p": {
+        "holes": [
+          "upper_bracket",
+          "lower_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 10.4,
+          "lower_bracket": 8.2
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.0,
+          "lower_bracket": 0.0
+        },
+        "engaged_best_mm": 10.4,
+        "insertion_blocked_mm3": {
+          "head": 0.0
+        },
+        "thread_engagement_mm": 10.4,
+        "ok": true
+      },
+      "dowel_p": {
+        "holes": [
+          "upper_bracket",
+          "lower_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 4.2,
+          "lower_bracket": 4.2
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.1,
+          "lower_bracket": 0.1
+        },
+        "engaged_best_mm": 4.2,
+        "insertion_blocked_mm3": "captured before the halves close",
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      },
+      "m2_nn": {
+        "holes": [
+          "upper_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 7.5
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.0
+        },
+        "engaged_best_mm": 7.5,
+        "insertion_blocked_mm3": {
+          "head": 0.0,
+          "nut": 0.0
+        },
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      },
+      "m2_np": {
+        "holes": [
+          "upper_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 7.5
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.0
+        },
+        "engaged_best_mm": 7.5,
+        "insertion_blocked_mm3": {
+          "head": 0.0,
+          "nut": 0.0
+        },
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      },
+      "m2_pn": {
+        "holes": [
+          "upper_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 7.5
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.0
+        },
+        "engaged_best_mm": 7.5,
+        "insertion_blocked_mm3": {
+          "head": 0.0,
+          "nut": 0.0
+        },
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      },
+      "m2_pp": {
+        "holes": [
+          "upper_bracket"
+        ],
+        "interference_mm3": 0.0,
+        "engaged_mm": {
+          "upper_bracket": 7.5
+        },
+        "clearance_mm": {
+          "upper_bracket": 0.0
+        },
+        "engaged_best_mm": 7.5,
+        "insertion_blocked_mm3": {
+          "head": 0.0,
+          "nut": 0.0
+        },
+        "thread_engagement_mm": 0.0,
+        "ok": true
+      }
+    },
+    "failing": {},
+    "sleeve_mm": 0.6,
+    "engagement_floor_mm": 3.0,
+    "note": "clearance_mm is the closest approach of the whole fastener to the part, so it reads 0.0 wherever a head or a nut is seated on a face by design; interference_mm3 is the gate, and it is a boolean volume, not a distance. The M2 camera screws are probed here only: they are carried as point masses in mass_properties and inside the standoff-pad primitives in the collision cover, so making them payload parts would double-count them."
+  },
+  "ziptie_flank": [
+    {
+      "flank": "+X",
+      "normal": [
+        0.9953,
+        0.0914,
+        0.0332
+      ],
+      "span_mm": 15.29,
+      "centre_mm": [
+        -27.36,
+        49.84,
+        18.11
+      ],
+      "z_min_mm": 9.71,
+      "x_max_mm": -22.0,
+      "clears_split_plane": true,
+      "behind_keepout": false,
+      "faces_connector": 1.33,
+      "slot_to_connector_mm": 23.9,
+      "admissible": false
+    },
+    {
+      "flank": "-X",
+      "normal": [
+        -0.9953,
+        -0.0914,
+        -0.0332
+      ],
+      "span_mm": 15.29,
+      "centre_mm": [
+        -50.34,
+        47.73,
+        17.35
+      ],
+      "z_min_mm": 8.94,
+      "x_max_mm": -44.98,
+      "clears_split_plane": true,
+      "behind_keepout": true,
+      "faces_connector": -1.33,
+      "slot_to_connector_mm": 25.2,
+      "admissible": true
+    },
+    {
+      "flank": "-Z",
+      "normal": [
+        -0.0,
+        0.3415,
+        -0.9399
+      ],
+      "span_mm": 13.29,
+      "centre_mm": [
+        -38.85,
+        52.39,
+        7.82
+      ],
+      "z_min_mm": 1.32,
+      "x_max_mm": -31.4,
+      "clears_split_plane": true,
+      "behind_keepout": true,
+      "faces_connector": 13.03,
+      "slot_to_connector_mm": 17.0,
+      "admissible": true
+    },
+    {
+      "flank": "+Z",
+      "normal": [
+        0.0,
+        -0.3415,
+        0.9399
+      ],
+      "span_mm": 13.29,
+      "centre_mm": [
+        -38.85,
+        45.19,
+        27.64
+      ],
+      "z_min_mm": 21.14,
+      "x_max_mm": -31.4,
+      "clears_split_plane": true,
+      "behind_keepout": true,
+      "faces_connector": -13.03,
+      "slot_to_connector_mm": 29.4,
+      "admissible": true
+    }
+  ],
+  "G9_bed_contact": {
+    "per_file": {
+      "upper_bracket_right": {
+        "bed_contact_mm2": 1284.5,
+        "split_face_mm2": 1284.5,
+        "fraction": 1.0,
+        "lowest_z_mm": 0.0,
+        "footprint_mm": [
+          47.0,
+          138.2
+        ]
+      },
+      "upper_bracket_left": {
+        "bed_contact_mm2": 1284.5,
+        "split_face_mm2": 1284.5,
+        "fraction": 1.0,
+        "lowest_z_mm": 0.0,
+        "footprint_mm": [
+          47.0,
+          138.2
+        ]
+      },
+      "lower_bracket": {
+        "bed_contact_mm2": 1277.9,
+        "split_face_mm2": 1277.9,
+        "fraction": 1.0,
+        "lowest_z_mm": 0.0,
+        "footprint_mm": [
+          47.0,
+          117.4
+        ]
+      }
+    },
+    "failing": {},
+    "threshold": 0.6,
+    "note": "flat downward faces within one layer of Z = 0 in the exported print pose, against the area of the part's own split face as built"
+  },
+  "G9_clamped_assembly": {
+    "travel_per_half_mm": 0.3,
+    "modelled_ear_gap_mm": 1.6,
+    "clamped_ear_gap_mm": 1.0,
+    "dowel_length_mm": 10.0,
+    "hole_per_half_mm": 4.6,
+    "halves_intersection_mm3": 0.0,
+    "per_dowel": {
+      "dowel_-1": {
+        "interference_mm3": 0.0,
+        "hole_past_each_end_mm": 0.1
+      },
+      "dowel_1": {
+        "interference_mm3": 0.0,
+        "hole_past_each_end_mm": 0.1
+      }
+    },
+    "worst_interference_mm3": 0.0,
+    "note": "the bolts are not in this test: a screw's axial position relative to each half is set by its thread or its nut and follows the joint as it closes, so translating it rigidly would invent an interference no assembly has. What is rigid across the gap is the two halves and the two pins."
+  },
+  "G9_mirror": {
+    "per_part": {
+      "upper_bracket": {
+        "native_not_in_mirror_mm3": 0.0,
+        "mirror_not_in_native_mm3": 0.0,
+        "volume_mm3": 37437.658
+      },
+      "lower_bracket": {
+        "native_not_in_mirror_mm3": 0.0,
+        "mirror_not_in_native_mm3": 0.0,
+        "volume_mm3": 18570.49
+      }
+    },
+    "worst_difference_mm3": 0.0,
+    "gated_side": 1,
+    "native_side": -1,
+    "note": "design.mirrored() of the gated hand against the same part built natively for the other hand, differenced both ways"
+  },
+  "G7_module_fit": {
+    "intersection_mm3": 0.0,
+    "per_part_mm3": {
+      "upper_bracket": 0.0,
+      "lower_bracket": 0.0
+    },
+    "rear_envelope_mm": 4.6,
+    "rear_envelope_in_pocket_mm": 6.6,
+    "pocket_mm": 18.0,
+    "standoff_mm": 3.0,
+    "note": "rear components may reach BODY_BACK anywhere, and PLATE_RELIEF_DEPTH further inside the central pocket; those two numbers are the plate, not a wish"
+  },
+  "G7_plate_slots": {
+    "wall_mm": 2.8,
+    "thinnest_at_uv_mm": [
+      -15.5,
+      -13.7
+    ],
+    "slot_length_mm": 5.43,
+    "cap_radius_mm": 1.3,
+    "lug_radius_mm": 4.1000000000000005,
+    "pitch_range_mm": [
+      26.0,
+      30.0
+    ],
+    "method": "the slot's outline walked in 720 steps, marched outward along its own normal in 0.05 mm steps against the built solid at mid-plate depth"
+  },
+  "fasteners": {
+    "m4_head_underside_to_far_face_mm": 13.8,
+    "m4_called_out_mm": 16.0,
+    "m4_protrusion_mm": 2.2,
+    "m4_counterbore_depth_mm": 4.2,
+    "m4_head_height_mm": 4.0,
+    "m4_tap_drill_mm": 3.3,
+    "m4_thread_engagement_floor_mm": 8.0,
+    "joints": {
+      "+Y": {
+        "kind": "tapped into the upper ear",
+        "driven_from": "below",
+        "protrusion_mm": 0.0,
+        "thread_engagement_mm": 10.4,
+        "hole_left_past_the_tip_mm": 1.8,
+        "nut_entry": null
+      },
+      "-Y": {
+        "kind": "steel nut",
+        "driven_from": "above",
+        "protrusion_mm": 2.2,
+        "thread_engagement_mm": 0.0,
+        "hole_left_past_the_tip_mm": 0.0,
+        "nut_entry": "slides in through the ear's outboard end face"
+      }
+    },
+    "m4_driven_from": {
+      "+Y": "below",
+      "-Y": "above"
+    },
+    "driver_access": {
+      "-Y": {
+        "driven_from": "above",
+        "clear_travel_mm": 60.0,
+        "capped_at_mm": 60.0
+      },
+      "+Y": {
+        "driven_from": "below",
+        "clear_travel_mm": 60.0,
+        "capped_at_mm": 60.0
+      }
+    },
+    "m2_stack_mm": 10.7,
+    "m2_called_out_mm": 12.0,
+    "nut_pocket": "hex pocket plus a channel out through the ear's outboard end face, so the nut slides in after printing and no face above it can roof it",
+    "note": "the M4 counterbore is deeper than an M4 SHCS head, so the head sits flush; the M2 stack is plate + standoff + PCB + nut. The camera-side bolt is turned over because the strut's root stands over that ear -- measured, no direction above it has 70 mm of clear shaft -- so it is driven from underneath, and for the same reason its nut has nowhere to go: that joint is tapped."
+  },
+  "G7_gauges": {
+    "ok": true,
+    "gauge_pocket_depth_mm": 10.66,
+    "key_engagement_mm": 10.65,
+    "gauge_across_flats_mm": 108.59,
+    "key_across_flats_mm": 108.62,
+    "gauge_size_mm": [
+      13.25,
+      117.4,
+      14.0
+    ],
+    "web_mm": 2.6,
+    "note": "the pocket's back wall is also the axial stop plane, so the one part checks the clocking fit and the datum together"
+  },
+  "G6_stiffness": {
+    "section_root_mm": [
+      18.0,
+      16.0
+    ],
+    "section_tip_mm": [
+      12.0,
+      10.0
+    ],
+    "strut_length_mm": 42.0,
+    "plate_span_mm": 30.7,
+    "I_strut_mean_mm4": 3572.0,
+    "I_plate_T_section_mm4": 1470.4,
+    "plate_T_section_mm": [
+      20.0,
+      4.5,
+      12.0,
+      6.0
+    ],
+    "E_MPa": 1800.0,
+    "k_strut_N_per_mm": 259.5,
+    "k_plate_N_per_mm": 275.1,
+    "k_series_N_per_mm": 133.5,
+    "head_mass_g": 52.5,
+    "head_bracket_fraction": 0.506,
+    "beam_mass_g": 10.0,
+    "head_offset_from_plate_face_mm": 2.8,
+    "rotary_mass_factor": 1.12,
+    "f1_no_knockdown_Hz": 235.1,
+    "f1_with_joint_knockdown_Hz": 182.1,
+    "reported": "about 180 Hz, 2.3x the 80 Hz gate",
+    "model": "two Euler-Bernoulli springs in series -- the tapered strut on its weak axis, then the plate's own T section (tongue flange plus rear spine) over the 31 mm from the strut's tip to the module's centre. Head mass from mass_properties, including the pigtail, the M2 screws and the measured share of the bracket forward of the strut's mid-point. The head's stand-off from the plate face is carried as a rotary-inertia factor (1 + 1.5 e / L)^2, plus Dunkerley 0.24 * beam mass and a 0.6 stiffness knockdown for the clamp band, the bolted split and the rubber liner, none of which are modelled. Not an FE result: two significant figures at most."
+  },
+  "collision_cover": {
+    "surface_samples": 20034,
+    "covered": 20034,
+    "uncovered": 0,
+    "worst_miss_mm": null,
+    "tolerance_mm": 1.5,
+    "n_primitives": 57,
+    "union_volume_cm3": 78.64,
+    "payload_volume_cm3": 69.44,
+    "volume_ratio": 1.133,
+    "volume_method": "Monte Carlo, 400000 samples, seed 11"
+  },
+  "collision_primitive_bottles": {
+    "points": 15165,
+    "min_clearance_mm": 6.47,
+    "collisions": 0
+  },
+  "camera_measurements": {
+    "bottle_fraction_wide": 0.29,
+    "mount_fraction_wide": 0.0,
+    "margin_wide": 25.16,
+    "bottle_fraction_narrow": 0.54,
+    "mount_fraction_narrow": 0.0,
+    "margin_narrow": 9.34
+  },
+  "camera": {
+    "frame": "gripper_link",
+    "units": "metres",
+    "handedness": "right",
+    "lens_entrance_pupil_m": [
+      -0.019776889,
+      0.045236761,
+      0.042928581
+    ],
+    "pcb_front_face_centre_m": [
+      -0.029,
+      0.051,
+      0.048
+    ],
+    "optical_axis": [
+      0.768592593,
+      -0.480269956,
+      -0.422618262
+    ],
+    "image_up": [
+      0.358400612,
+      -0.223953558,
+      0.906307787
+    ],
+    "image_right": [
+      -0.529919264,
+      -0.848048096,
+      -0.0
+    ],
+    "T_gripper_camera_opencv": [
+      [
+        -0.529919264,
+        -0.358400612,
+        0.768592593,
+        -0.019776889
+      ],
+      [
+        -0.848048096,
+        0.223953558,
+        -0.480269956,
+        0.045236761
+      ],
+      [
+        -0.0,
+        -0.906307787,
+        -0.422618262,
+        0.042928581
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "pitch_below_tool_axis_deg": 25.0,
+    "yaw_inboard_deg": 32.0,
+    "roll_deg": 0.0,
+    "lens": {
+      "recommended": {
+        "name": "M12 wide, ~2.1 mm",
+        "fov_deg": [
+          101.4,
+          85.0
+        ],
+        "fov_note": "the horizontal angle is not free: with square pixels on this 4:3 frame it follows from the vertical one, and MuJoCo drives a fixed camera from fovy alone. A nominal 110 x 85 deg would need a 1.56:1 sensor; on 640 x 480 the same lens gives 101.4 x 85.",
+        "why": "cuts the fraction of the image a held bottle covers to 0.29 from 0.54 on body grasps and leaves 25.2 deg of framing margin instead of 9.3. It costs almost no frame: the mount is 0.0% of the wide image once the gripper is in front of it. It does NOT recover the bottle mouth: on a body grasp the mouth is behind the camera plane, so no field of view reaches it."
+      },
+      "alternative": {
+        "name": "M12 standard, ~3.6 mm",
+        "fov_deg": [
+          69.53,
+          55.0
+        ],
+        "why": "more pixels on the grasp zone, but only 9.3 deg of framing margin and a held bottle covers 0.54 of the image on body grasps."
+      }
+    },
+    "resolution_px": [
+      640,
+      480
+    ],
+    "sensor_module": {
+      "kind": "32 x 32 mm UVC board camera, M2 holes on a 26-30 mm square",
+      "mass_g": 22.0
+    },
+    "payload_mass_g": 103.7,
+    "mouth_visibility": "On neck grasps the bottle mouth is in frame with either lens. On body-high and body-mid grasps it is behind the camera plane and no lens sees it: close the pour loop on the base camera, or bias the planner to neck grasps.",
+    "notes": "Pose is nominal CAD, not a calibration. Calibrate extrinsics on the real arm; this is the starting guess and the repeatable mechanical datum that makes recalibration unnecessary after a camera swap."
+  },
+  "G8_webcam": {
+    "verdict": "DROPPED: no placement inside the 125 mm swept-radius allowance clears a held bottle by 4 mm while keeping the fingertips and the scene ahead in frame",
+    "best_placement": null,
+    "best_rejected_placement": {
+      "centre_mm": [
+        -16.0,
+        59.0,
+        60.0
+      ],
+      "body_half_extents_mm": [
+        37.0,
+        22.5,
+        22.5
+      ],
+      "cradle_wall_mm": 5.0,
+      "swept_radius_mm": 123.0,
+      "gripper_clearance_mm": 6.62,
+      "bottle_clearance_mm": -10.5
+    },
+    "cradle_wall_mm": 5.0,
+    "swept_radius_limit_mm": 125.0,
+    "body_envelope_mm": [
+      45,
+      74,
+      45
+    ],
+    "method": "lattice over the region this clamp band can reach, three body orientations, each carrying the strut it would need; scored on G1 (72 bottles = 40 random draws plus the 32 parameter-box corners, x every planner grasp candidate, and the real gripper meshes at jaw 100), G3 framing with the wide lens, and swept radius",
+    "bottles": 72,
+    "bare_body_no_cradle": {
+      "centre_mm": [
+        -28.0,
+        83.0,
+        24.0
+      ],
+      "body_half_extents_mm": [
+        22.5,
+        22.5,
+        37.0
+      ],
+      "cradle_wall_mm": 0.0,
+      "swept_radius_mm": 121.9,
+      "bottle_clearance_mm": 21.51,
+      "gripper_clearance_mm": 6.4
+    }
+  },
+  "top_down_pick": {
+    "tcp_above_table_mm": 45.0,
+    "fingertip_plane_mm": 11.6,
+    "payload_lowest_mm": 95.0,
+    "margin_mm": 83.4
+  },
+  "pour_roll_dip": {
+    "pitch0.30": {
+      "gripper_lowest_mm": -76.0,
+      "payload_lowest_roll_plus_mm": -55.0,
+      "payload_lowest_roll_minus_mm": -81.9,
+      "payload_at_zero_roll_mm": -26.3
+    },
+    "pitch0.45": {
+      "gripper_lowest_mm": -82.7,
+      "payload_lowest_roll_plus_mm": -51.0,
+      "payload_lowest_roll_minus_mm": -74.1,
+      "payload_at_zero_roll_mm": -21.1
+    },
+    "pitch0.60": {
+      "gripper_lowest_mm": -87.7,
+      "payload_lowest_roll_plus_mm": -45.9,
+      "payload_lowest_roll_minus_mm": -64.6,
+      "payload_at_zero_roll_mm": -15.3
+    }
+  },
+  "gates": [
+    {
+      "gate": "mesh measurements match params.py",
+      "passed": true,
+      "measured": {
+        "housing_dia": 60.0,
+        "housing_x0": -76.65,
+        "rail_back_x": -15.65,
+        "rail_front_x": 0.0,
+        "rail_half_y": 54.158,
+        "rail_half_z": 25.881,
+        "carriage_back_x": -13.605,
+        "carriage_min_abs_z": 10.622,
+        "carriage_max_abs_y": 51.891,
+        "finger_front_x": -0.705,
+        "fingertip_x": 78.355
+      },
+      "threshold": {
+        "housing_dia": 60.0,
+        "housing_x0": -76.65,
+        "rail_back_x": -15.65,
+        "rail_front_x": 0.0,
+        "carriage_back_x": -13.6,
+        "carriage_min_abs_z": 10.62,
+        "carriage_max_abs_y": 51.89,
+        "finger_front_x": -0.7,
+        "fingertip_x": 78.36
+      },
+      "detail": {}
+    },
+    {
+      "gate": "G1 bottle collisions",
+      "passed": true,
+      "measured": 0,
+      "threshold": 0,
+      "detail": null
+    },
+    {
+      "gate": "G1 bottle clearance",
+      "passed": true,
+      "measured": 8.07,
+      "threshold": ">= 4.0",
+      "detail": null
+    },
+    {
+      "gate": "G1 payload vs gripper and finger meshes",
+      "passed": true,
+      "measured": 5.0,
+      "threshold": ">= 4.0",
+      "detail": null
+    },
+    {
+      "gate": "G1 locating features vs the finger meshes",
+      "passed": true,
+      "measured": 5.4,
+      "threshold": ">= 4.0",
+      "detail": null
+    },
+    {
+      "gate": "G1 payload vs arm links 3-6 over the full wrist range",
+      "passed": true,
+      "measured": 10.13,
+      "threshold": ">= 10.0",
+      "detail": null
+    },
+    {
+      "gate": "G2'a both blade tips visible at every opening",
+      "passed": true,
+      "measured": "all visible",
+      "threshold": "all visible",
+      "detail": null
+    },
+    {
+      "gate": "G2'b object zone above the blades",
+      "passed": true,
+      "measured": 0,
+      "threshold": 0,
+      "detail": null
+    },
+    {
+      "gate": "G2'c far jaw visible, openings >= 20 mm",
+      "passed": true,
+      "measured": 1.0,
+      "threshold": ">= 0.9",
+      "detail": null
+    },
+    {
+      "gate": "G2'd Z=0 grasp zone visible, openings >= 40 mm",
+      "passed": true,
+      "measured": 0.867,
+      "threshold": ">= 0.6",
+      "detail": null
+    },
+    {
+      "gate": "G3 forward point and fingertips in frame (recommended_wide, 101.4 x 85 deg)",
+      "passed": true,
+      "measured": "margin 25.16 deg on the gated targets (19.15 deg including the jaw-100 extras)",
+      "threshold": "both in frame",
+      "detail": null
+    },
+    {
+      "gate": "G3 forward point and fingertips in frame (alternative_standard, 69.5 x 55 deg)",
+      "passed": true,
+      "measured": "margin 9.34 deg on the gated targets (3.22 deg including the jaw-100 extras)",
+      "threshold": "both in frame",
+      "detail": null
+    },
+    {
+      "gate": "G3 camera pitch below the tool axis",
+      "passed": true,
+      "measured": "25.0 deg below the axis, 39.77 deg off it",
+      "threshold": "both in 25.0..50.0 deg",
+      "detail": null
+    },
+    {
+      "gate": "G4 positive axial stop and anti-rotation key",
+      "passed": true,
+      "measured": "480.7 mm2 of measured stop contact, 5.4 mm to the fingers, 4.43 deg of clocking slop without the grub screw",
+      "threshold": "> 300.0 mm2 and >= 4.0 mm",
+      "detail": null
+    },
+    {
+      "gate": "G5 payload swept radius about the roll axis",
+      "passed": true,
+      "measured": 95.2,
+      "threshold": "<= 100.0",
+      "detail": null
+    },
+    {
+      "gate": "G5 payload collisions in 10,000 random configurations (right hand, like for like with v4; the other hand is reported, not gated)",
+      "passed": true,
+      "measured": "61 right / 74 left",
+      "threshold": "< 64 (v4) on the right hand",
+      "detail": null
+    },
+    {
+      "gate": "G7 every STL watertight, one body, on the bed and inside the build volume",
+      "passed": true,
+      "measured": "6 files",
+      "threshold": "all true",
+      "detail": null
+    },
+    {
+      "gate": "G6/G7 minimum wall on every printed part",
+      "passed": true,
+      "measured": "thinnest wall 2.4 mm",
+      "threshold": ">= 2.4 mm (less 0.05 mm of tessellation) outside the 1 declared exception(s)",
+      "detail": null
+    },
+    {
+      "gate": "G9a each printed half confined to its side of the split plane",
+      "passed": true,
+      "measured": "upper_bracket 0.0 mm3 past 0.8, lower_bracket 0.0 mm3 past -0.8",
+      "threshold": "<= 0.0 mm3 outside 0 declared interlock(s)",
+      "detail": null
+    },
+    {
+      "gate": "G9b the two halves do not intersect when assembled",
+      "passed": true,
+      "measured": "0.0 mm3",
+      "threshold": "<= 0.0 mm3",
+      "detail": null
+    },
+    {
+      "gate": "G9c no two payload solids share volume, except the declared pairs",
+      "passed": true,
+      "measured": "1 intersecting pair(s) of 45 over 10 parts, 1 declared",
+      "threshold": "every overlap declared in design.DECLARED_OVERLAPS and under its bound, over all 10 payload parts",
+      "detail": null
+    },
+    {
+      "gate": "G9d every bolt, nut, dowel and camera screw fits, sits in a real hole and can be got in",
+      "passed": true,
+      "measured": "8 fasteners: worst interference 0.0 mm3, least hole 4.2 mm, most material in an insertion path 0.0 mm3, least tapped thread 10.4 mm",
+      "threshold": "0 mm3 of interference, >= 3.0 mm of hole, nothing in the way of any head or nut, and >= 8.0 mm of thread where a joint is tapped",
+      "detail": null
+    },
+    {
+      "gate": "G9e each bracket's exported print pose rests on its split face",
+      "passed": true,
+      "measured": "upper_bracket_right 100% of 1284.5 mm2 (lowest Z 0.0), upper_bracket_left 100% of 1284.5 mm2 (lowest Z 0.0), lower_bracket 100% of 1277.9 mm2 (lowest Z 0.0)",
+      "threshold": ">= 60% of the split face on the bed",
+      "detail": null
+    },
+    {
+      "gate": "G9f the joint closes onto the liner: nothing rigid spans the ears",
+      "passed": true,
+      "measured": "0.0 mm3 with the ears closed from 1.6 to 1.0 mm (10 mm pin in 9.2 mm of hole, 0.1 mm spare each end)",
+      "threshold": "<= 0.0 mm3",
+      "detail": null
+    },
+    {
+      "gate": "G9g the native left-hand build is the mirror of the right-hand one",
+      "passed": true,
+      "measured": "upper_bracket 0.0/0.0 mm3 either way, lower_bracket 0.0/0.0 mm3 either way",
+      "threshold": "<= 0.0 mm3 in both directions",
+      "detail": null
+    },
+    {
+      "gate": "G9h overhang that is not the bore arch and has nothing under it",
+      "passed": true,
+      "measured": "lower_bracket.stl 1200.5 arch + 16.1 other, 16.1 mm2 with nothing below, upper_bracket_left.stl 1200.5 arch + 654.5 other, 441.0 mm2 with nothing below, upper_bracket_right.stl 1200.5 arch + 654.5 other, 441.0 mm2 with nothing below",
+      "threshold": "<= 500.0 mm2 on any one file",
+      "detail": null
+    },
+    {
+      "gate": "G7 the bought camera module's envelope is empty of printed material",
+      "passed": true,
+      "measured": "0.0 mm3",
+      "threshold": "<= 1.0 mm3",
+      "detail": null
+    },
+    {
+      "gate": "G7 plate material between each M2 slot and the plate edge",
+      "passed": true,
+      "measured": 2.8,
+      "threshold": ">= 2.4",
+      "detail": null
+    },
+    {
+      "gate": "G7 both M4s can be reached with a key",
+      "passed": true,
+      "measured": "-Y 60.0 mm from above, +Y 60.0 mm from below",
+      "threshold": ">= 40.0 mm of clear shaft",
+      "detail": null
+    },
+    {
+      "gate": "G7 the called-out M4 suits both joints",
+      "passed": true,
+      "measured": "+Y: tapped into the upper ear, driven from below, 10.4 mm of thread; -Y: steel nut, driven from above, 2.2 mm proud of the nut (one M4 x 16 suits both)",
+      "threshold": "0..4 mm past a nut, >= 8.0 mm of thread where tapped",
+      "detail": null
+    },
+    {
+      "gate": "G7 the rail-key gauge reproduces the key it is there to check",
+      "passed": true,
+      "measured": "pocket 10.66 mm deep x 108.59 mm across",
+      "threshold": "10.65 x 108.62",
+      "detail": null
+    },
+    {
+      "gate": "G6 first lateral mode",
+      "passed": true,
+      "measured": "about 180 Hz, 2.3x the 80 Hz gate",
+      "threshold": ">= 80.0",
+      "detail": null
+    },
+    {
+      "gate": "collision primitives cover the payload within 1.5 mm",
+      "passed": true,
+      "measured": "0 uncovered points",
+      "threshold": 0,
+      "detail": null
+    },
+    {
+      "gate": "collision primitives add no more than 25 % volume",
+      "passed": true,
+      "measured": 1.133,
+      "threshold": "<= 1.25",
+      "detail": null
+    },
+    {
+      "gate": "collision primitives claim no more free space than revision 5's cover",
+      "passed": true,
+      "measured": "78.64 cm3 over 57 primitives (rev 5: 90.8 cm3 over 25)",
+      "threshold": "<= 90.0 cm3",
+      "detail": null
+    },
+    {
+      "gate": "collision primitives pass G1 too",
+      "passed": true,
+      "measured": 6.47,
+      "threshold": ">= 4.0",
+      "detail": null
+    },
+    {
+      "gate": "G8 webcam variant kept only if it passes G1 against a held bottle and against the gripper meshes, G3 framing and the swept radius",
+      "passed": true,
+      "measured": "DROPPED: no placement inside the 125 mm swept-radius allowance clears a held bottle by 4 mm while keeping the fingertips and the scene ahead in frame",
+      "threshold": "DROPPED, or swept radius <= 125.0 mm and clearances >= 4.0 mm",
+      "detail": null
+    },
+    {
+      "gate": "top-down pick: payload above the fingertip plane",
+      "passed": true,
+      "measured": 83.4,
+      "threshold": ">= 25.0",
+      "detail": null
+    }
+  ],
+  "elapsed_s": 603.8,
+  "limitations": [
+    "No physical prototype has been printed or fitted.",
+    "Geometry comes from the vendor STLs; the real G1 may carry screws, cable glands or labels the meshes do not show. The two printed fit gauges exist to catch exactly that before the brackets are printed.",
+    "Both finger meshes are open surfaces, so every check here is a triangle-surface test, never a solid-inside test.",
+    "G6 is two hand-calculated Euler-Bernoulli springs in series with a blunt joint knockdown, not an FE model, and it does not contain the rubber liner, which is the softest thing in the load path. Two significant figures at most.",
+    "The full-arm audit is 10,000 random samples with a fixed seed, not a workspace proof; unrestricted arm motion with any wrist payload still needs payload-aware collision checking -- and on this arm that means patching planner/motion.py as well as adding the collision geoms, because it treats an arm/-prefixed payload as self. See sim/DATASET.md.",
+    "The audit is gated on the right hand, because v4's 64 is one hand's number -- v4 only ever had one -- and a worse-of-two-hands figure against a single draw is biased upward by construction. The other hand is measured and reported (G5_arm_audit.reported_not_gated) and is above the reference: that is a disclosed miss, not a renamed gate. G5_arm_audit_spread runs the same audit at 8 seeds because a count of this size carries about 8 of sampling noise on its own.",
+    "The camera envelope is a 32 x 32 mm board with 4.6 mm of rear components (6.6 inside an 18 x 18 mm central pocket), a 22 mm M12 holder block, a dia 16 x 18 mm barrel and a 12 x 8 x 25 mm connector keep-out off the board's lower edge, offset 10 mm toward image-left. A different module changes the numbers, and a connector in the middle of that edge does not fit -- the strut is there.",
+    "G4's clocking figure is the slop with the grub screw NOT fitted. With it in, the clocking is a plane on a plane and is set by print flatness, which nothing here measures.",
+    "G9f tests one assembled pose: both halves moved 0.3 mm onto a liner of nominal thickness, rigidly. It is not a tolerance stack -- a thicker liner, a printer that runs the bore small or an ear that is not flat all change the gap, and none of those is modelled. What it does catch is the class that got through: a gate that only ever looks at the part as drawn.",
+    "The camera-side joint is a thread cut in PETG, not a steel nut. It tolerates fewer assembly cycles than the far-side joint, and that is the price of putting a bolt ear under the strut's root. It is in the BOM and in assembly step 4.",
+    "G9h's 'nothing below it' figure is a ray cast straight down from each overhanging face's centre against the part's own triangles. It says which faces bridge over air, not whether PETG will bridge them."
+  ]
+}

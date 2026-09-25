@@ -1,0 +1,7 @@
+*.stl  -text -diff
+*.step -text -diff
+*.glb  binary
+*.png  binary
+# validation.json and sim/validation.json are deliberately diffable: they are the
+# record of every gate number, and a revision's diff against the last one is the
+# main thing a reviewer wants to read.

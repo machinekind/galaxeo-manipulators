@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+*.zip
+# A reduced run writes here so it cannot overwrite the record of a full one.
+validation.quick.json
+# Renders, print files and both validation.json files are committed on purpose:
+# they are the deliverable. Nothing else from a run belongs in the repo.

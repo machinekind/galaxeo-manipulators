@@ -1,0 +1,33 @@
+{
+  "commit": "c80b163",
+  "path": "hardware/g1_camera_mounts/v4/collision",
+  "variants": {
+    "board": {
+      "swept_radius_mm": 118.1,
+      "per_part_mm": {
+        "board_upper": 117.6,
+        "board_lower": 48.1,
+        "board_camera": 109.3,
+        "board_clamp_fastener_-1": 45.9,
+        "board_clamp_fastener_1": 45.9,
+        "board_pcb_fastener_-1_-1": 110.9,
+        "board_pcb_fastener_-1_1": 118.1,
+        "board_pcb_fastener_1_-1": 110.9,
+        "board_pcb_fastener_1_1": 118.1
+      },
+      "at_part": "board_pcb_fastener_-1_1"
+    },
+    "webcam": {
+      "swept_radius_mm": 142.7,
+      "per_part_mm": {
+        "webcam_upper": 131.1,
+        "webcam_lower": 48.1,
+        "webcam_camera": 142.7,
+        "webcam_tripod_head": 108.7,
+        "webcam_clamp_fastener_-1": 45.9,
+        "webcam_clamp_fastener_1": 45.9
+      },
+      "at_part": "webcam_camera"
+    }
+  }
+}

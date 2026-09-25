@@ -1,0 +1,16 @@
+# Python 3.11.  Install with:  pip install -r requirements.txt
+#
+# verify.py, mount/ and mount/render.py need everything down to pillow.
+# sim/wrist_camera.py needs mujoco and numpy only.
+# sim/test_wrist_camera.py needs mujoco, numpy, pillow AND the two simulators'
+# own environments (it imports their `planner` packages, which pull in cv2), so
+# run it with --pr1-sim and --pour-sim pointing at checkouts of those.
+cadquery>=2.8
+trimesh>=4.0
+python-fcl>=0.7
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+networkx>=3.0
+pillow>=10.0
+mujoco>=3.1
