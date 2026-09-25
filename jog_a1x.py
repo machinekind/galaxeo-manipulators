@@ -17,7 +17,10 @@ Keys (hold to move, release to stop):
     gripper           o = open     c = close (force-limited)
     space / Esc       STOP: drop every jog and disarm
 
-The on-screen [-] [+] buttons do the same thing with the mouse.
+The on-screen [-] [+] buttons do the same thing with the mouse. "Go home"
+slews every joint to --home (default all zeros: the folded pose) at
+--home-speed, 5 deg/s by default; any jog key cancels it, and it reports
+"safe to disarm" once there.
 
 How it moves the arm, and why it is safe to start:
 
@@ -164,6 +167,7 @@ class Jog:
         self.grip_t = None                      # None until first gripper key
         self.grip_frozen = False
         self.speed = a.speed                    # deg/s, from the slider
+        self.homing = False                     # Go-home in progress (slow, all joints)
         self.status = "read-only"
         self.hz = 0.0
         self._stop = False
@@ -190,12 +194,14 @@ class Jog:
 
     def arm_off(self, why="disarmed"):
         with self.lock:
-            self.armed = False; self.vel = [0] * 7
+            self.armed = False; self.vel = [0] * 7; self.homing = False
             self.status = why
 
     def set_vel(self, axis, sign):
         with self.lock:
             self.vel[axis] = sign
+            if sign and self.homing:
+                self.homing = False; self.status = "home cancelled by jog"
             if axis == 6 and sign != 0 and self.grip_t is None:
                 self.grip_t = self.a.grip_start
 
@@ -204,6 +210,15 @@ class Jog:
             if not self.armed:
                 self.status = "arm first, then enable"; return
             self._enable_req = True
+
+    def go_home(self):
+        """Slew every joint to --home at --home-speed. Any jog key cancels it.
+        The gripper is left alone."""
+        with self.lock:
+            if not self.armed:
+                self.status = "arm first, then go home"; return
+            self.vel = [0] * 7
+            self.homing = True
 
     def stop(self):
         self._stop = True
@@ -250,6 +265,19 @@ class Jog:
                     if not self.grip_frozen:
                         g = self.grip_t + self.vel[6] * a.grip_speed * dt
                         self.grip_t = min(a.grip_closed, max(a.grip_start, g))
+                if self.homing:
+                    step_h = math.radians(a.home_speed) * dt
+                    worst = 0.0
+                    for j in range(N):
+                        lo, hi = self.bounds[j]
+                        d = min(hi, max(lo, a.home_rad[j])) - self.target[j]
+                        worst = max(worst, abs(d))
+                        self.target[j] += max(-step_h, min(step_h, d))
+                    if worst < math.radians(0.05):
+                        self.homing = False
+                        self.status = "at home: holding. Safe to disarm."
+                    else:
+                        self.status = f"going home at {a.home_speed:g} deg/s, {math.degrees(worst):.1f} deg to go"
                 target = list(self.target); grip_t = self.grip_t
                 enable = self._enable_req; self._enable_req = False
 
@@ -323,6 +351,7 @@ def gui(jog, a):
     arm_btn.pack(side="left", padx=2)
     ttk.Button(ctl, text="STOP / disarm", command=lambda: jog.arm_off("disarmed")).pack(side="left", padx=2)
     ttk.Button(ctl, text="Enable FF 1→5→6", command=jog.request_enable).pack(side="left", padx=2)
+    ttk.Button(ctl, text=f"Go home ({a.home_speed:g}°/s)", command=jog.go_home).pack(side="left", padx=2)
     ttk.Label(ctl, text="speed deg/s").pack(side="left", padx=(12, 2))
     speed = tk.DoubleVar(value=a.speed)
     ttk.Scale(ctl, from_=1, to=a.max_speed, variable=speed, length=140,
@@ -414,6 +443,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="run the GUI but transmit nothing")
     ap.add_argument("--rate", type=float, default=200.0, help="stream rate, Hz")
     ap.add_argument("--speed", type=float, default=8.0, help="initial jog speed, deg/s")
+    ap.add_argument("--home", default="0,0,0,0,0,0",
+                    help="Go-home pose, six joint angles in degrees. All zeros is the URDF "
+                         "zero: shoulder and elbow at their limits, i.e. the arm folded")
+    ap.add_argument("--home-speed", type=float, default=5.0, help="Go-home slew, deg/s per joint")
     ap.add_argument("--max-speed", type=float, default=45.0, help="slider ceiling, deg/s")
     ap.add_argument("--kp", type=float, default=20.0)
     ap.add_argument("--kd", type=float, default=1.0)
@@ -425,6 +458,11 @@ def main():
     ap.add_argument("--grip-force", type=float, default=1.2,
                     help="stop closing above this |effort|: grips, doesn't crush")
     a = ap.parse_args()
+    try:
+        a.home_rad = [math.radians(float(x)) for x in a.home.split(",")]
+        assert len(a.home_rad) == N
+    except (ValueError, AssertionError):
+        sys.exit("--home needs six comma-separated angles in degrees")
 
     try:
         arm = A1X(a.iface, dry_run=a.dry_run or a.check)

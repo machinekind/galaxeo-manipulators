@@ -285,6 +285,12 @@ only for an arm that reports but ignores the jog.
 The gripper's setpoint cannot be read back, so its first key press starts it
 from the open position (`--grip-start`). Closing stops above `--grip-force`.
 
+**Go home** slews every joint to `--home` (six degrees, default all zero: the
+URDF zero, shoulder and elbow at their limits, the arm folded) at
+`--home-speed`, 5 deg/s by default. Any jog key cancels it. It reports "safe
+to disarm" on arrival; the arm holds there uncommanded, and a folded arm is
+the one to cut power on, since there are no brakes.
+
 ### macOS: the adapter without a kernel
 
 macOS has no SocketCAN. The freeware PCBUSB library (mac-can.com) opens the
