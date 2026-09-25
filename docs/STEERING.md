@@ -287,7 +287,7 @@ from the open position (`--grip-start`). Closing stops above `--grip-force`.
 
 **Go home** slews every joint to `--home` (six degrees, default all zero: the
 URDF zero, shoulder and elbow at their limits, the arm folded) at
-`--home-speed`, 5 deg/s by default. Any jog key cancels it. It reports "safe
+`--home-speed`, 9 deg/s by default. Any jog key cancels it. It reports "safe
 to disarm" on arrival; the arm holds there uncommanded, and a folded arm is
 the one to cut power on, since there are no brakes.
 
@@ -307,7 +307,9 @@ python xcan_usb.py --normal      # standalone: fw info, then 0x052 at ~200 Hz
 
 `jog_a1x.py` uses it by default on macOS (`--iface xcan`, or `xcan:<usb
 address>` to pin one of two dongles; with two plugged in it picks the one that
-hears traffic). Two things learned on the way:
+hears traffic). The driver refuses to run anywhere else: Linux already has
+the adapter as SocketCAN, and the panel goes through python-can there
+(`--iface can0`, or `PCAN_USBBUS1` on Windows with PCAN-Basic). Two things learned on the way:
 
 * In **listen-only** mode the adapter does not ACK, so the arm retransmits
   every frame back-to-back and 0x052 appears at ~6 kHz with a repeating

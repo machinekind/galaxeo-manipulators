@@ -14,13 +14,27 @@ Requires pyusb and libusb (brew install libusb).
 """
 import argparse
 import math
+import platform
 import struct
 import sys
 import time
+from ctypes.util import find_library
+
+if platform.system() != "Darwin":
+    sys.exit("xcan_usb.py is the macOS driver. Linux already has this adapter as SocketCAN "
+             "(kernel peak_usb); use ./can_up.sh and can0.")
 
 import usb.core
 import usb.util
 import usb.backend.libusb1
+
+
+def _backend():
+    lib = find_library("usb-1.0") or "/opt/homebrew/lib/libusb-1.0.dylib"
+    backend = usb.backend.libusb1.get_backend(find_library=lambda n: lib)
+    if backend is None:
+        raise SystemExit("libusb not found:  brew install libusb")
+    return backend
 
 VID, PID = 0x0C72, 0x0012
 EP_CMD_OUT, EP_CMD_IN, EP_MSG_OUT, EP_MSG_IN = 0x01, 0x81, 0x02, 0x82
@@ -48,8 +62,7 @@ def opc(opcode, channel=0):
 
 class PcanUsbFd:
     def __init__(self, addr=None, verbose=False):
-        backend = usb.backend.libusb1.get_backend(
-            find_library=lambda n: "/opt/homebrew/lib/libusb-1.0.dylib")
+        backend = _backend()
         devs = list(usb.core.find(find_all=True, idVendor=VID, idProduct=PID, backend=backend))
         if addr is not None:
             devs = [d for d in devs if d.address == addr]
@@ -57,9 +70,14 @@ class PcanUsbFd:
             raise SystemExit("no PCAN-USB FD / XCAN device found")
         self.dev = devs[0]
         self.verbose = verbose
-        self.dev.set_configuration()
-        usb.util.claim_interface(self.dev, 0)
-        self.dev.reset() if False else None
+        try:
+            self.dev.set_configuration()
+            usb.util.claim_interface(self.dev, 0)
+        except usb.core.USBError as ex:
+            # macOS reports a device another process already holds as "No such
+            # device" (errno 19), which reads like an unplugged cable.
+            raise SystemExit(f"cannot claim XCAN usb addr {self.dev.address}: {ex}\n"
+                             "  Is another jog_a1x.py / xcan_usb.py still running? One process per dongle.")
 
     # ---- vendor control requests (pcan_usb_pro_send_req) --------------------
     def fw_info(self):
@@ -185,7 +203,7 @@ def pick_by_traffic(secs=0.5):
     """With several adapters plugged in, take the one that hears the arm.
     Both XCAN units report the same ids and serial, so traffic is the only
     discriminator (the same trick can_up.sh uses on Linux). None if only one."""
-    backend = usb.backend.libusb1.get_backend(find_library=lambda n: "/opt/homebrew/lib/libusb-1.0.dylib")
+    backend = _backend()
     addrs = [d.address for d in usb.core.find(find_all=True, idVendor=VID, idProduct=PID, backend=backend)]
     if len(addrs) <= 1:
         return None

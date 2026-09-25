@@ -19,7 +19,7 @@ Keys (hold to move, release to stop):
 
 The on-screen [-] [+] buttons do the same thing with the mouse. "Go home"
 slews every joint to --home (default all zeros: the folded pose) at
---home-speed, 5 deg/s by default; any jog key cancels it, and it reports
+--home-speed, 9 deg/s by default; any jog key cancels it, and it reports
 "safe to disarm" once there.
 
 How it moves the arm, and why it is safe to start:
@@ -87,13 +87,28 @@ def encode_group(p, v, kp, kd, tff):
 
 
 def open_bus(iface):
+    """Backends, by --iface:
+
+        xcan[:<usb addr>]   macOS only: our libusb driver, xcan_usb.py
+        can0, can1, ...     Linux: SocketCAN through python-can (bring it up
+                            with ./can_up.sh first)
+        PCAN_USBBUSn        Windows: PEAK's PCAN-Basic through python-can
+        <interface>:<chan>  any other python-can interface, e.g. virtual:x
+    """
     if iface.startswith("xcan"):
-        # macOS: our own libusb driver (xcan_usb.py). "xcan" or "xcan:<usb address>"
+        if platform.system() != "Darwin":
+            raise SystemExit("xcan_usb.py is the macOS driver. On Linux use SocketCAN "
+                             "(./can_up.sh, then --iface can0).")
         from xcan_usb import XcanBus
         addr = int(iface.split(":", 1)[1]) if ":" in iface else None
         return XcanBus(addr)
+    if can is None:
+        raise SystemExit("python-can is missing:  pip install python-can")
     if iface.upper().startswith("PCAN"):
         return can.Bus(interface="pcan", channel=iface, fd=True, **PCAN_FD_TIMING)
+    if ":" in iface:
+        interface, channel = iface.split(":", 1)
+        return can.Bus(interface=interface, channel=channel, fd=True)
     return can.Bus(interface="socketcan", channel=iface, fd=True)
 
 
@@ -437,8 +452,8 @@ def gui(jog, a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--iface", default="xcan" if platform.system() == "Darwin" else "can0",
-                    help="xcan[:<usb addr>] (libusb driver, macOS), PCAN_USBBUSn (PCBUSB) "
-                         "or a SocketCAN name like can0")
+                    help="xcan[:<usb addr>] (macOS, libusb driver), a SocketCAN name like can0 "
+                         "(Linux), PCAN_USBBUSn (Windows), or <python-can interface>:<channel>")
     ap.add_argument("--check", action="store_true", help="read-only feedback report, then exit")
     ap.add_argument("--dry-run", action="store_true", help="run the GUI but transmit nothing")
     ap.add_argument("--rate", type=float, default=200.0, help="stream rate, Hz")
@@ -446,7 +461,7 @@ def main():
     ap.add_argument("--home", default="0,0,0,0,0,0",
                     help="Go-home pose, six joint angles in degrees. All zeros is the URDF "
                          "zero: shoulder and elbow at their limits, i.e. the arm folded")
-    ap.add_argument("--home-speed", type=float, default=5.0, help="Go-home slew, deg/s per joint")
+    ap.add_argument("--home-speed", type=float, default=9.0, help="Go-home slew, deg/s per joint")
     ap.add_argument("--max-speed", type=float, default=45.0, help="slider ceiling, deg/s")
     ap.add_argument("--kp", type=float, default=20.0)
     ap.add_argument("--kd", type=float, default=1.0)
@@ -469,7 +484,7 @@ def main():
     except Exception as ex:
         sys.exit(f"cannot open {a.iface}: {ex}\n"
                  + ("  macOS: is the adapter plugged in, and libusb installed (brew install libusb)?"
-                    if platform.system() == "Darwin" else "  Linux: ./can_up.sh first"))
+                    if a.iface.startswith("xcan") else "  Linux: ./can_up.sh first, then --iface can0"))
     try:
         if a.check:
             return check(arm, 3.0)
