@@ -149,6 +149,7 @@ def main():
                 cam = Webcam(a.camera, a.camera_width, a.camera_height)
         robot = RealRobot(arm, cam, speed=a.speed, rate=a.rate,
                           track_tol=a.track_tol, kp=a.kp, kd=a.kd, verbose=True)
+        robot.wait_fresh(required=True)
         if live and a.enable:
             print("sending enable (FF 1 -> 6); the setpoint stays at the measured pose")
             arm.send_enable()
