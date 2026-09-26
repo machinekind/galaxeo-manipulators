@@ -62,6 +62,18 @@ def test_a1x_arm_live_send_uses_can_io_helper(monkeypatch):
     arm.close()
 
 
+def test_a1x_arm_live_send_requires_can_io(monkeypatch):
+    fake_can_io = FakeCanIO()
+    monkeypatch.setattr(A, "can_io", fake_can_io)
+    arm = A.A1XArm("can0", dry_run=False, tx=True)
+    monkeypatch.setattr(A, "can_io", None)
+
+    with pytest.raises(RuntimeError, match="cannot transmit"):
+        arm._send(0x050, b"\x01\x02")
+
+    arm.close()
+
+
 def test_a1x_arm_needs_can_io_for_feedback(monkeypatch):
     monkeypatch.setattr(A, "can_io", None)
 

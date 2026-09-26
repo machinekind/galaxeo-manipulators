@@ -160,6 +160,8 @@ class A1XArm:
     def _send(self, cid, payload):
         if self.dry_run or not self.tx:
             return
+        if can_io is None:
+            raise RuntimeError("can_io is missing; cannot transmit on SocketCAN")
         if hasattr(can_io, "send_frame"):
             can_io.send_frame(self.sock, cid, payload)
         else:
