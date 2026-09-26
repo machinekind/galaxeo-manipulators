@@ -3,6 +3,7 @@
 
     python3 calib_intrinsics.py --camera 0 --out calib_session/K.npz
     python3 calib_intrinsics.py --camera 0 --cols 9 --rows 6 --square 0.025
+    python3 calib_intrinsics.py --camera 0 --rotate --out calib_session/wrist_K.npz   # wrist cam
 
 Hold a printed checkerboard (default 9x6 inner corners, 25 mm squares) in
 front of the camera; it collects `--frames` images at ~1 Hz while you tilt
@@ -16,6 +17,11 @@ The output .npz carries K (3x3) and dist (5,), which is what
 extrinsics. Rerun whenever the camera's focus ring, zoom or resolution
 changes: intrinsics and extrinsics are a pair, and the session gates on the
 pixel residual of both.
+
+`--rotate` turns every frame 180 deg before detection. The wrist board camera
+is mounted upside down and every consumer (wrist_cam.py, calib_wrist.py, the
+recorder) rotates its frames, so its K must be fitted on rotated frames too:
+the principal point moves to (W - cx, H - cy) and the tangential terms flip.
 """
 from __future__ import annotations
 
@@ -26,12 +32,14 @@ import sys
 import cv2
 import numpy as np
 
+import platform
+
 DEFAULT_OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calib_session")
 MIN_ERR_PX = 0.7           # reprojection error above this and the fit is not trusted
 CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
 
 
-def collect(cap, cols, rows, frames, window=True):
+def collect(cap, cols, rows, frames, window=True, rotate=False):
     """Collect frames with a full checkerboard visible. Returns the object
     points and image points of every good view."""
     pattern = (cols - 1, rows - 1)          # cv2 wants inner corners
@@ -44,6 +52,8 @@ def collect(cap, cols, rows, frames, window=True):
         ok, img = cap.read()
         if not ok:
             raise RuntimeError("camera read failed")
+        if rotate:
+            img = cv2.rotate(img, cv2.ROTATE_180)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         found, corners = cv2.findChessboardCorners(
             gray, pattern, cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE)
@@ -52,9 +62,13 @@ def collect(cap, cols, rows, frames, window=True):
             cv2.drawChessboardCorners(vis, pattern, corners, found)
             cv2.putText(vis, f"{grabbed}/{frames} views - tilt the board",
                         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.imshow("calib_intrinsics", vis)
-            if cv2.waitKey(1) & 0xFF in (27, ord('q')) and grabbed >= 5:
-                break
+            try:
+                cv2.imshow("calib_intrinsics", vis)
+                if cv2.waitKey(1) & 0xFF in (27, ord('q')) and grabbed >= 5:
+                    break
+            except cv2.error:           # headless OpenCV build: carry on blind
+                window = False
+                print("no GUI in this OpenCV build; collecting without a window")
         now = cv2.getTickCount() / cv2.getTickFrequency()
         if found and grabbed < frames and now - last > 1.0:
             corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), CRITERIA)
@@ -87,10 +101,13 @@ def main():
     ap.add_argument("--max-err", type=float, default=MIN_ERR_PX,
                     help="reprojection error above this and the fit is not written as trusted")
     ap.add_argument("--no-window", action="store_true", help="headless collection")
+    ap.add_argument("--rotate", action="store_true",
+                    help="rotate frames 180 deg first (the wrist camera is upside down)")
     ap.add_argument("--out", help="write the .npz here (default calib_session/K.npz)")
     a = ap.parse_args()
 
-    cap = cv2.VideoCapture(a.camera, cv2.CAP_ANY)
+    backend = cv2.CAP_AVFOUNDATION if platform.system() == "Darwin" else cv2.CAP_ANY
+    cap = cv2.VideoCapture(a.camera, backend)
     if not cap.isOpened():
         sys.exit(f"camera {a.camera} did not open")
     for _ in range(10):                       # let exposure settle
@@ -101,7 +118,7 @@ def main():
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     try:
         objpoints, imgpoints, grabbed = collect(cap, a.cols, a.rows, a.frames,
-                                                window=not a.no_window)
+                                                window=not a.no_window, rotate=a.rotate)
     finally:
         cap.release()
         if not a.no_window:
@@ -117,8 +134,8 @@ def main():
     out = a.out or os.path.join(DEFAULT_OUT_DIR, "K.npz")
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     np.savez(out, K=K, dist=dist, rms=rms, views=grabbed,
-             cols=a.cols, rows=a.rows, square=a.square,
-             trusted=bool(rms <= a.max_err))
+             cols=a.cols, rows=a.rows, square=a.square, rotate=bool(a.rotate),
+             width=w, height=h, trusted=bool(rms <= a.max_err))
     print("wrote", out)
     if rms > a.max_err:
         sys.exit(2)

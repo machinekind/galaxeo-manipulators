@@ -111,6 +111,35 @@ G1 housing, looking down the jaw gap at the fingertips. Fitted 2026-09-25.
 * Aim: the fingertips should sit about a third of the way up from the bottom
   edge of the frame, so the object beyond the tips stays in view.
 
+### Where it is (measured 2026-09-26)
+
+Eye-in-hand calibration with `calib_wrist.py`: a sheet of six AprilTag 36h11
+(ids 3-8, 37 mm) flat on the table, the arm carried the camera around it over
+two sessions (59 poses, 152 tag views). The fit lives in
+`hardware/g1_camera_mounts/camera_spec_lashup.json`, which
+`sim/wrist_camera.attach_wrist_camera(..., design=load_spec(that file))` reads.
+
+| quantity | value |
+| --- | --- |
+| lens in `gripper_link` | (-51, 43, 94) mm |
+| optical axis | 31 deg toward -y, 26 deg below the tool axis |
+| field of view, full frame | 74.7 x 45.7 deg (K from a 6x4, 39 mm checkerboard, 15 views, 0.85 px) |
+| reprojection residual | 28 px at 12-24 cm, 10.5 px at 15-32 cm |
+
+The residual is far above the 1.5 px the fixed-camera calibration reaches.
+It behaves like a 3-4 mm position error per pose, not a lens problem: fitting
+six constant joint offsets barely moves it (26 px), and the camera pose is
+stable to about a centimetre between the near and the far session
+((-51, 40, 92) against (-60, 51, 105) mm). So the number above is good to
+roughly 1 cm and 2 deg, and the sim should randomise the wrist camera by at
+least that much. Two open leads: the intrinsics (few views, strong distortion
+terms), and the arm's own forward kinematics under the wrist load, which the
+same tooling can measure against the tags.
+
+The old `camera_spec.json` next to it is the rejected PR #2 outboard strut
+(CAD nominal, never built); `payload.json` is that strut's mass and collision
+shape too, and describes nothing on the arm today.
+
 ## The SO-101 leader
 
 The arm cannot be hand-guided (see
