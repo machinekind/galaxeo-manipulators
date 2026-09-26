@@ -1,186 +1,183 @@
 #!/usr/bin/env python3
-"""Move to point with the real A1X over CAN-FD, direct Python.
+"""Move the real A1X's tool to a point, through galaxeo.arm.
 
-    python3 move_to_point_a1x.py --iface can0 --check               # read-only: is the arm streaming?
-    python3 move_to_point_a1x.py --iface can0 --dry-run --dx 0.03   # the move loop, transmits nothing
-    python3 move_to_point_a1x.py --iface can0 --tx --dx 0.05        # LIVE: move to point, +x 5 cm
+    python3 move_to_point_a1x.py --check                          # read-only: streaming? where is the tool?
+    python3 move_to_point_a1x.py --dry-run --point 0.35 0 0.12    # plan only, transmits nothing
+    python3 move_to_point_a1x.py --tx --point 0.35 0 0.12         # LIVE: tool to (x, y, z) in the base frame
+    python3 move_to_point_a1x.py --tx --dx 0.05                   # LIVE: +5 cm forward of home, orientation kept
 
-The control algorithm is `RealRobot.move` in `a1x_arm.py`: read the 200 Hz
-joint feedback on 0x052, solve the URDF IK (`kinematics.py`) for the desired
-tip pose, then stream p_des on 0x050 along a rate-limited joint ramp while
-watching for stale feedback and lagging joints. This script is that algorithm
-as a standalone CLI experiment, the way `ik_demo_a1x.py` and `jog_a1x.py` are;
-`a1x_arm.py` stays the library, and `calibrate_real.py` drives the same
-`RealRobot` through the calibration wave of `sim/calib/calibrate.py`.
+Everything that makes the move safe is the package (galaxeo/arm, see README):
+the plan is refused outside the reach box, when IK misses by more than 3 mm, on a
+jump over 45 deg or on a collision with the table or the arm itself; the move
+starts from the measured pose, ramps at --speed, aborts on stale or frozen
+feedback, and on an impact holds the measured pose and backs off gently.
 
-The goal is +dx/+dz in the arm base frame from the pose measured at start,
-orientation held; the plan is rejected unless IK converges (2 mm / 1 deg),
-so nothing is transmitted on a hopeless target.
+--point is absolute, in the arm base frame (x forward over the table, z up from the
+table top). --dx/--dz are relative to the tool at --home ('here' = the pose measured
+at start, or six joint angles in degrees), along the arm's heading, orientation kept.
 
-Safety, same rules as jog_a1x.py / ik_demo_a1x.py (see docs/SAFETY.md):
-
-  * Transmit is OFF unless --tx is passed. The first live frame is seeded from
-    the MEASURED pose, so nothing jumps.
-  * p_des only ever moves at --speed (deg/s), streamed at --rate.
-  * Feedback older than 150 ms aborts; a joint more than --track-tol behind its
-    setpoint aborts. The stream stops and the arm holds where it is.
-  * The gripper is never commanded. Targets are clamped to the URDF limits.
+Transmit is OFF unless --tx is passed. --enable sends function frames 1 -> 5 -> 6
+first, with p_des = the measured pose streamed throughout (docs/SAFETY.md); use it
+only if the arm reports but ignores 0x050. Ctrl-C mid-move holds the measured pose.
 """
 from __future__ import annotations
 
 import argparse
 import math
-import os
 import sys
+import threading
 import time
 
 import numpy as np
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(HERE, "ros2_ws", "src",
-                                "galaxea_a1xy_driver", "galaxea_a1xy_driver"))
-
-from a1x_arm import A1XArm, GripperFK, RealRobot, Webcam, deg     # noqa: E402
-from kinematics import ik, pose_error                             # noqa: E402
-from protocol import N_JOINTS                                     # noqa: E402
+from galaxeo.arm import Arm, BusTransport, enable
+from galaxeo.arm.transport import deg
+from galaxeo.bus import default_iface, open_bus
 
 
-def read_pose(arm, secs):
-    q, why = None, ""
-    t0 = time.time()
-    while time.time() - t0 < secs:
-        arm.drain()
-        time.sleep(0.005)
-        q, why = arm.fresh()
+def wait_feedback(arm, secs):
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < secs:
+        q = arm.measured()
         if q is not None:
-            # keep listening to report a rate too
-            pass
-    if q is None:
+            return q
+        time.sleep(0.01)
+    _, why = arm.motion.fresh()
+    print(f"NO DATA: {why}")
+    return None
+
+
+def run_check(arm, secs):
+    t0 = time.monotonic()
+    n0 = arm.transport.frames_rx
+    while time.monotonic() - t0 < secs:
+        arm.transport.read()
+        time.sleep(0.005)
+    r, why = arm.motion.fresh()
+    if r is None:
         print(f"NO DATA: {why}")
-        return None, 0.0
-    with arm.lock:
-        hz = arm.n / secs
-    return q, hz
-
-
-def run_check(a):
-    arm = A1XArm(a.iface, dry_run=True)
-    try:
-        q, hz = read_pose(arm, a.secs)
-    finally:
-        arm.close()
-    if q is None:
         return 1
-    print(f"arm on {a.iface}: {hz:.0f} Hz")
-    print(f"measured (deg): {deg(q)}")
-    fk = GripperFK()
-    T = fk.gripper2base(q)
-    print(f"gripper xyz in base [m]: {np.round(T[:3, 3], 3)}")
+    tip = arm.fk(r.q)[:3, 3]
+    print(f"feedback: {(arm.transport.frames_rx - n0) / secs:.0f} Hz")
+    print(f"measured (deg): {deg(r.q)}")
+    print(f"effort:         {', '.join(f'{e:6.2f}' for e in r.effort)}")
+    print(f"tool xyz in base [m]: {np.round(tip, 3)}  "
+          f"({'inside' if arm.reach.contains(tip) else 'outside'} the reach box "
+          f"{arm.reach.lo.round(2).tolist()}..{arm.reach.hi.round(2).tolist()})")
     return 0
 
 
+def goal_target(arm, a, home):
+    if a.point is not None:
+        return np.array(a.point, float)
+    T = arm.fk(home)
+    heading = np.array([math.cos(home[0]), math.sin(home[0]), 0.0])
+    T[:3, 3] = T[:3, 3] + a.dx * heading + a.dz * np.array([0.0, 0.0, 1.0])
+    return T
+
+
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iface", default="can0", help="SocketCAN interface (can_up.sh brings it up)")
-    ap.add_argument("--check", action="store_true",
-                    help="read-only: is the arm streaming? transmits nothing")
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--iface", default=default_iface(),
+                    help="can0 (Linux), xcan[:addr] (macOS), PCAN_USBBUSn (Windows), <python-can>:<channel>")
+    ap.add_argument("--check", action="store_true", help="read-only: is the arm streaming? transmits nothing")
     ap.add_argument("--secs", type=float, default=2.0, help="listen seconds for --check")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="read feedback, run the move loop, transmit nothing")
-    ap.add_argument("--tx", action="store_true",
-                    help="LIVE: stream p_des on 0x050. The arm may MOVE.")
+    ap.add_argument("--dry-run", action="store_true", help="read feedback and plan; transmit nothing")
+    ap.add_argument("--tx", action="store_true", help="LIVE: stream p_des on 0x050. The arm MOVES.")
     ap.add_argument("--enable", action="store_true",
-                    help="also send the enable sequence (FF 1 -> 6) before streaming; "
+                    help="send FF 1 -> 5 -> 6 first, p_des = measured streamed throughout; "
                          "only if the arm reports but ignores 0x050")
+    ap.add_argument("--point", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                    help="absolute tool target in the base frame, m")
     ap.add_argument("--home", default="here",
-                    help="'here' (default): the pose measured at start is home. Or six "
-                         "joint angles in degrees (what jog_a1x.py 'Set home = here' printed)")
-    ap.add_argument("--dx", type=float, default=0.05, help="move +x in the base frame, m")
-    ap.add_argument("--dz", type=float, default=0.0, help="move +z in the base frame, m")
-    ap.add_argument("--speed", type=float, default=8.0, help="peak joint slew, deg/s")
+                    help="pose --dx/--dz are relative to: 'here' (measured at start) or six angles in degrees "
+                         "(what jog_a1x.py 'Set home = here' printed)")
+    ap.add_argument("--dx", type=float, default=0.05, help="relative: forward along the arm's heading, m")
+    ap.add_argument("--dz", type=float, default=0.0, help="relative: up, m")
+    ap.add_argument("--speed", type=float, default=8.0, help="average speed of the fastest joint, deg/s")
     ap.add_argument("--rate", type=float, default=200.0, help="stream rate, Hz")
-    ap.add_argument("--track-tol", type=float, default=15.0,
-                    help="abort if a joint lags its setpoint by this, deg")
-    ap.add_argument("--kp", type=float, default=20.0)
-    ap.add_argument("--kd", type=float, default=1.0)
-    ap.add_argument("--camera", type=int, default=0, help="OpenCV device index")
-    ap.add_argument("--camera-width", type=int, default=0)
-    ap.add_argument("--camera-height", type=int, default=0)
+    ap.add_argument("--camera", type=int, default=None, help="OpenCV index: save one frame at the goal")
+    ap.add_argument("--snapshot", default="move_to_point.jpg", help="where --camera writes its frame")
     a = ap.parse_args()
 
     home = None
     if a.home != "here":
         try:
-            home = [math.radians(float(x)) for x in a.home.split(",")]
-            assert len(home) == N_JOINTS
+            home = np.radians([float(x) for x in a.home.split(",")])
+            assert len(home) == 6
         except (ValueError, AssertionError):
             sys.exit("--home needs 'here' or six comma-separated angles in degrees")
+    if a.enable and not a.tx:
+        sys.exit("--enable transmits: it needs --tx")
 
-    if a.check:
-        sys.exit(run_check(a))
-
-    if home is None and (a.tx or a.dry_run):
-        # Read the pose first: home is where the arm is, which is the safe
-        # contract (nothing jumps). A specific home comes from --home.
-        arm = A1XArm(a.iface, dry_run=True)
-        try:
-            q, hz = read_pose(arm, a.secs)
-        finally:
-            arm.close()
-        if q is None:
-            sys.exit(1)
-        print(f"arm on {a.iface}: {hz:.0f} Hz, measured (deg): {deg(q)}")
-        home = q
-
-    live = a.tx
-    arm = A1XArm(a.iface, dry_run=not live, tx=live)
+    try:
+        bus = open_bus(a.iface)
+    except Exception as ex:
+        sys.exit(f"cannot open {a.iface}: {ex}")
+    transport = BusTransport(bus, tx=a.tx and not (a.check or a.dry_run))
+    arm = Arm(transport, rate_hz=a.rate)
     cam = None
     try:
+        if a.check:
+            return run_check(arm, a.secs)
+        q0 = wait_feedback(arm, a.secs)
+        if q0 is None:
+            return 1
+        print(f"arm on {a.iface}, measured (deg): {deg(q0)}")
+        target = goal_target(arm, a, q0 if home is None else home)
+        plan = arm.plan(target, start=q0)
+        point = target[:3, 3] if np.ndim(target) == 2 else target
+        if not plan:
+            print(f"plan rejected: {plan.reason}" + (f" ({plan.detail})" if plan.detail else ""))
+            return 2
+        print(f"plan: tool to {np.round(point, 3)} m, IK residual {plan.ik.pos_err * 1e3:.1f} mm, "
+              f"joints (deg): {deg(plan.joints)}")
+        if not transport.tx:
+            print("dry run: nothing transmitted")
+            return 0
+
+        if a.camera is not None:
+            from a1x_arm import Webcam
+            cam = Webcam(a.camera)
+        if a.enable:
+            print("enable: FF 1 -> 5 -> 6, p_des = measured throughout")
+            enable(transport)
+
+        last = [-math.inf]
+
+        def progress(now, cmd, reading, phase):
+            if now - last[0] >= 0.5:
+                last[0] = now
+                left = math.degrees(float(np.max(np.abs(plan.joints - reading.q))))
+                print(f"\r  {phase}: {left:5.1f} deg to go", end="", flush=True)
+
+        arm.motion.on_tick = progress
+        arm.set_armed(True)
+        out = {}
+        th = threading.Thread(target=lambda: out.setdefault("r", arm.move(plan.joints, a.speed)), daemon=True)
+        th.start()
         try:
+            while th.is_alive():
+                th.join(0.1)
+        except KeyboardInterrupt:
+            arm.stop("ctrl-c")
+            th.join(5.0)
+        r = out.get("r")
+        print()
+        if r is None:
+            print("move did not end cleanly; the arm holds the last p_des")
+            return 2
+        print(r.state + (f": {r.reason}" if r.reason else "") + (f" ({r.detail})" if r.detail else ""))
+        if r.state == "reached" and cam is not None:
             import cv2
-        except ImportError:
-            if a.camera is not None:
-                print("NOTE: opencv is missing; running without a camera")
-            cam = None
-        else:
-            if a.camera is not None:
-                cam = Webcam(a.camera, a.camera_width, a.camera_height)
-        robot = RealRobot(arm, cam, speed=a.speed, rate=a.rate,
-                          track_tol=a.track_tol, kp=a.kp, kd=a.kd, verbose=True)
-        if live and a.enable:
-            print("sending enable (FF 1 -> 6); the setpoint stays at the measured pose")
-            arm.send_enable()
-        # One minimal move: +dx in the base frame from the measured pose,
-        # orientation held (the calib wave's "forward" leg, nothing more).
-        q_start = robot.q()
-        T0 = robot.chain.fk(q_start)
-        fwd = np.array([math.cos(q_start[0]), math.sin(q_start[0]), 0.0])
-        T_goal = T0.copy()
-        T_goal[:3, 3] = T0[:3, 3] + a.dx * fwd + a.dz * np.array([0.0, 0.0, 1.0])
-        q_goal, T_got = ik(robot.chain, T_goal, q_start, iters=200, q_bias=q_start)
-        e = pose_error(T_got, T_goal)
-        ep, ew = np.linalg.norm(e[:3]), np.linalg.norm(e[3:])
-        if ep > 2e-3 or ew > math.radians(1.0):
-            sys.exit(f"plan rejected: IK did not converge "
-                     f"({ep * 1e3:.1f} mm, {math.degrees(ew):.1f} deg)")
-        print(f"move goal: tip {np.round(T_goal[:3, 3], 3)} m  "
-              f"(IK residual {ep * 1e3:.1f} mm)")
-        robot.move(q_goal, 1.5)
-        if robot.aborted:
-            sys.exit(2)
-        print("done: arm holds at the goal. Ctrl-C to stop streaming.")
-        while True:
-            time.sleep(1)
-            arm.drain()
-    except KeyboardInterrupt:
-        print("\nCtrl-C: stream stopped; the arm re-latches where it is.")
+            cv2.imwrite(a.snapshot, cam.image())
+            print(f"frame at the goal: {a.snapshot}")
+        return 0 if r.state == "reached" else 2
     finally:
-        arm.close()
+        bus.close()
         if cam is not None:
             cam.close()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
