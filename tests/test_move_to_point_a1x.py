@@ -77,3 +77,26 @@ def test_move_to_point_waits_for_fresh_feedback_before_q(monkeypatch, capsys, ar
     assert FakeRobot.wait_calls == [(True, 3.0)]
     out = capsys.readouterr().out
     assert "move goal:" in out
+
+
+def test_move_to_point_surfaces_wait_fresh_failure(monkeypatch):
+    FakeArm.instances = []
+
+    class FailingRobot(FakeRobot):
+        def wait_fresh(self, required=False, timeout=3.0):
+            raise RuntimeError("no fresh feedback after 3 s (no feedback yet)")
+
+        def q(self):
+            raise AssertionError("q() should not run after wait_fresh() fails")
+
+    monkeypatch.setattr(M, "A1XArm", FakeArm)
+    monkeypatch.setattr(M, "RealRobot", FailingRobot)
+    monkeypatch.setattr(M, "Webcam", lambda *args, **kwargs: None)
+    monkeypatch.setitem(sys.modules, "cv2", object())
+    monkeypatch.setattr(M, "read_pose", lambda arm, secs: (np.zeros(6), 200.0))
+    monkeypatch.setattr(sys, "argv", ["move_to_point_a1x.py", "--iface", "can0", "--tx", "--dx", "0.03"])
+
+    with pytest.raises(RuntimeError, match="no fresh feedback after 3 s"):
+        M.main()
+
+    assert [arm.dry_run for arm in FakeArm.instances] == [True, False]
