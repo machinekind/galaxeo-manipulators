@@ -50,3 +50,6 @@ so101/calib_*.json
 
 # --- camera calibration sessions (intrinsics, wrist frames, fits) ---------------
 calib_session/
+
+# trained policies shipped to a box by rsync, never committed
+sim/grasp/*.pt
