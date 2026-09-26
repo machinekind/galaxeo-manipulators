@@ -17,11 +17,19 @@ xcan = ["pyusb>=1.2"]
 pcan = ["python-can>=4"]
 # galaxeo.arm: the installed arm (model, IK, collisions, reach box, guarded moves).
 arm = ["numpy>=1.24", "mujoco>=3.2"]
+# env-camera stereo → point cloud → GraspGenX ZMQ client (no torch).
+vision = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8,<5",
+    "pyzmq>=25",
+    "msgpack>=1.0",
+    "msgpack-numpy>=0.4",
+]
 test = ["pytest>=7"]
 
 [tool.setuptools]
 # Only the package; the rest of the repo (ROS 2 workspace, sim, scripts) is not installed.
-packages = ["galaxeo", "galaxeo.arm"]
+packages = ["galaxeo", "galaxeo.arm", "galaxeo.vision"]
 
 [tool.setuptools.package-data]
 "galaxeo.arm" = ["assets/*.xml", "assets/*.json", "assets/meshes/*.STL"]

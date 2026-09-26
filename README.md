@@ -84,9 +84,11 @@ XCAN dongle through `xcan_usb.py`.
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
 | `jog_a1x.py` | on-screen jog, one joint per key. Runs on macOS |
 | `move_to_point_a1x.py` | tool to a point in the base frame (`--point x y z`), planned and guarded by `galaxeo.arm` |
+| `grasp_from_stereo.py` | two env cameras → point cloud in the base → GraspGenX ZMQ client |
 | `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package--galaxeo) |
 | `galaxeo/arm/` | the installed arm: model, IK, collisions, reach box, guarded moves. See [Installed arm](#installed-arm--galaxeoarm) |
+| `galaxeo/vision/` | two env cameras → stereo cloud in the arm base → GraspGenX ZMQ client |
 | `galaxeo/xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
 | `can_up.sh` | bring the arm's adapter up as `can0` at the right timings |
@@ -141,6 +143,7 @@ there; the glasses side (Lens, relay, marker registration) is
 
 ```bash
 pip install -e ".[arm]"          # + numpy, mujoco
+pip install -e ".[vision]"       # env stereo → GraspGenX ZMQ client
 ```
 
 ```python
