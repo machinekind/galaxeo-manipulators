@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Userspace PCAN-USB FD driver over libusb, read-only proof of concept.
 
 Speaks the uCAN protocol the Linux kernel's peak_usb driver uses for the
@@ -7,33 +6,55 @@ arm can be read from macOS without SocketCAN and without the PCBUSB library.
 Every command and record layout below is transcribed from
 drivers/net/can/usb/peak_usb/pcan_usb_fd.c and include/linux/can/dev/peak_canfd.h.
 
-    python xcan_usb.py            # listen-only, decode 0x052, 5 s
-    python xcan_usb.py --secs 20 --addr 6
+    python -m galaxeo.xcan_usb            # listen-only, decode 0x052, 5 s
+    python -m galaxeo.xcan_usb --secs 20 --addr 6
 
-Requires pyusb and libusb (brew install libusb).
+Requires pyusb and libusb (pip install "galaxeo[xcan]"; brew install libusb).
+
+Licence note: the command and record layouts above are transcribed from the
+GPL-2.0 Linux kernel sources named in the first paragraph. This module is kept
+separate so it can be dropped or swapped without touching the rest of galaxeo.
+
+Importing this module needs nothing beyond the standard library, on any OS: pyusb
+is imported the first time a device is opened, and every failure is an XcanError
+(a RuntimeError), never a SystemExit, so a host application can catch it.
 """
 import argparse
+import logging
 import math
 import platform
 import struct
-import sys
 import time
 from ctypes.util import find_library
 
-if platform.system() != "Darwin":
-    sys.exit("xcan_usb.py is the macOS driver. Linux already has this adapter as SocketCAN "
-             "(kernel peak_usb); use ./can_up.sh and can0.")
+logger = logging.getLogger(__name__)
 
-import usb.core
-import usb.util
-import usb.backend.libusb1
+
+class XcanError(RuntimeError):
+    """The adapter, libusb or pyusb is missing, busy or misbehaving."""
+
+
+def _usb():
+    """pyusb, imported on first use. ImportError names the install command."""
+    try:
+        import usb.backend.libusb1
+        import usb.core
+        import usb.util
+    except ImportError as ex:
+        raise ImportError('the XCAN driver needs pyusb and libusb:  pip install "galaxeo[xcan]"  '
+                          f"and  brew install libusb  ({ex})") from ex
+    return usb
 
 
 def _backend():
+    if platform.system() != "Darwin":
+        raise XcanError("galaxeo.xcan_usb is the macOS driver. Linux already has this adapter as "
+                        "SocketCAN (kernel peak_usb); use ./can_up.sh and can0.")
+    usb = _usb()
     lib = find_library("usb-1.0") or "/opt/homebrew/lib/libusb-1.0.dylib"
     backend = usb.backend.libusb1.get_backend(find_library=lambda n: lib)
     if backend is None:
-        raise SystemExit("libusb not found:  brew install libusb")
+        raise XcanError("libusb not found:  brew install libusb")
     return backend
 
 VID, PID = 0x0C72, 0x0012
@@ -63,11 +84,12 @@ def opc(opcode, channel=0):
 class PcanUsbFd:
     def __init__(self, addr=None, verbose=False):
         backend = _backend()
+        usb = _usb()
         devs = list(usb.core.find(find_all=True, idVendor=VID, idProduct=PID, backend=backend))
         if addr is not None:
             devs = [d for d in devs if d.address == addr]
         if not devs:
-            raise SystemExit("no PCAN-USB FD / XCAN device found")
+            raise XcanError("no PCAN-USB FD / XCAN device found")
         self.dev = devs[0]
         self.verbose = verbose
         try:
@@ -76,8 +98,8 @@ class PcanUsbFd:
         except usb.core.USBError as ex:
             # macOS reports a device another process already holds as "No such
             # device" (errno 19), which reads like an unplugged cable.
-            raise SystemExit(f"cannot claim XCAN usb addr {self.dev.address}: {ex}\n"
-                             "  Is another jog_a1x.py / xcan_usb.py still running? One process per dongle.")
+            raise XcanError(f"cannot claim XCAN usb addr {self.dev.address}: {ex}\n"
+                            "  Is another jog_a1x.py / galaxeo.xcan_usb still running? One process per dongle.") from ex
 
     # ---- vendor control requests (pcan_usb_pro_send_req) --------------------
     def fw_info(self):
@@ -114,7 +136,7 @@ class PcanUsbFd:
             if n != len(buf[i:i + 64]):
                 raise RuntimeError(f"short cmd write {n}")
         if self.verbose:
-            print(f"  cmd -> {len(buf)} B: {buf[:16].hex()}...")
+            logger.info("  cmd -> %d B: %s...", len(buf), buf[:16].hex())
 
     def start(self, listen_only=True):
         # pcan_usb_fd_init tail
@@ -141,8 +163,8 @@ class PcanUsbFd:
             self.send_cmds([opc(CMD_CLR_DIS_OPTION) + struct.pack("<HHH", OPTION_ERROR, 0, USB_OPT_CALIBRATION)])
             self.drv_loaded(False)
         except Exception as ex:
-            print("stop:", ex)
-        usb.util.release_interface(self.dev, 0)
+            logger.warning("stop: %s", ex)
+        _usb().util.release_interface(self.dev, 0)
 
     # ---- transmit (pcan_usb_fd_encode_msg) ---------------------------------------------
     def send(self, can_id, data, fd=True, brs=True):
@@ -167,7 +189,7 @@ class PcanUsbFd:
         """One bulk IN transfer, parsed into records: (type, payload dict)."""
         try:
             raw = bytes(self.dev.read(EP_MSG_IN, 2048, timeout=timeout_ms))
-        except usb.core.USBTimeoutError:
+        except _usb().core.USBTimeoutError:
             return []
         out = []; p = 0
         while p + 4 <= len(raw):
@@ -204,7 +226,7 @@ def pick_by_traffic(secs=0.5):
     Both XCAN units report the same ids and serial, so traffic is the only
     discriminator (the same trick can_up.sh uses on Linux). None if only one."""
     backend = _backend()
-    addrs = [d.address for d in usb.core.find(find_all=True, idVendor=VID, idProduct=PID, backend=backend)]
+    addrs = [d.address for d in _usb().core.find(find_all=True, idVendor=VID, idProduct=PID, backend=backend)]
     if len(addrs) <= 1:
         return None
     best, best_n = None, -1
@@ -217,7 +239,7 @@ def pick_by_traffic(secs=0.5):
                 n += sum(1 for k, _ in d.read(50) if k == "rx")
         finally:
             d.stop()
-        print(f"  xcan usb addr {addr}: {n} frames in {secs:g}s")
+        logger.info("  xcan usb addr %s: %d frames in %gs", addr, n, secs)
         if n > best_n:
             best, best_n = addr, n
     return best
@@ -256,10 +278,11 @@ class XcanBus:
         self._t = threading.Thread(target=self._reader, daemon=True); self._t.start()
 
     def _reader(self):
+        usb_error = _usb().core.USBError
         while not self._stop:
             try:
                 recs = self.dev.read(50)
-            except usb.core.USBError as ex:
+            except usb_error as ex:
                 if self._stop: return
                 self.state = f"usb error: {ex}"; time.sleep(0.05); continue
             for kind, rec in recs:
@@ -290,22 +313,31 @@ class XcanBus:
         self.dev.stop()
 
 
-def main():
-    ap = argparse.ArgumentParser()
+def main(argv=None):
+    """Read-only check: firmware info, then decode 0x052 for --secs. Transmits no frame."""
+    from .protocol import FB_ID, FB_LEN, decode_feedback
+
+    ap = argparse.ArgumentParser(prog="python -m galaxeo.xcan_usb", description=main.__doc__)
     ap.add_argument("--addr", type=int, help="USB device address (ioreg / pyusb), default first")
     ap.add_argument("--secs", type=float, default=5.0)
     ap.add_argument("-v", action="store_true")
     ap.add_argument("--normal", action="store_true", help="normal mode: the adapter ACKs frames (still sends none)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    d = PcanUsbFd(a.addr, a.v)
+    try:
+        d = PcanUsbFd(a.addr, a.v)
+    except (XcanError, ImportError) as ex:
+        logger.error("%s", ex)
+        return 2
     info, raw = d.fw_info()
-    print(f"device addr {d.dev.address}: fw info {info}")
+    logger.info("device addr %s: fw info %s", d.dev.address, info)
     if a.v:
-        print("  raw:", raw.hex())
+        logger.info("  raw: %s", raw.hex())
     d.drv_loaded(True)
     d.start(listen_only=not a.normal)
-    print(f"listening {a.secs:g}s ({'normal mode, ACK only' if a.normal else 'listen-only mode'}, sends no frames)")
+    logger.info("listening %gs (%s, sends no frames)", a.secs,
+                "normal mode, ACK only" if a.normal else "listen-only mode")
     counts = {}; q = None; e = None; n052 = 0; t0 = time.time(); errs = []; last = None; same = 0
     try:
         while time.time() - t0 < a.secs:
@@ -315,27 +347,28 @@ def main():
                     key = f"rx 0x{rec['id']:03x} len{len(rec['data'])}{' fd' if rec['fd'] else ''}"
                     counts[key] = counts.get(key, 0) + 1
                     if a.v and counts["rx"] <= 3:
-                        print("  raw rx record:", rec["raw"].hex())
-                    if rec["id"] == 0x052 and len(rec["data"]) >= 42:
-                        r = struct.unpack(">21h", rec["data"][:42])
-                        q = [r[g * 3] / 4700.0 for g in range(7)]
-                        e = [r[g * 3 + 2] / 600.0 for g in range(7)]
+                        logger.info("  raw rx record: %s", rec["raw"].hex())
+                    if rec["id"] == FB_ID and len(rec["data"]) == FB_LEN:
+                        fb = decode_feedback(rec["data"])
+                        q, e = fb.pos, fb.eff
                         n052 += 1
                         same = same + 1 if rec["data"] == last else 0; last = rec["data"]
                 elif kind in ("error", "status") and len(errs) < 5:
                     errs.append((kind, rec))
     finally:
         d.stop()
-    print("records:", counts)
+    logger.info("records: %s", counts)
     if errs:
-        print("first error/status records:", errs)
+        logger.info("first error/status records: %s", errs)
     if q:
-        print(f"0x052 at {n052 / a.secs:.0f} Hz")
-        print("q (deg):", [round(math.degrees(x), 1) for x in q[:6]], "grip grp7:", round(math.degrees(q[6]), 1))
-        print("effort: ", [round(x, 2) for x in e])
-        print("identical-payload streak at end:", same, "(FROZEN = released state)" if same > 50 else "(live)")
+        logger.info("0x052 at %.0f Hz", n052 / a.secs)
+        logger.info("q (deg): %s grip grp7: %s", [round(math.degrees(x), 1) for x in q[:6]],
+                    round(math.degrees(q[6]), 1))
+        logger.info("effort:  %s", [round(x, 2) for x in e])
+        logger.info("identical-payload streak at end: %d %s", same,
+                    "(FROZEN = released state)" if same > 50 else "(live)")
     else:
-        print("no 0x052 feedback decoded")
+        logger.info("no 0x052 feedback decoded")
     return 0 if q else 2
 
 

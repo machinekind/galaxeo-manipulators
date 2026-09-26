@@ -40,4 +40,9 @@ sim/runs/
 sim/datasets/
 sim/resume/
 .venv-mac/
+
+# --- python package build output ---------------------------------------------
+*.egg-info/
+/build/
+/dist/
 so101/calib_*.json

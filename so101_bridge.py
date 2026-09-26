@@ -71,14 +71,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kinematics import Chain, ik as solve_ik
+from galaxeo import protocol
 from jog_a1x import A1X as _Transport
 from so101_feetech import SO101Raw
 
-N = 6
-CMD_ID, GRIP_ID, FB_ID = 0x050, 0x051, 0x052
-S_POS, S_VEL, S_EFF = 4700.0, 750.0, 600.0
-FIELDS = ((-6.5,6.5,4700.0), (-40.0,40.0,750.0), (0.0,500.0,60.0),
-          (0.0,200.0,150.0), (-50.0,50.0,600.0))
+N = protocol.N_JOINTS
 A1X_JOINTS = [f"arm_joint{i}" for i in range(1, 7)]
 SO_ARM = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 # SO-101 joint -> A1X joint index. arm_joint5 (index 4) is deliberately absent.
@@ -154,7 +151,7 @@ class A1X(_Transport):
         torque (effort 50.0) because it chased a stale internal target. So
         p_des = q is streamed before, during and after every code.
         """
-        for code in (1, 5, 6):
+        for code in protocol.ENABLE_SEQUENCE:
             t0 = time.time()
             while time.time() - t0 < 0.3:
                 self.drain()
@@ -396,6 +393,8 @@ def main():
     ap.add_argument("--allow-missing", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="transmit nothing")
     a = ap.parse_args()
+    if a.kp <= 0 or a.grip_kp <= 0:
+        sys.exit("--kp and --grip-kp must be > 0 (kp 0 leaves the arm deaf, diag/REPORT.md)")
 
     signs = [1.0 if c != "-" else -1.0 for c in a.signs.ljust(5, "+")[:5]]
     a1x_chain = Chain(A1X_URDF, A1X_JOINTS)

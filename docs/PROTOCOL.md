@@ -6,8 +6,10 @@ Galaxea does not publish this. It was recovered by disassembling
 against the vendor's own HDAS transmitting on the wire. Every constant below is
 read out of the binary, not guessed, and every saturation branch cross-checks.
 
-Implemented in
-[`ros2_ws/src/galaxea_a1xy_driver/galaxea_a1xy_driver/protocol.py`](../ros2_ws/src/galaxea_a1xy_driver/galaxea_a1xy_driver/protocol.py).
+Implemented in [`galaxeo/protocol.py`](../galaxeo/protocol.py) (the Python
+package the host tools use) and in
+[`ros2_ws/src/galaxea_a1xy_driver/galaxea_a1xy_driver/protocol.py`](../ros2_ws/src/galaxea_a1xy_driver/galaxea_a1xy_driver/protocol.py)
+(the ROS 2 driver); `tests/test_protocol.py` keeps the two byte-identical.
 
 ## Bus
 
