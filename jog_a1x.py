@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """On-screen jog for the Galaxea A1X: hold a key or a button, the joint moves.
 
-Works on macOS (the XCAN / PEAK USB-CAN FD adapter through xcan_usb.py, our
-own libusb driver) and on Linux (SocketCAN via python-can). No ROS, no SO-101,
+Works on macOS (the XCAN / PEAK USB-CAN FD adapter through galaxeo/xcan_usb.py,
+our own libusb driver) and on Linux (SocketCAN via python-can). No ROS, no SO-101,
 no vendor binaries.
 
     python jog_a1x.py --check              # read-only: is the arm streaming?
@@ -45,54 +45,44 @@ motors. Use it only if the arm reports but ignores the jog. The setpoint is
 pinned to the measured pose throughout the sequence, as docs/SAFETY.md demands.
 
 Requirements: python-can (Linux), pyusb + libusb (macOS: brew install libusb).
+The protocol (ids, encoders, decoder, limits) comes from the galaxeo package next
+to this script (galaxeo/protocol.py).
 """
 import argparse
+import logging
 import math
 import platform
 import sys
 import threading
 import time
 
+from galaxeo import protocol
+from galaxeo.bus import PCAN_FD_TIMING
+from galaxeo.protocol import CMD_ID, FB_ID, FB_LEN, FF_ID, GRIP_ID, STATUS_ID
+
 try:
     import can
 except ImportError:                      # only needed for the python-can backends
     can = None
 
-N = 6
-S_POS, S_VEL, S_EFF = 4700.0, 750.0, 600.0
-FIELDS = ((-6.5, 6.5, 4700.0), (-40.0, 40.0, 750.0), (0.0, 500.0, 60.0),
-          (0.0, 200.0, 150.0), (-50.0, 50.0, 600.0))
-LIMITS = [(-2.880, 2.880), (0.0, 3.142), (-3.316, 0.0),
-          (-1.571, 1.571), (-1.571, 1.571), (-2.880, 2.880)]
+N = protocol.N_JOINTS
+LIMITS = [tuple(lim) for lim in protocol.URDF_LIMITS_RAD]
 NAMES = ["J1 base yaw", "J2 shoulder", "J3 elbow",
          "J4 wrist pitch", "J5 wrist yaw", "J6 wrist roll"]
-CMD_ID, GRIP_ID, FB_ID, FF_ID = 0x050, 0x051, 0x052, 0x053
+STATUS_BASELINE = 0x0010        # every group, both arms, in every healthy capture
 KEYS = {"q": (0, +1), "a": (0, -1), "w": (1, +1), "s": (1, -1),
         "e": (2, +1), "d": (2, -1), "r": (3, +1), "f": (3, -1),
         "t": (4, +1), "g": (4, -1), "y": (5, +1), "h": (5, -1),
         "o": (6, -1), "c": (6, +1)}          # gripper: p_des more negative = open
 
-# PEAK-USB FD, 80 MHz clock: 1 Mbit/s and 5 Mbit/s, both at sample point 0.875
-# (the vendor's own timings, see docs/HARDWARE.md).
-PCAN_FD_TIMING = dict(f_clock_mhz=80, nom_brp=1, nom_tseg1=69, nom_tseg2=10, nom_sjw=10,
-                      data_brp=1, data_tseg1=13, data_tseg2=2, data_sjw=2)
-
-
-def encode_group(p, v, kp, kd, tff):
-    out = bytearray(10)
-    for k, val in enumerate((p, v, kp, kd, tff)):
-        lo, hi, sc = FIELDS[k]
-        x = lo if val < lo else (hi if val > hi else val)
-        raw = max(-32768, min(32767, int(x * sc)))
-        out[k * 2] = (raw >> 8) & 0xFF
-        out[k * 2 + 1] = raw & 0xFF
-    return bytes(out)
+# PCAN_FD_TIMING (PEAK-USB FD, 80 MHz clock, the vendor's 1 / 5 Mbit/s at sample
+# point 0.875) comes from galaxeo.bus.
 
 
 def open_bus(iface):
     """Backends, by --iface:
 
-        xcan[:<usb addr>]   macOS only: our libusb driver, xcan_usb.py
+        xcan[:<usb addr>]   macOS only: our libusb driver, galaxeo/xcan_usb.py
         can0, can1, ...     Linux: SocketCAN through python-can (bring it up
                             with ./can_up.sh first)
         PCAN_USBBUSn        Windows: PEAK's PCAN-Basic through python-can
@@ -100,9 +90,9 @@ def open_bus(iface):
     """
     if iface.startswith("xcan"):
         if platform.system() != "Darwin":
-            raise SystemExit("xcan_usb.py is the macOS driver. On Linux use SocketCAN "
+            raise SystemExit("galaxeo/xcan_usb.py is the macOS driver. On Linux use SocketCAN "
                              "(./can_up.sh, then --iface can0).")
-        from xcan_usb import XcanBus
+        from galaxeo.xcan_usb import XcanBus
         addr = int(iface.split(":", 1)[1]) if ":" in iface else None
         return XcanBus(addr)
     if can is None:
@@ -121,7 +111,7 @@ class A1X:
     def __init__(self, iface, dry_run):
         self.bus = open_bus(iface)
         if iface.startswith("xcan"):
-            from xcan_usb import Message
+            from galaxeo.xcan_usb import Message
             self._msg = lambda **kw: Message(kw["arbitration_id"], kw["data"], kw["is_fd"], kw["bitrate_switch"])
         else:
             self._msg = can.Message
@@ -129,6 +119,7 @@ class A1X:
         self.q = None; self.v = None; self.e = None
         self.t = 0.0; self.n = 0; self.n_tx = 0
         self.same = 0; self._last = None
+        self.status = None                      # 0x054: seven per-group words + one int16
         self.lock = threading.Lock()
 
     def drain(self):
@@ -138,14 +129,16 @@ class A1X:
             m = self.bus.recv(0.0)
             if m is None:
                 break
-            if m.arbitration_id != FB_ID or len(m.data) < 42:
+            if m.arbitration_id == STATUS_ID and len(m.data) >= 16:
+                d = bytes(m.data)
+                self.status = [int.from_bytes(d[i:i + 2], "big", signed=False) for i in range(0, 16, 2)]
+                continue
+            if m.arbitration_id != FB_ID or len(m.data) != FB_LEN:
                 continue
             d = bytes(m.data)
-            r = [int.from_bytes(d[i:i + 2], "big", signed=True) for i in range(0, 42, 2)]
+            fb = protocol.decode_feedback(d)
             with self.lock:
-                self.q = [r[g * 3] / S_POS for g in range(7)]
-                self.v = [r[g * 3 + 1] / S_VEL for g in range(7)]
-                self.e = [r[g * 3 + 2] / S_EFF for g in range(7)]
+                self.q, self.v, self.e = list(fb.pos), list(fb.vel), list(fb.eff)
                 self.same = self.same + 1 if d == self._last else 0
                 self._last = d
                 self.t = time.time(); self.n += 1
@@ -160,14 +153,14 @@ class A1X:
         self.n_tx += 1
 
     def send_arm(self, p, kp, kd):
-        payload = b"".join(encode_group(p[j], 0.0, kp, kd, 0.0) for j in range(N))
+        payload = protocol.encode_arm(p, kp, kd)
         self._tx(CMD_ID, payload.ljust(64, b"\x00"), fd=True)
 
     def send_grip(self, p, kp, kd):
-        self._tx(GRIP_ID, encode_group(p, 0.0, kp, kd, 0.0).ljust(12, b"\x00"), fd=True)
+        self._tx(GRIP_ID, protocol.encode_gripper(p, kp, kd).ljust(12, b"\x00"), fd=True)
 
     def send_ff(self, code):
-        self._tx(FF_ID, bytes([code]).ljust(8, b"\x00"), fd=False)
+        self._tx(FF_ID, protocol.encode_ff(code).ljust(8, b"\x00"), fd=False)
 
     def close(self):
         self.bus.shutdown()
@@ -330,7 +323,7 @@ class Jog:
         """
         with self.lock:
             self.status = "enabling: FF 1 -> 5 -> 6 (motors disengage briefly)"
-        for code in (1, 5, 6):
+        for code in protocol.ENABLE_SEQUENCE:
             t0 = time.time()
             while time.time() - t0 < 0.3:
                 self.arm.drain(); self.arm.send_arm(target, self.a.kp, self.a.kd)
@@ -359,10 +352,54 @@ def check(arm, secs):
     print(f"{arm.n / secs:.0f} Hz")
     print("q (deg):   ", [round(math.degrees(x), 1) for x in arm.q[:N]], " gripper grp7:", round(math.degrees(arm.q[6]), 1))
     print("effort:    ", [round(x, 2) for x in arm.e])
+    if arm.status:
+        words = arm.status[:7]
+        flagged = [f"J{g + 1}" if g < 6 else "gripper" for g, w in enumerate(words) if w != STATUS_BASELINE]
+        print("status 0x054:", " ".join(f"{w:04x}" for w in words),
+              f" (last int16 {int.from_bytes(arm.status[7].to_bytes(2, 'big'), 'big', signed=True)})")
+        if flagged:
+            print(f"  {', '.join(flagged)} differs from the {STATUS_BASELINE:04x} baseline: "
+                  f"a fault bit is set on that group (see docs/PROTOCOL.md).")
     if arm.same > 50:
         print("payload FROZEN: the arm is in the released state (FF 2). Enable needed.")
     else:
         print("OK: reporting live.")
+    return 0
+
+
+def hold(arm, a, secs, grip=False):
+    """Diagnostic: stream the MEASURED pose for `secs` (nothing moves) and
+    print the 0x054 status words once a second, so a status bit can be
+    watched against the arm's LED while the host is talking. With --grip
+    the gripper is also ramped open and back (p_des 0 -> -1.5 -> 0, a bit
+    over half its travel) to see whether the gripper's word reacts."""
+    t0 = time.time()
+    while time.time() - t0 < 3.0 and arm.q is None:
+        arm.drain(); time.sleep(0.002)
+    if arm.q is None:
+        print("no feedback, not streaming"); return 2
+    pose = list(arm.q[:N])
+    print(f"streaming the measured pose {[round(math.degrees(x), 1) for x in pose]} "
+          f"for {secs:g}s{' + gripper open/close' if grip else ''}. Watch the LED.")
+    nxt = t0 = time.time(); last_rep = 0.0; g = 0.0
+    while time.time() - t0 < secs:
+        arm.drain(); now = time.time()
+        if now - arm.t > 0.15:
+            print("feedback lost, stopped"); return 2
+        if now >= nxt:
+            nxt = now + 1.0 / a.rate
+            arm.send_arm(pose, a.kp, a.kd)
+            if grip:
+                f = (now - t0) / secs                       # 0..1
+                g = -1.5 * math.sin(math.pi * f)            # 0 -> -1.5 -> 0
+                arm.send_grip(g, a.grip_kp, a.kd)
+        if now - last_rep >= 1.0 and arm.status:
+            last_rep = now
+            words = " ".join(f"{w:04x}" for w in arm.status[:7])
+            print(f"  {now - t0:4.0f}s  0x054: {words}   grip p_des {g:+.2f}  "
+                  f"grp7 {math.degrees(arm.q[6]):5.1f} deg  eff {arm.e[6]:+.2f}")
+        time.sleep(0.0005)
+    print("done; the arm re-latches where it is")
     return 0
 
 
@@ -473,6 +510,11 @@ def main():
                     help="xcan[:<usb addr>] (macOS, libusb driver), a SocketCAN name like can0 "
                          "(Linux), PCAN_USBBUSn (Windows), or <python-can interface>:<channel>")
     ap.add_argument("--check", action="store_true", help="read-only feedback report, then exit")
+    ap.add_argument("--hold", type=float, default=0.0, metavar="SECS",
+                    help="diagnostic: stream the measured pose for SECS and print "
+                         "the 0x054 status words each second (nothing moves)")
+    ap.add_argument("--hold-grip", action="store_true",
+                    help="with --hold: also ramp the gripper open and back")
     ap.add_argument("--dry-run", action="store_true", help="run the GUI but transmit nothing")
     ap.add_argument("--rate", type=float, default=200.0, help="stream rate, Hz")
     ap.add_argument("--speed", type=float, default=8.0, help="initial jog speed, deg/s")
@@ -491,6 +533,9 @@ def main():
     ap.add_argument("--grip-force", type=float, default=1.2,
                     help="stop closing above this |effort|: grips, doesn't crush")
     a = ap.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")   # galaxeo.xcan_usb reports through logging
+    if a.kp <= 0 or a.grip_kp <= 0:
+        sys.exit("--kp and --grip-kp must be > 0 (kp 0 leaves the arm deaf, diag/REPORT.md)")
     try:
         a.home_rad = [math.radians(float(x)) for x in a.home.split(",")]
         assert len(a.home_rad) == N
@@ -506,6 +551,8 @@ def main():
     try:
         if a.check:
             return check(arm, 3.0)
+        if a.hold > 0:
+            return hold(arm, a, a.hold, a.hold_grip)
         jog = Jog(arm, a)
         try:
             gui(jog, a)

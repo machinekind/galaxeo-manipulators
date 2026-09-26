@@ -77,12 +77,31 @@ follows. `so101_bridge.py` is that bridge.
 
 ### Wire-up
 
-* SO-101 on `/dev/ttyACM0`, calibrated through LeRobot with a calibration id
-  (`my_leader` by default).
-* A1X on `can0`, powered, bus up.
-* Run it with a Python that has **lerobot, numpy and `AF_CAN` in one process**.
-  On this machine that is `/home/v1/miniconda3/envs/lerobot_v6/bin/python`;
-  anywhere else, any Linux Python 3.10+ with `lerobot>=0.6` installed.
+* SO-101 on its USB serial adapter: `/dev/cu.usbmodem*` on macOS,
+  `/dev/ttyACM*` on Linux. The bridge finds it when there is exactly one;
+  otherwise `--port`. Servo torque off, so it moves by hand.
+* A1X on the XCAN dongle (macOS, `--follower xcan`, the default there) or on
+  `can0` (Linux, bus up via `./can_up.sh`).
+* Python with numpy, pyserial, and pyusb (macOS) or python-can (Linux). On
+  the Mac that is `.venv-mac`. **No LeRobot needed**: `so101_feetech.py`
+  reads the servos directly. If you have LeRobot and its calibration,
+  `--leader lerobot` uses that instead.
+
+### Calibrate the gripper once
+
+Joint mode works with no calibration: the mapping is relative and a servo
+tick is a known angle. The gripper needs one, because only a calibration says
+which end of its travel is closed. Six seconds:
+
+```bash
+python so101_feetech.py --calibrate-gripper   # hold it closed, then fully open
+python so101_feetech.py                       # live readout: 0% closed, 100% open
+```
+
+`--mode ik` needs absolute angles too: `--calibrate` does every joint end to
+end, then the gripper.
+
+Writes `so101/calib_my_leader.json` (`--cal-id` for another name).
 
 ### Dry run first, always
 
@@ -102,20 +121,52 @@ python so101_bridge.py --dry-run --signs '+-+++'
 ### Then for real
 
 ```bash
-python so101_bridge.py --secs 60 --grip
+python so101_bridge.py --grip          # streams until Ctrl-C, then h / r / q
 ```
+
+### Stalls, and what happens when it stops
+
+A joint whose effort goes above `--max-effort` (20; gravity load is about 3)
+is stalled: on a stop, on the table, on something in the way. Following
+stops and that joint backs off 3 deg, slowly, away from the push, while the
+other joints hold.
+
+Every stop, whether a stall, Ctrl-C, or the timer, then holds the measured
+pose and asks:
+
+| key | does |
+| --- | --- |
+| `h` | go home on the motion profile, then ask again. Home is `--home`, or the pose the A1X was in when teleop started |
+| `r` | resume following, re-zeroed on both arms so nothing jumps |
+| `q` | quit. A powered arm keeps holding on its own. Ctrl-C does the same |
+
+Holding streams the measured pose, so a joint that was pushing into a stop
+is relieved. If the 24 V supply is gone nothing holds the arm; it has no
+brakes.
+
+The A1X starts from wherever it is; that pose and the leader's pose at
+start are the zero of the relative mapping. If the arm is folded at its
+rest pose, J2 and J3 sit on a limit and can only move one way from there;
+either jog it to an unfolded pose first or pass `--home "0,60,-90,0,0,0"`
+to have the bridge unfold it (slowly, `--home-rate` deg/s, keep clear).
 
 | flag | default | what it does |
 | --- | --- | --- |
 | `--mode joint` | joint | 1:1 joint mapping. Preferred — exact and singularity-free |
 | `--mode ik` | | FK the SO-101 tip, scale into the A1X workspace, solve A1X IK |
-| `--follow-rate` | 90 | deg/s slew cap on the follower |
+| `--follow-rate` | 45 | deg/s velocity cap on the follower. The SO-101 can be flicked; the A1X must not follow a flick |
+| `--follow-accel` | 60 | deg/s² acceleration cap. The follower ramps up, cruises, ramps down. This is what keeps current spikes off the supply |
+| `--limit-margin` | 2 | deg kept inside each joint limit so a target never rests on a hard stop |
+| `--max-effort` | 20 | a joint above this effort is stalled: stop following, back it off (normal load ~3, saturation 50) |
+| `--backoff` | 3 | deg a stalled joint retreats, at `--backoff-rate` 8 deg/s |
 | `--gain` | 1.0 | motion gain in joint mode; < 1 for fine work |
 | `--smooth` | 0.35 | low-pass on the leader |
 | `--grip` | off | map the gripper too |
 | `--grip-force` | 1.2 | freeze the grip target above this effort — grips, doesn't crush |
 | `--kp` / `--kd` | 20 / 1 | follower gains |
-| `--home` | | drive to a named/explicit pose before engaging |
+| `--home` | | drive to an explicit pose (degrees) before engaging |
+| `--leader` | raw | `raw` = pyserial reader, `lerobot` = LeRobot's bus + calibration |
+| `--follower` | xcan / can0 | A1X bus, by platform |
 
 The mapping is **relative to the pose both arms start in**, so nothing jumps on
 start and no absolute calibration is needed. Put both arms roughly where you
@@ -302,13 +353,13 @@ and prints the `--home` value for next time.
 macOS has no SocketCAN. The freeware PCBUSB library (mac-can.com) opens the
 XCAN dongles and even reads their firmware version, but **never receives a
 frame from them** — tested on two units, every timing, listen-only and active.
-So `xcan_usb.py` is a userspace driver: it speaks the uCAN protocol from the
+So `galaxeo/xcan_usb.py` is a userspace driver: it speaks the uCAN protocol from the
 Linux kernel's `peak_usb` driver directly over libusb. Command and record
 layouts are transcribed from `drivers/net/can/usb/peak_usb/pcan_usb_fd.c` and
 `include/linux/can/dev/peak_canfd.h`.
 
 ```bash
-python xcan_usb.py --normal      # standalone: fw info, then 0x052 at ~200 Hz
+python -m galaxeo.xcan_usb --normal   # standalone: fw info, then 0x052 at ~200 Hz
 ```
 
 `jog_a1x.py` uses it by default on macOS (`--iface xcan`, or `xcan:<usb

@@ -30,27 +30,52 @@ TWO RETARGETING MODES
       orientation. Position is prioritised (--w-rot, default 0.15); demanding
       exact orientation costs ~10 mm of position error on reachable targets.
 
+LEADER READERS
+    --leader raw      (default) so101_feetech.py: pyserial only, no LeRobot.
+                      Joint mode needs no calibration. The gripper and ik mode
+                      need one:  python so101_feetech.py --calibrate
+    --leader lerobot  the LeRobot FeetechMotorsBus with its own calibration
+                      file, for a machine that already has LeRobot installed.
+
+TRANSPORT
+    Same backends as jog_a1x.py: --follower xcan on macOS (xcan_usb.py, the
+    libusb driver), can0 on Linux (SocketCAN). Proven on hardware from a Mac.
+
 SAFETY
     * --dry-run prints targets and transmits nothing. Use it first.
-    * The A1X follower is slew-limited (--follow-rate) and clamped to URDF
-      limits; targets are relative to its start pose.
+    * The A1X follower runs a velocity- and acceleration-limited profile
+      (--follow-rate deg/s, --follow-accel deg/s^2) toward the leader's pose.
+      The SO-101 can be flicked 100 deg in half a second; the A1X ramps up,
+      caps, and ramps down without overshoot. A fast swing landing on a stop
+      tripped the 24 V supply once; the ramp is what keeps current spikes out.
+    * Targets are clamped --limit-margin inside the URDF limits, widened to
+      wherever the arm started, so they never rest on a mechanical stop.
+    * --max-effort: any joint above this |effort| (normal gravity load is
+      ~3, saturation 50) is stalled: a stop, the table, something in the
+      way. Following stops and that joint backs off --backoff deg, slowly,
+      away from the push, with the other joints holding.
+    * Every stop (Ctrl-C, stall, timer) then HOLDS the measured pose and
+      asks:  h = go home (--home, or the teleop start pose)   r = resume,
+      re-zeroed on both arms so nothing jumps   q = quit. A powered arm
+      holds; a stalled joint is relieved because the target moves to where
+      the arm is. If feedback was lost it waits for it to return, then holds
+      there. With the 24 V gone nothing holds: the arm has no brakes.
     * The gripper closes force-limited: if |effort| exceeds --grip-force the
       target freezes, so it grips rather than crushes.
     * Aborts on stale CAN feedback or on losing the SO-101.
     * Ctrl-C stops streaming; an uncommanded A1X holds where it is.
 """
 from __future__ import annotations
-import argparse, math, os, signal, socket, struct, sys, time
+import argparse, math, os, platform, queue, signal, sys, threading, time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kinematics import Chain, ik as solve_ik
+from galaxeo import protocol
+from jog_a1x import A1X as _Transport
+from so101_feetech import SO101Raw
 
-N = 6
-CMD_ID, GRIP_ID, FB_ID = 0x050, 0x051, 0x052
-S_POS, S_VEL, S_EFF = 4700.0, 750.0, 600.0
-FIELDS = ((-6.5,6.5,4700.0), (-40.0,40.0,750.0), (0.0,500.0,60.0),
-          (0.0,200.0,150.0), (-50.0,50.0,600.0))
+N = protocol.N_JOINTS
 A1X_JOINTS = [f"arm_joint{i}" for i in range(1, 7)]
 SO_ARM = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 # SO-101 joint -> A1X joint index. arm_joint5 (index 4) is deliberately absent.
@@ -60,58 +85,53 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 A1X_URDF = os.path.join(HERE, "ros2_ws/src/galaxea_a1xy_description/urdf/a1x.urdf")
 SO_URDF  = os.path.join(HERE, "so101/so101_new_calib.urdf")
 _stop = {"flag": False}
+_keys: "queue.Queue[str]" = queue.Queue()
 
 
-def encode(p, v, kp, kd, tff):
-    out = bytearray(60)
-    for j in range(N):
-        for k, vals in enumerate((p, v, kp, kd, tff)):
-            lo, hi, sc = FIELDS[k]
-            x = lo if vals[j] < lo else (hi if vals[j] > hi else vals[j])
-            raw = max(-32768, min(32767, int(x * sc)))
-            o = j*10 + k*2
-            out[o] = (raw >> 8) & 0xFF; out[o+1] = raw & 0xFF
-    return bytes(out)
+def _key_reader():
+    """Lines typed at the terminal, delivered to whichever loop is polling.
+    Runs for the life of the process; readline blocks harmlessly."""
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            return
+        _keys.put(line.strip().lower())
 
 
-def encode_grip(p, v, kp, kd, tff):
-    """10-byte 0x051: one group, same five fields and scales as an arm joint."""
-    out = bytearray(10)
-    for k, val in enumerate((p, v, kp, kd, tff)):
-        lo, hi, sc = FIELDS[k]
-        x = lo if val < lo else (hi if val > hi else val)
-        raw = max(-32768, min(32767, int(x * sc)))
-        out[k*2] = (raw >> 8) & 0xFF; out[k*2+1] = raw & 0xFF
-    return bytes(out)
+class Profile:
+    """Per-joint velocity- and acceleration-limited tracker. Aims for the
+    speed that can still brake to a stop at the goal (v = sqrt(2 a |err|)),
+    caps it, and lets it change by at most amax*dt: ramp up, cruise, ramp
+    down, no overshoot. This is what keeps current spikes off the supply;
+    a shoulder jerked to full speed and onto a stop tripped it once."""
+
+    def __init__(self, start, vmax_deg, amax_deg):
+        self.target = np.array(start, dtype=float)
+        self.vel = np.zeros(len(self.target))
+        self.vmax = math.radians(vmax_deg); self.amax = math.radians(amax_deg)
+
+    def step(self, goal, dt):
+        err = goal - self.target
+        # The last step lands ON the goal (|v| <= |err|/dt); without that cap
+        # the sqrt law overshoots by a step and dithers there forever.
+        v_mag = np.minimum(np.sqrt(2.0 * self.amax * np.abs(err)), np.abs(err) / dt)
+        v_want = np.clip(np.sign(err) * v_mag, -self.vmax, self.vmax)
+        self.vel = np.clip(v_want, self.vel - self.amax * dt, self.vel + self.amax * dt)
+        self.target += self.vel * dt
+        return self.target
 
 
-class A1X:
-    def __init__(self, iface):
-        self.iface = iface
-        self.s = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
-        self.s.setsockopt(socket.SOL_CAN_RAW, socket.CAN_RAW_FD_FRAMES, 1)
+class A1X(_Transport):
+    """jog_a1x's transport (xcan on macOS, SocketCAN on Linux) plus the
+    enable / liveness probes this bridge needs before it streams."""
+
+    def __init__(self, iface, dry_run=False):
         try:
-            self.s.bind((iface,))
-        except OSError as ex:
-            raise SystemExit(f"  cannot bind {iface}: {ex}\n"
-                             f"  The CAN link is down. Run:  ./can_up.sh") from None
-        self.s.settimeout(0.0)
-        self.q = None; self.e = None; self.t = 0.0; self.n = 0
-
-    def drain(self):
-        """Read every queued frame; a partial drain yields seconds-stale data."""
-        got = False
-        while True:
-            try: b = self.s.recv(72)
-            except (BlockingIOError, socket.timeout): break
-            except OSError as ex:            # link went down mid-run
-                raise RuntimeError(f"{self.iface}: {ex}. Run ./can_up.sh") from None
-            if (struct.unpack("=I", b[:4])[0] & 0x1FFFFFFF) != FB_ID: continue
-            r = struct.unpack(">21h", b[8:8+42])
-            self.q = [r[g*3]/S_POS for g in range(7)]
-            self.e = [r[g*3+2]/S_EFF for g in range(7)]
-            self.t = time.time(); self.n += 1; got = True
-        return got
+            super().__init__(iface, dry_run)
+        except Exception as ex:
+            raise SystemExit(f"  cannot open {iface}: {ex}\n"
+                             f"  macOS: is the XCAN dongle plugged in (brew install libusb)?\n"
+                             f"  Linux: ./can_up.sh") from None
 
     def wait(self, secs=3.0):
         end = time.time() + secs
@@ -131,15 +151,14 @@ class A1X:
         torque (effort 50.0) because it chased a stale internal target. So
         p_des = q is streamed before, during and after every code.
         """
-        for code in (1, 5, 6):
+        for code in protocol.ENABLE_SEQUENCE:
             t0 = time.time()
             while time.time() - t0 < 0.3:
                 self.drain()
                 if self.q is not None:
                     self.send_arm(self.q[:N], kp, kd)
                 time.sleep(0.005)
-            self.s.send(struct.pack("=IBBBB", 0x053, 1, 0, 0, 0)
-                        + bytes([code]).ljust(8, b"\x00"))
+            self.send_ff(code)
         t0 = time.time()
         while time.time() - t0 < 0.3:
             self.drain()
@@ -226,18 +245,13 @@ class A1X:
         print(f"  gripper STILL DEAD. Run without --grip, or power-cycle.")
         return False
 
-    def send_arm(self, p, kp, kd):
-        self.s.send(struct.pack("=IBBBB", CMD_ID, 60, 0x01, 0, 0)
-                    + encode(p, [0.0]*N, [kp]*N, [kd]*N, [0.0]*N).ljust(64, b"\x00"))
-
-    def send_grip(self, p, kp, kd):
-        self.s.send(struct.pack("=IBBBB", GRIP_ID, 10, 0x01, 0, 0)
-                    + encode_grip(p, 0.0, kp, kd, 0.0).ljust(64, b"\x00"))
-
 
 class SO101:
-    """Reads the SO-101. Falls back to the raw bus so a missing servo can be
-    skipped for dry runs -- lerobot's SOLeader refuses to connect at all."""
+    """Reads the SO-101 through LeRobot. Falls back to the raw bus so a missing
+    servo can be skipped for dry runs -- lerobot's SOLeader refuses to connect
+    at all. Joints come back NORMALISED (-100..100), converted to radians with
+    norm_to_rad against the URDF limits."""
+    units = "norm"
     def __init__(self, port, cal_id, allow_missing=False):
         from lerobot.motors import Motor, MotorNormMode
         from lerobot.motors.feetech.feetech import FeetechMotorsBus
@@ -269,6 +283,8 @@ class SO101:
                 f"Check the cable and power at those servos, or pass --allow-missing "
                 f"to run degraded (missing joints are held at their start value).")
         self.missing = missing
+        self.port = port
+        self.gripper_ok = "gripper" in self.present
 
     def read(self, retries=3):
         """Keys come back as bare motor names; the rest of this file (and
@@ -294,6 +310,14 @@ class SO101:
         except Exception: pass
 
 
+def leader_rad(lead, chain, s, name, default=0.0):
+    """One SO-101 joint in radians, whichever reader produced the sample."""
+    v = s.get(f"{name}.pos")
+    if v is None:
+        return default
+    return v if getattr(lead, "units", "rad") == "rad" else norm_to_rad(chain, name, v)
+
+
 def norm_to_rad(chain, name, val):
     """lerobot normalized (-100..100, or 0..100 for the gripper) -> radians,
     using the URDF limits for that joint."""
@@ -309,15 +333,35 @@ def norm_to_rad(chain, name, val):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("joint", "ik"), default="joint")
-    ap.add_argument("--follower", default="can0", help="A1X CAN interface")
-    ap.add_argument("--port", default="/dev/ttyACM0")
-    ap.add_argument("--cal-id", default="my_leader")
-    ap.add_argument("--secs", type=float, default=60.0)
+    ap.add_argument("--follower", default="xcan" if platform.system() == "Darwin" else "can0",
+                    help="A1X bus: xcan[:addr] (macOS libusb), can0 (Linux SocketCAN)")
+    ap.add_argument("--leader", choices=("raw", "lerobot"), default="raw",
+                    help="raw = so101_feetech.py over pyserial; lerobot = FeetechMotorsBus")
+    ap.add_argument("--port", default=None,
+                    help="SO-101 serial port (default: the one usbmodem/ttyACM found)")
+    ap.add_argument("--cal-id", default="my_leader",
+                    help="raw: so101/calib_<id>.json; lerobot: its calibration id")
+    ap.add_argument("--secs", type=float, default=0.0,
+                    help="stop after this many seconds; 0 (default) = until Ctrl-C")
     ap.add_argument("--kp", type=float, default=20.0)
     ap.add_argument("--kd", type=float, default=1.0)
     ap.add_argument("--rate", type=float, default=200.0, help="CAN stream Hz")
     ap.add_argument("--solve-rate", type=float, default=50.0, help="IK solve Hz")
-    ap.add_argument("--follow-rate", type=float, default=90.0, help="deg/s slew cap")
+    ap.add_argument("--follow-rate", type=float, default=45.0, help="deg/s velocity cap")
+    ap.add_argument("--follow-accel", type=float, default=60.0,
+                    help="deg/s^2 acceleration cap, so the follower ramps instead "
+                         "of jerking; 60 reaches 45 deg/s in 0.75 s")
+    ap.add_argument("--limit-margin", type=float, default=2.0,
+                    help="deg kept inside each URDF limit, so a target never rests "
+                         "on a hard stop (measured: a joint parked on its stop pulls "
+                         "effort 25, a stall, until power is cut)")
+    ap.add_argument("--max-effort", type=float, default=20.0,
+                    help="a joint above this |effort| is stalled (stop, table, "
+                         "collision): following stops, the joint backs off; 0 disables")
+    ap.add_argument("--backoff", type=float, default=3.0,
+                    help="deg a stalled joint retreats, away from the push, at "
+                         "--backoff-rate deg/s")
+    ap.add_argument("--backoff-rate", type=float, default=8.0)
     ap.add_argument("--signs", default="+++++",
                     help="sign per SO-101 arm joint, in order "
                          "pan,lift,elbow,wristflex,wristroll. Flip any that "
@@ -335,8 +379,9 @@ def main():
     ap.add_argument("--grip-force", type=float, default=1.2,
                     help="freeze the close target above this |effort|")
     ap.add_argument("--home", default="",
-                    help='comma-separated degrees, e.g. "0,60,-90,0,0,0". The '
-                         'A1X is slewed here BEFORE teleop starts. Relative '
+                    help='optional. comma-separated degrees, e.g. "0,60,-90,0,0,0". The '
+                         'A1X is slewed here BEFORE teleop starts; without it the arm '
+                         'stays where it is and that pose is the start. Relative '
                          'mapping can only move AWAY from a limit, so a folded '
                          'home pose (J2 at 0, J3 at 0) gives one-directional '
                          'range on the shoulder and elbow.')
@@ -348,6 +393,8 @@ def main():
     ap.add_argument("--allow-missing", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="transmit nothing")
     a = ap.parse_args()
+    if a.kp <= 0 or a.grip_kp <= 0:
+        sys.exit("--kp and --grip-kp must be > 0 (kp 0 leaves the arm deaf, diag/REPORT.md)")
 
     signs = [1.0 if c != "-" else -1.0 for c in a.signs.ljust(5, "+")[:5]]
     a1x_chain = Chain(A1X_URDF, A1X_JOINTS)
@@ -359,32 +406,36 @@ def main():
           f"{'  [DRY RUN]' if a.dry_run else ''}")
     print("=" * 74)
 
-    lead = SO101(a.port, a.cal_id, a.allow_missing)
+    if a.leader == "raw":
+        lead = SO101Raw(a.port, a.cal_id, a.allow_missing)
+    else:
+        lead = SO101(a.port or "/dev/ttyACM0", a.cal_id, a.allow_missing)
+    print(f"  leader: {a.leader} on {lead.port}")
     if lead.missing:
         print(f"  WARNING degraded: {lead.missing} not responding, held at start value")
-    arm = A1X(a.follower)
+    if a.leader == "raw" and a.mode == "ik" and not lead.joints_calibrated:
+        print("  FAIL: --mode ik needs absolute SO-101 angles: run  python so101_feetech.py --calibrate"); return 1
+    if a.grip and not lead.gripper_ok:
+        print("  --grip needs the gripper calibration: run  python so101_feetech.py --calibrate-gripper\n"
+              "  continuing WITHOUT the gripper")
+        a.grip = False
+    arm = A1X(a.follower, a.dry_run)
     if not arm.wait(3.0):
         print(f"  FAIL: no 0x052 on {a.follower}. Arm off, or bus down?"); return 1
     t0 = time.time()
     while time.time() - t0 < 0.6: arm.drain(); time.sleep(0.002)
 
-    if a.home and not a.dry_run:
-        hp = np.array([math.radians(float(x)) for x in a.home.split(",")])
-        if len(hp) != N: print(f"  --home needs {N} values"); return 1
-        hp = np.clip(hp, a1x_chain.lower, a1x_chain.upper)
-        cur = np.array(arm.q[:N])
-        dist = np.max(np.abs(hp - cur))
-        secs = float(dist / math.radians(a.home_rate)) + 0.5
-        print(f"  HOMING to {np.round(np.degrees(hp),1)} over {secs:.1f}s "
-              f"at {a.home_rate:g} deg/s -- KEEP CLEAR")
-        time.sleep(2.0)
-        t0 = time.time()
-        while time.time() - t0 < secs and not _stop["flag"]:
-            f = min(1.0, (time.time() - t0) / secs)
-            arm.send_arm(list(cur + f * (hp - cur)), a.kp, a.kd)
-            arm.drain(); time.sleep(1.0 / a.rate)
-        arm.drain()
-        print(f"  homed: {np.round(np.degrees(arm.q[:N]),1)}")
+    signal.signal(signal.SIGINT, lambda *_: _stop.__setitem__("flag", True))
+    threading.Thread(target=_key_reader, daemon=True).start()
+    home = None
+    if a.home:
+        home = np.array([math.radians(float(x)) for x in a.home.split(",")])
+        if len(home) != N: print(f"  --home needs {N} values"); return 1
+        home = np.clip(home, a1x_chain.lower, a1x_chain.upper)
+        if not a.dry_run:
+            print("  KEEP CLEAR")
+            time.sleep(2.0)
+            slew_to(arm, a, home, a.home_rate, a.follow_accel, "homing")
 
     if not a.dry_run:
         if not arm.ensure_listening(a.kp, a.kd):
@@ -396,8 +447,17 @@ def main():
     print(f"  SO-101 raw read: { {k: round(v,1) for k,v in s0.items()} }")
     if not any(k.endswith(".pos") for k in s0):
         print("  FAIL: unexpected key format from the SO-101 bus"); return 1
-    q_so0 = np.array([norm_to_rad(so_chain, n, s0.get(f"{n}.pos", 0.0)) for n in SO_ARM])
+    q_so0 = np.array([leader_rad(lead, so_chain, s0, n) for n in SO_ARM])
+    if a.grip:
+        print(f"  SO-101 gripper now {s0.get('gripper.pos', float('nan')):.0f}% open "
+              f"(100 = open; --grip maps it straight through)")
     q_a0 = np.array(arm.q[:N])
+    # Clamp bounds: --limit-margin inside the URDF range, but never tighter
+    # than where the arm already is (a folded start sits ON J2/J3's limits and
+    # J3 reads past its limit at rest); the start pose is always reachable.
+    mrg = math.radians(a.limit_margin)
+    lo_b = np.minimum(a1x_chain.lower + mrg, q_a0)
+    hi_b = np.maximum(a1x_chain.upper - mrg, q_a0)
     print(f"  SO-101 start (deg): {np.round(np.degrees(q_so0),1)}")
     print(f"  A1X    start (deg): {np.round(np.degrees(q_a0),1)}")
     T_so0 = so_chain.fk(q_so0); T_a0 = a1x_chain.fk(q_a0)
@@ -419,30 +479,80 @@ def main():
     if a.mode == "ik":
         print(f"  workspace scale {a.scale:.3f}, orientation weight {a.w_rot:g}")
 
-    target = q_a0.copy(); seed = q_a0.copy(); q_filt = None; g_filt = None
+    if home is None:
+        home = q_a0.copy()          # "go home" = back to where teleop started
+    print(f"\n  streaming {'until Ctrl-C' if a.secs <= 0 else f'{a.secs:g}s'} -- MOVE THE SO-101 BY HAND.")
+    print("  Ctrl-C pauses and holds; then h = go home, r = resume, q = quit.\n")
+    ctx = dict(a1x_chain=a1x_chain, so_chain=so_chain, signs=signs,
+               q_a0=q_a0, q_so0=q_so0, T_a0=T_a0, T_so0=T_so0, lo_b=lo_b, hi_b=hi_b)
+    grip_t = a.grip_open
+    while True:
+        reason, kind, j, target, grip_t = follow(arm, lead, a, ctx, grip_t)
+        print(f"\n  {reason}   A1X rx={arm.n}")
+        if a.dry_run:
+            break
+        if kind == "stall":
+            backoff(arm, a, j, target)
+        choice = menu(arm, a, home)
+        if choice == "q":
+            break
+        # resume: re-zero the relative mapping on both arms so nothing jumps
+        arm.drain()
+        ctx["q_a0"] = np.array(arm.q[:N])
+        s0 = lead.read()
+        ctx["q_so0"] = np.array([leader_rad(lead, so_chain, s0, n) for n in SO_ARM])
+        ctx["T_a0"] = a1x_chain.fk(ctx["q_a0"]); ctx["T_so0"] = so_chain.fk(ctx["q_so0"])
+        ctx["lo_b"] = np.minimum(a1x_chain.lower + mrg, ctx["q_a0"])
+        ctx["hi_b"] = np.maximum(a1x_chain.upper - mrg, ctx["q_a0"])
+        print(f"  resumed from A1X {np.round(np.degrees(ctx['q_a0']),1)}\n")
+    lead.close()
+    arm.close()
+    print("  exited -- a powered A1X re-latches where it is")
+    return 0
+
+
+def follow(arm, lead, a, c, grip_t):
+    """Leader -> follower until something stops it. Returns
+    (reason, kind, stalled_joint, last_target, grip_t) with kind one of
+    done / ctrlc / stale / stall / leader."""
+    _stop["flag"] = False
+    while not _keys.empty(): _keys.get()
+    a1x_chain, so_chain, signs = c["a1x_chain"], c["so_chain"], c["signs"]
+    q_a0, q_so0, T_a0, T_so0 = c["q_a0"], c["q_so0"], c["T_a0"], c["T_so0"]
+    lo_b, hi_b = c["lo_b"], c["hi_b"]
+    prof = Profile(q_a0, a.follow_rate, a.follow_accel)
+    seed = q_a0.copy(); q_filt = None; g_filt = None
     goal = q_a0.copy()          # latest retargeted pose, updated at solve rate
     last_can = time.time()      # target is interpolated toward goal at CAN rate
-    grip_t = a.grip_open; grip_frozen = False
-    slew = math.radians(a.follow_rate)
-    print(f"\n  streaming {a.secs:g}s -- MOVE THE SO-101 BY HAND.  Ctrl-C stops.\n")
+    grip_frozen = False
     print(f"  {'t':>5}  {'A1X target (deg)':<38} {'tip err':>8} {'grip':>6}")
-    signal.signal(signal.SIGINT, lambda *_: _stop.__setitem__("flag", True))
 
-    t0 = time.time(); nxt = t0; nxt_solve = t0; prev = t0; last_rep = 0.0
-    tip_err = float("nan"); reason = "completed"; n_tx = 0
-    while time.time() - t0 < a.secs and not _stop["flag"]:
+    t0 = time.time(); nxt = t0; nxt_solve = t0; last_rep = 0.0
+    tip_err = float("nan"); reason = "completed"; kind = "done"; stalled = None
+    while True:
+        if _stop["flag"]:
+            reason = "paused (Ctrl-C)"; kind = "ctrlc"; break
+        if a.secs > 0 and time.time() - t0 >= a.secs:
+            reason = f"{a.secs:g} s elapsed"; kind = "done"; break
         arm.drain(); now = time.time()
         if now - arm.t > 0.15:
-            reason = f"ABORT: stale A1X feedback ({(now-arm.t)*1e3:.0f} ms)"; break
-        dt = max(1e-4, now - prev); prev = now
+            reason = (f"ABORT: A1X feedback stopped ({(now-arm.t)*1e3:.0f} ms): the arm lost "
+                      f"power (supply tripped?), or the CAN cable / dongle dropped. "
+                      f"NO BRAKES: with power gone the arm falls."); kind = "stale"; break
+        if a.max_effort > 0 and arm.e and not a.dry_run:
+            worst = max(range(N), key=lambda j: abs(arm.e[j]))
+            if abs(arm.e[worst]) > a.max_effort:
+                reason = (f"STALL: J{worst+1} effort {arm.e[worst]:+.1f} exceeds --max-effort "
+                          f"{a.max_effort:g}: against a stop, the table, or something else.")
+                kind = "stall"; stalled = worst; break
 
         if now >= nxt_solve:
             nxt_solve = now + 1.0 / a.solve_rate
             try: s = lead.read()
             except Exception as ex:
-                reason = f"ABORT: SO-101 read failed: {ex}"; break
-            q_raw = np.array([norm_to_rad(so_chain, n, s.get(f"{n}.pos", 0.0))
-                              for n in SO_ARM])
+                reason = f"ABORT: SO-101 read failed: {ex}"; kind = "leader"; break
+            q_raw = np.array([leader_rad(lead, so_chain, s, n, q_so0[i])
+                              for i, n in enumerate(SO_ARM)])
             for i, n in enumerate(SO_ARM):
                 if n in lead.missing: q_raw[i] = q_so0[i]
             if q_filt is None:
@@ -466,7 +576,7 @@ def main():
                 goal[:] = seed
                 tip_err = float(np.linalg.norm(T_got[:3, 3] - T_des[:3, 3]))
 
-            goal[:] = np.clip(goal, a1x_chain.lower, a1x_chain.upper)
+            goal[:] = np.clip(goal, lo_b, hi_b)
             if a.grip and "gripper" in lead.present:
                 g_raw = np.clip(s.get("gripper.pos", 0.0), 0.0, 100.0) / 100.0
                 g_filt = g_raw if g_filt is None else g_filt + a.smooth*(g_raw-g_filt)
@@ -484,30 +594,120 @@ def main():
             nxt = now + 1.0 / a.rate
             # Interpolate toward the goal HERE, at the CAN rate, using real
             # elapsed time. Stepping the target only on solve ticks made the
-            # arm see the same setpoint 4x then a jump of up to slew/solve_rate
-            # -- a 20 ms staircase that a stiff position loop turns into
-            # visible jitter.
+            # arm see the same setpoint 4x then a jump -- a 20 ms staircase
+            # that a stiff position loop turns into visible jitter.
             dt_can = min(0.05, now - last_can); last_can = now
-            step = slew * dt_can
-            target += np.clip(goal - target, -step, step)
+            target = prof.step(goal, dt_can)
             if not a.dry_run:
                 arm.send_arm(list(target), a.kp, a.kd)
                 if a.grip: arm.send_grip(grip_t, a.grip_kp, 1.0)
-            n_tx += 1
 
         if now - last_rep > 0.5:
             last_rep = now
             ge = f"{grip_t:+.2f}" if a.grip else "  -"
             te = f"{tip_err*1000:7.1f}" if a.mode == "ik" else "      -"
-            print(f"  {now-t0:5.1f}  {str(np.round(np.degrees(target),1)):<38} {te} {ge:>6}")
+            print(f"  {now-t0:5.1f}  {str(np.round(np.degrees(prof.target),1)):<38} {te} {ge:>6}")
         time.sleep(0.0005)
+    return reason, kind, stalled, prof.target.copy(), grip_t
 
-    print(f"\n  {reason}   tx={n_tx}  A1X rx={arm.n}")
+
+def slew_to(arm, a, goal, vmax_deg, amax_deg, label, check_effort=True):
+    """Move from the MEASURED pose to goal on the profile. Stops early on
+    Ctrl-C, lost feedback, or (when asked) a stall. Returns True if it got
+    there."""
+    _stop["flag"] = False
     arm.drain()
-    print(f"  A1X final (deg): {np.round(np.degrees(arm.q[:N]),1)}")
-    lead.close()
-    print("  stopped -- the A1X re-latches where it is")
-    return 0
+    if arm.q is None or time.time() - arm.t > 0.15:
+        print(f"  {label}: no feedback, not moving"); return False
+    prof = Profile(arm.q[:N], vmax_deg, amax_deg)
+    goal = np.asarray(goal, dtype=float)
+    dist = math.degrees(np.max(np.abs(goal - prof.target)))
+    print(f"  {label}: {np.round(np.degrees(prof.target),1)} -> "
+          f"{np.round(np.degrees(goal),1)}  ({dist:.1f} deg at {vmax_deg:g} deg/s)")
+    last = time.time(); nxt = last; settled = 0
+    while not _stop["flag"]:
+        arm.drain(); now = time.time()
+        if now - arm.t > 0.15:
+            print(f"  {label}: feedback lost, stopped"); return False
+        if check_effort and a.max_effort > 0 and arm.e:
+            worst = max(range(N), key=lambda j: abs(arm.e[j]))
+            if abs(arm.e[worst]) > a.max_effort:
+                print(f"  {label}: STALL on J{worst+1} (effort {arm.e[worst]:+.1f}), stopped")
+                backoff(arm, a, worst, prof.target); return False
+        if now >= nxt:
+            nxt = now + 1.0 / a.rate
+            dt = min(0.05, now - last); last = now
+            t = prof.step(goal, dt)
+            arm.send_arm(list(t), a.kp, a.kd)
+            if np.max(np.abs(goal - t)) < 1e-4 and np.max(np.abs(prof.vel)) < 1e-3:
+                settled += 1
+                if settled > a.rate * 0.5:        # half a second on the goal
+                    print(f"  {label}: done, A1X at {np.round(np.degrees(arm.q[:N]),1)}")
+                    return True
+        time.sleep(0.0005)
+    print(f"  {label}: interrupted"); return False
+
+
+def backoff(arm, a, j, target):
+    """A stalled joint retreats --backoff deg, away from the push. The push
+    direction is where the target got ahead of the measured joint; if they
+    agree to within 0.2 deg the effort sign says. Other joints hold where
+    they are. Effort checks are off: this IS the relief."""
+    arm.drain()
+    q = np.array(arm.q[:N])
+    gap = target[j] - q[j]
+    direction = np.sign(gap) if abs(gap) > math.radians(0.2) else np.sign(arm.e[j])
+    if direction == 0: direction = 1.0
+    goal = q.copy(); goal[j] = q[j] - direction * math.radians(a.backoff)
+    print(f"  backing J{j+1} off {a.backoff:g} deg "
+          f"({'-' if direction > 0 else '+'}), other joints hold")
+    slew_to(arm, a, goal, a.backoff_rate, a.follow_accel, f"backoff J{j+1}",
+            check_effort=False)
+    arm.drain()
+    print(f"  J{j+1} effort now {arm.e[j]:+.1f}")
+
+
+def menu(arm, a, home):
+    """Hold the measured pose and wait for a decision:
+        h  go home (--home, or the teleop start pose) on the profile, then ask again
+        r  resume following, re-zeroed on both arms so nothing jumps
+        q  quit (a powered A1X keeps holding on its own); Ctrl-C does the same
+    Streaming nothing would leave the arm latched on its LAST TARGET, which
+    after a stall is a point past the obstacle; holding the measured pose
+    moves the target to where the arm is. If feedback is gone (power lost)
+    wait for it, then pin the arm where it comes back."""
+    _stop["flag"] = False
+    while not _keys.empty(): _keys.get()
+    print(f"  HOLDING.  h = go home {np.round(np.degrees(home),1)}   r = resume   q = quit")
+    pose = None; warned = False; nxt = time.time()
+    while True:
+        if _stop["flag"]:
+            print("  (Ctrl-C) quitting"); return "q"
+        try:
+            key = _keys.get_nowait()
+        except queue.Empty:
+            key = None
+        if key in ("q", "r"):
+            return key
+        if key == "h":
+            slew_to(arm, a, home, a.home_rate, a.follow_accel, "go home")
+            _stop["flag"] = False; pose = None
+            print(f"  HOLDING.  h = go home   r = resume   q = quit")
+            continue
+        arm.drain(); now = time.time()
+        fresh = now - arm.t < 0.15
+        if not fresh:
+            pose = None
+            if not warned:
+                print("  no feedback: waiting for the arm to come back ..."); warned = True
+        elif pose is None:
+            pose = list(arm.q[:N])
+            print(f"  holding (deg): {np.round(np.degrees(pose),1)}")
+            warned = False
+        if pose is not None and now >= nxt:
+            nxt = now + 1.0 / a.rate
+            arm.send_arm(pose, a.kp, a.kd)
+        time.sleep(0.0005)
 
 
 if __name__ == "__main__":
