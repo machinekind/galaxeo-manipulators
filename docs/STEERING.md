@@ -311,6 +311,21 @@ Three things that are not optional:
 An uncommanded arm holds where it is and does not drift, so stopping your
 sender is safe — it does not fall and does not snap back to an old pose.
 
+### Or let `galaxeo.arm` do it
+
+The package in `galaxeo/arm/` does the three things above, plans the target
+(reach box, IK, jump, collisions with the table and the arm itself) and guards
+the move: on a stalled or overloaded joint it holds the measured pose and backs
+off at 8 deg/s, the same rate as the SO-101 bridge's stall backoff. Its effort
+thresholds are guesses until measured on the arm. `move_to_point_a1x.py` is the
+command-line client:
+
+```bash
+python move_to_point_a1x.py --check                          # read-only
+python move_to_point_a1x.py --dry-run --point 0.35 0 0.12    # plan only
+python move_to_point_a1x.py --tx --point 0.35 0 0.12         # LIVE
+```
+
 ---
 
 ## 5. On-screen jog
@@ -319,8 +334,8 @@ sender is safe — it does not fall and does not snap back to an old pose.
 at the speed on the slider. It is the only path here that runs on **macOS**.
 
 ```bash
+pip install -e ".[arm]"                         # the model: limits and collision checks
 brew install libusb && pip install pyusb        # macOS
-pip install python-can                          # Linux (SocketCAN backend)
 python jog_a1x.py --check        # read-only: Hz, pose, released or not
 python jog_a1x.py --dry-run      # the window, transmits nothing
 python jog_a1x.py                # ARM starts streaming; space disarms
@@ -329,7 +344,8 @@ python jog_a1x.py                # ARM starts streaming; space disarms
 Keys: `q/a` J1, `w/s` J2, `e/d` J3, `r/f` J4, `t/g` J5, `y/h` J6, `o/c`
 gripper, `space` stop. The setpoint is seeded from the measured pose on ARM
 and only moves at the slider's deg/s, so nothing jumps; stale feedback disarms
-it; targets are clamped to the limits in [HARDWARE.md](HARDWARE.md). The
+it; targets are clamped to the limits in [HARDWARE.md](HARDWARE.md), and a
+step that would put the arm into the table or into itself is refused. The
 Enable button sends FF 1 → 5 → 6 with the setpoint pinned throughout and is
 only for an arm that reports but ignores the jog.
 

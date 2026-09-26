@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The A1X arm over raw SocketCAN, direct Python: feedback, commands, control.
 
-The control algorithm for move-to-point is `RealRobot.move` below: read the
+The calibration wave's move is `RealRobot.move` below: read the
 200 Hz joint feedback on 0x052, solve the URDF IK (`kinematics.py`) for the
 desired tip pose, then stream p_des on 0x050 along a rate-limited joint ramp
 while watching for stale feedback and lagging joints -- the ik_demo_a1x.py
@@ -19,10 +19,10 @@ Standalone use, no calibration needed:
     robot.move(q + [0, 0.2, 0, 0, 0, 0], 2.0)   # streamed slew, aborts on lag
     img = robot.image()                     # BGR frame from the webcam
 
-The CLI experiment is its own script, repo convention (ik_demo_a1x.py,
-jog_a1x.py):
+Move-to-point for apps is `galaxeo.arm` (plan, guarded move, backoff), and its
+command-line client is move_to_point_a1x.py:
 
-    python3 move_to_point_a1x.py --iface can0 --tx --dx 0.05   # move to point
+    python3 move_to_point_a1x.py --iface can0 --tx --point 0.35 0 0.12
 
 `calibrate_real.py` and `calib_intrinsics.py` sit on top of this module and
 drive the same `RealRobot` through the wave of `sim/calib/calibrate.py`.
