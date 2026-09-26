@@ -2,8 +2,8 @@
 """On-screen jog for the Galaxea A1X: hold a key or a button, the joint moves.
 
 Works on macOS (the XCAN / PEAK USB-CAN FD adapter through galaxeo/xcan_usb.py,
-our own libusb driver) and on Linux (SocketCAN via python-can). No ROS, no SO-101,
-no vendor binaries.
+our own libusb driver), on Linux (SocketCAN) and on Windows (PCAN), all through
+galaxeo.bus. No ROS, no SO-101, no vendor binaries.
 
     python jog_a1x.py --check              # read-only: is the arm streaming?
     python jog_a1x.py --dry-run            # the GUI, transmits nothing
@@ -33,8 +33,10 @@ How it moves the arm, and why it is safe to start:
     where it is; the arm holds. Disarming stops the stream; an uncommanded A1X
     re-latches where it is (see docs/SAFETY.md).
   * Feedback older than 150 ms while armed disarms immediately.
-  * Targets are clamped to the URDF limits (widened to include wherever the
+  * Targets are clamped to the model limits (widened to include wherever the
     arm actually started, since J3 reads ~1.5 deg past its limit at rest).
+  * A step that would put the arm into the table or into itself is refused
+    (galaxeo.arm collision check); a jog out of a collision is always allowed.
   * The gripper's p_des cannot be read back from the arm, so the first
     gripper key press starts it from --grip-start (open) and jogs from there.
     Closing freezes when |effort| exceeds --grip-force: grips, doesn't crush.
@@ -44,9 +46,10 @@ power-cycled arm obeys 0x050 immediately and FF 5 briefly disengages the
 motors. Use it only if the arm reports but ignores the jog. The setpoint is
 pinned to the measured pose throughout the sequence, as docs/SAFETY.md demands.
 
-Requirements: python-can (Linux), pyusb + libusb (macOS: brew install libusb).
-The protocol (ids, encoders, decoder, limits) comes from the galaxeo package next
-to this script (galaxeo/protocol.py).
+Requirements: pip install -e ".[arm]" (numpy, mujoco for the model), plus
+".[xcan]" and brew install libusb on macOS, ".[pcan]" on Windows. The protocol,
+the transports, the joint limits and the collision model come from the galaxeo
+package next to this script.
 """
 import argparse
 import logging
@@ -57,16 +60,17 @@ import threading
 import time
 
 from galaxeo import protocol
-from galaxeo.bus import PCAN_FD_TIMING
+from galaxeo.bus import open_bus
 from galaxeo.protocol import CMD_ID, FB_ID, FB_LEN, FF_ID, GRIP_ID, STATUS_ID
 
 try:
-    import can
-except ImportError:                      # only needed for the python-can backends
-    can = None
+    from galaxeo.arm import CollisionChecker
+    from galaxeo.arm.model import limits as model_limits
+except ImportError as ex:                # numpy / mujoco missing
+    raise SystemExit(f'jog_a1x.py needs galaxeo.arm:  pip install -e ".[arm]"  ({ex})')
 
 N = protocol.N_JOINTS
-LIMITS = [tuple(lim) for lim in protocol.URDF_LIMITS_RAD]
+LIMITS = list(zip(*model_limits()))
 NAMES = ["J1 base yaw", "J2 shoulder", "J3 elbow",
          "J4 wrist pitch", "J5 wrist yaw", "J6 wrist roll"]
 STATUS_BASELINE = 0x0010        # every group, both arms, in every healthy capture
@@ -75,46 +79,11 @@ KEYS = {"q": (0, +1), "a": (0, -1), "w": (1, +1), "s": (1, -1),
         "t": (4, +1), "g": (4, -1), "y": (5, +1), "h": (5, -1),
         "o": (6, -1), "c": (6, +1)}          # gripper: p_des more negative = open
 
-# PCAN_FD_TIMING (PEAK-USB FD, 80 MHz clock, the vendor's 1 / 5 Mbit/s at sample
-# point 0.875) comes from galaxeo.bus.
-
-
-def open_bus(iface):
-    """Backends, by --iface:
-
-        xcan[:<usb addr>]   macOS only: our libusb driver, galaxeo/xcan_usb.py
-        can0, can1, ...     Linux: SocketCAN through python-can (bring it up
-                            with ./can_up.sh first)
-        PCAN_USBBUSn        Windows: PEAK's PCAN-Basic through python-can
-        <interface>:<chan>  any other python-can interface, e.g. virtual:x
-    """
-    if iface.startswith("xcan"):
-        if platform.system() != "Darwin":
-            raise SystemExit("galaxeo/xcan_usb.py is the macOS driver. On Linux use SocketCAN "
-                             "(./can_up.sh, then --iface can0).")
-        from galaxeo.xcan_usb import XcanBus
-        addr = int(iface.split(":", 1)[1]) if ":" in iface else None
-        return XcanBus(addr)
-    if can is None:
-        raise SystemExit("python-can is missing:  pip install python-can")
-    if iface.upper().startswith("PCAN"):
-        return can.Bus(interface="pcan", channel=iface, fd=True, **PCAN_FD_TIMING)
-    if ":" in iface:
-        interface, channel = iface.split(":", 1)
-        return can.Bus(interface=interface, channel=channel, fd=True)
-    return can.Bus(interface="socketcan", channel=iface, fd=True)
-
-
 class A1X:
     """Feedback decode plus the three frames the arm listens to."""
 
     def __init__(self, iface, dry_run):
         self.bus = open_bus(iface)
-        if iface.startswith("xcan"):
-            from galaxeo.xcan_usb import Message
-            self._msg = lambda **kw: Message(kw["arbitration_id"], kw["data"], kw["is_fd"], kw["bitrate_switch"])
-        else:
-            self._msg = can.Message
         self.dry_run = dry_run
         self.q = None; self.v = None; self.e = None
         self.t = 0.0; self.n = 0; self.n_tx = 0
@@ -129,11 +98,11 @@ class A1X:
             m = self.bus.recv(0.0)
             if m is None:
                 break
-            if m.arbitration_id == STATUS_ID and len(m.data) >= 16:
+            if m.can_id == STATUS_ID and len(m.data) >= 16:
                 d = bytes(m.data)
                 self.status = [int.from_bytes(d[i:i + 2], "big", signed=False) for i in range(0, 16, 2)]
                 continue
-            if m.arbitration_id != FB_ID or len(m.data) != FB_LEN:
+            if m.can_id != FB_ID or len(m.data) != FB_LEN:
                 continue
             d = bytes(m.data)
             fb = protocol.decode_feedback(d)
@@ -148,22 +117,22 @@ class A1X:
     def _tx(self, cid, payload, fd):
         if self.dry_run:
             return
-        self.bus.send(self._msg(arbitration_id=cid, data=payload, is_fd=fd,
-                                bitrate_switch=fd, is_extended_id=False), timeout=0.02)
+        self.bus.send(cid, payload, fd=fd)
         self.n_tx += 1
 
     def send_arm(self, p, kp, kd):
-        payload = protocol.encode_arm(p, kp, kd)
-        self._tx(CMD_ID, payload.ljust(64, b"\x00"), fd=True)
+        self._tx(CMD_ID, protocol.encode_arm(p, kp, kd), fd=True)
 
     def send_grip(self, p, kp, kd):
-        self._tx(GRIP_ID, protocol.encode_gripper(p, kp, kd).ljust(12, b"\x00"), fd=True)
+        self._tx(GRIP_ID, protocol.encode_gripper(p, kp, kd), fd=True)
 
     def send_ff(self, code):
-        self._tx(FF_ID, protocol.encode_ff(code).ljust(8, b"\x00"), fd=False)
+        if code in protocol.RELEASE_CODES:
+            raise ValueError(f"FF {code} releases the motors; the arm has no brakes")
+        self._tx(FF_ID, protocol.encode_ff(code), fd=False)
 
     def close(self):
-        self.bus.shutdown()
+        self.bus.close()
 
 
 class Jog:
@@ -183,6 +152,7 @@ class Jog:
         self.hz = 0.0
         self._stop = False
         self._enable_req = False
+        self.checker = CollisionChecker()       # table z = 0 and self-collision, on the target
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -275,6 +245,7 @@ class Jog:
                     self.armed = False; self.vel = [0] * 7
                     self.status = f"ABORT: stale feedback ({(now - self.arm.t) * 1e3:.0f} ms)"
                     continue
+                before = list(self.target)
                 step = math.radians(self.speed) * dt
                 for j in range(N):
                     if self.vel[j]:
@@ -303,6 +274,12 @@ class Jog:
                         self.status = "at home: holding. Safe to disarm."
                     else:
                         self.status = f"going home at {a.home_speed:g} deg/s, {math.degrees(worst):.1f} deg to go"
+                if self.target != before:
+                    why = self.checker.config_clear(self.target)
+                    if why and not self.checker.config_clear(before):
+                        self.target = before
+                        self.vel[:N] = [0] * N; self.homing = False
+                        self.status = f"blocked: {why}"
                 target = list(self.target); grip_t = self.grip_t
                 enable = self._enable_req; self._enable_req = False
 
