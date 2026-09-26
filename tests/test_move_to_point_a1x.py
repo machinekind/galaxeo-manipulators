@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 import numpy as np
+import pytest
 
 import move_to_point_a1x as M
 
@@ -48,7 +49,14 @@ class FakeRobot:
         return None
 
 
-def test_dry_run_waits_for_fresh_feedback_before_q(monkeypatch, capsys):
+@pytest.mark.parametrize(
+    ("argv", "expected_dry_run"),
+    [
+        (["move_to_point_a1x.py", "--iface", "can0", "--dry-run", "--dx", "0.03"], [True, True]),
+        (["move_to_point_a1x.py", "--iface", "can0", "--tx", "--dx", "0.03"], [True, False]),
+    ],
+)
+def test_move_to_point_waits_for_fresh_feedback_before_q(monkeypatch, capsys, argv, expected_dry_run):
     FakeArm.instances = []
     FakeRobot.wait_calls = []
 
@@ -60,11 +68,11 @@ def test_dry_run_waits_for_fresh_feedback_before_q(monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "cv2", object())
     monkeypatch.setattr(M, "read_pose", lambda arm, secs: (np.zeros(6), 200.0))
     monkeypatch.setattr(M.time, "sleep", lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
-    monkeypatch.setattr(sys, "argv", ["move_to_point_a1x.py", "--iface", "can0", "--dry-run", "--dx", "0.03"])
+    monkeypatch.setattr(sys, "argv", argv)
 
     M.main()
 
-    assert [arm.dry_run for arm in FakeArm.instances] == [True, True]
+    assert [arm.dry_run for arm in FakeArm.instances] == expected_dry_run
     assert FakeRobot.wait_calls == [(True, 3.0)]
     out = capsys.readouterr().out
     assert "move goal:" in out
