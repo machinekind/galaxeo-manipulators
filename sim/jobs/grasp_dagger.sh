@@ -28,6 +28,8 @@ set -euo pipefail
 : "${GPUS:=1}"
 : "${ON_FAILURE:=Stops at the failed round; the rounds already under sim/runs/RUN_NAME (student.pt, summary.txt) are complete and pullable.}"
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
+# CUDA 13 wheels on a pre-580 driver: node_boot.sh installs the forward-compat libraries here
+[ -d /usr/local/cuda-13.0/compat ] && export LD_LIBRARY_PATH="/usr/local/cuda-13.0/compat${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"   # one BLAS thread per collector process
 export PYTHONUNBUFFERED=1
 
