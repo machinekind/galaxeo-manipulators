@@ -45,3 +45,4 @@ sim/resume/
 *.egg-info/
 /build/
 /dist/
+so101/calib_*.json

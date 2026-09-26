@@ -152,9 +152,33 @@ Eight big-endian int16. The first seven are constant `0x0010` and
 one room cannot report equal temperatures to the count. Only the eighth field
 moves (−7, −4, −1, +1).
 
-So the first seven are a per-group status or config word. Anything labelling
+So the first seven are a per-group status word: one per joint, then the
+gripper. `0x0010` is 16, which is the `error_code` bitfield's RECEIVE_TIMEOUT
+bit, so this word is most likely each group's `error_code`. Anything labelling
 `0x054` "temperatures", including earlier versions of this project's own
 `protocol.py`, is wrong.
+
+Measured 2026-09-25 with `jog_a1x.py --hold`, which streams the measured
+pose and prints the words once a second:
+
+* Bit 4 (`0x0010`) on a joint clears to `0x0000` the moment `0x050` is
+  streamed and returns when it stops. On the gripper it clears only while
+  `0x051` is streamed. So bit 4 is RECEIVE_TIMEOUT per command id, and the
+  word is each group's `error_code`. Idle arms show `0x0010` everywhere;
+  that is normal.
+* After a run in which the 24 V supply tripped mid-teleop with the gripper
+  in use, the gripper's word read `0x1010` and a LED on the arm blinked red.
+  The gripper reported position and effort normally but **did not move** for
+  a `0x051` sweep over half its travel (effort stayed at 0). The enable
+  sequence FF 1 → 5 → 6 cleared bit 4 and left bit 12 set; the gripper
+  stayed dead. So bit 12 (`0x1000`) is a gripper fault: the gripper is not
+  driving. A power cycle cleared it: the LED went green, the word returned
+  to `0x0010`, and the same `0x051` sweep then moved the gripper 85 deg.
+  Nothing short of a power cycle is known to clear it.
+
+`jog_a1x.py --check` prints the seven words and names any group off the
+`0x0010` idle baseline. `--hold SECS [--hold-grip]` shows them live while
+the host streams.
 
 ## 0x055 — version / serial
 
