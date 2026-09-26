@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Where is the wrist camera on the gripper? Eye-in-hand calibration on the real A1X.
 
-    # 0. arm on, CAN dongle in. The calibration card (two 70 mm AprilTag 36h11,
-    #    ids 0 and 1, back to back) lies FLAT on the table in front of the arm.
+    # 0. arm on, CAN dongle in. One printed AprilTag 36h11 lies FLAT on the
+    #    table in front of the arm (--tag ID --size EDGE_M); without --tag the
+    #    two-sided calibration card of calibrate_real.py (ids 0/1, 70 mm).
     # 1. intrinsics of the wrist camera (it hangs upside down, hence --rotate):
     python3 calib_intrinsics.py --camera 0 --rotate --out calib_session/wrist_K.npz
     # 2. the session. Dry run first: plans the poses, grabs one frame where the
     #    arm stands, moves NOTHING. Then live.
-    python3 calib_wrist.py session --K calib_session/wrist_K.npz --card 0.35 0.0 --dry-run
-    python3 calib_wrist.py session --K calib_session/wrist_K.npz --card 0.35 0.0 --tx
+    python3 calib_wrist.py session --K calib_session/wrist_K.npz --tag 0 --size 0.08 --card 0.35 0.0 --dry-run
+    python3 calib_wrist.py session --K calib_session/wrist_K.npz --tag 0 --size 0.08 --card 0.35 0.0 --tx
     # 3. re-solve offline from the saved frames (a new K, a different gate):
     python3 calib_wrist.py solve calib_session/wrist --K calib_session/wrist_K.npz
     # 4. write the simulator's camera spec from the fit:
@@ -65,11 +66,22 @@ sys.path.insert(0, os.path.join(HERE, "sim"))
 
 from calibrate_real import _CARD_TAGS, load_K          # noqa: E402
 
+
+def tag_layout(tag_ids, size):
+    """tag id -> (mount name, T_tag2mount). No ids: the two-sided calibration
+    card of calibrate_real.py (one mount, two faces). Otherwise each listed tag
+    is its own flat marker with its own mount, so a sheet of tags with an
+    unknown layout works: every tag's pose on the table is solved for."""
+    if not tag_ids:
+        return {t: ("card", T) for t, T in _CARD_TAGS(size).items()}
+    return {int(t): (f"tag{int(t)}", np.eye(4)) for t in tag_ids}
+
 DEFAULT_OUT = os.path.join(HERE, "calib_session", "wrist")
 TCP_FROM_GRIPPER = 0.045          # tool site sits this far along x of gripper_link [m]
 MAX_PX = 1.5                      # residual gate, as calib.calibrate.MAX_PX
 MIN_OBS = 24
 MIN_POSES = 12
+STEP_DEG = 35.0                   # approach step when every pose is beyond the jump guard
 MIN_SPREAD = 15.0                 # deg, rotation-axis spread gate, as calib.calibrate
 POSE = dict(dist=(0.15, 0.32), elev=(0.55, 1.45), az=1.2,      # m, rad above table, +-rad
             aim_jitter=0.12, rot_tol=0.14, pos_tol=0.006,       # rad, rad, m
@@ -118,6 +130,14 @@ def _rot_angle(R_a, R_b):
     return float(np.arccos(np.clip(c, -1.0, 1.0)))
 
 
+def _cam_guess_T(cam):
+    """The camera guess as a 4x4 in gripper_link (OpenCV axes: z forward, y down)."""
+    fwd = np.asarray(cam["axis"], float); fwd = fwd / np.linalg.norm(fwd)
+    right = np.array([0.0, -1.0, 0.0]); right = right - fwd * (fwd @ right); right /= np.linalg.norm(right)
+    T = np.eye(4); T[:3, :3] = np.column_stack([right, np.cross(fwd, right), fwd]); T[:3, 3] = cam["pos"]
+    return T
+
+
 def gripper_from_tool(T_tool2base):
     """gripper_link pose from the tool-site pose: the site is 45 mm out along x."""
     off = np.eye(4); off[0, 3] = -TCP_FROM_GRIPPER
@@ -152,8 +172,9 @@ class WristCam:
         self.size = (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                      int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
-    def image(self, flush=4):
-        """One fresh BGR frame (the driver queues a few stale ones)."""
+    def image(self, flush=12):
+        """One fresh BGR frame (the driver queues several stale ones; a frame
+        from during the move would pair a moving camera with a settled pose)."""
         for _ in range(flush):
             self.cap.grab()
         ok, f = self.cap.read()
@@ -241,15 +262,27 @@ def next_pose(arm, rng, q_prev, card_xyz, seen_R, cfg=POSE, cam=CAM_GUESS):
     cands = candidates(rng, card_xyz, cfg["candidates"], cfg, cam)
     if seen_R:
         cands.sort(key=lambda c: -rotation_spread_R(seen_R + [c[1]]))
+    jumpy = None
     for p, R in cands:
         T = np.eye(4); T[:3, :3] = R; T[:3, 3] = p
         plan = arm.plan(T, start=q_prev)
         if not plan:
+            if plan.reason == "jump" and jumpy is None and plan.joints is not None:
+                jumpy = np.asarray(plan.joints, float)
             continue
         got = arm.fk(plan.joints)
         if np.linalg.norm(got[:3, 3] - p) > cfg["pos_tol"] or _rot_angle(got[:3, :3], R) > cfg["rot_tol"]:
             continue
-        return np.asarray(plan.joints, float), plan
+        return np.asarray(plan.joints, float), "pose"
+    if jumpy is not None:
+        # Every reachable candidate is more than one guarded move away (the
+        # arm stands folded at home): take one capped step toward the first
+        # such solution and let the next round plan from there.
+        step = np.radians(STEP_DEG)
+        q_step = np.asarray(q_prev, float) + np.clip(jumpy - q_prev, -step, step)
+        q_step = np.clip(q_step, arm.lo, arm.hi)
+        if arm.collision.path_clear(q_prev, q_step, ()) is None:
+            return q_step, "approach"
     return None, None
 
 
@@ -259,11 +292,12 @@ def run_session(a):
     from calib.handeye import Observation, rotation_spread_R
     live = bool(a.tx)
     K, dist = load_K(a.K, a.size) if a.K else (None, None)
-    tags = _CARD_TAGS(a.size)
+    tags = tag_layout(a.tag, a.size)
     card_xyz = (a.card[0], a.card[1], a.table)
     out = a.out or DEFAULT_OUT
     os.makedirs(out, exist_ok=True)
 
+    POSE["dist"] = tuple(a.dist)
     cam_guess = CAM_GUESS
     if a.cam_guess:
         with open(a.cam_guess) as f:
@@ -279,8 +313,14 @@ def run_session(a):
         print(f"{'LIVE' if live else 'DRY RUN'}: card nominal at {card_xyz}, "
               f"{a.poses} poses max, {a.speed:g} deg/s")
 
+        def save_meta():
+            with open(os.path.join(out, "poses.json"), "w") as f:
+                json.dump(dict(camera=a.camera, size=cam.size if cam else None, rotate=True,
+                               tag_size=a.size, tag_ids=a.tag, card_nominal=list(card_xyz),
+                               iface=a.iface, live=live, records=records), f, indent=1)
+
         def capture(q_meas, i):
-            nonlocal poses_with_tags
+            nonlocal poses_with_tags, card_xyz
             if cam is None:
                 return {}
             img = cam.image()
@@ -291,9 +331,19 @@ def run_session(a):
             records.append(dict(frame=name, q=[float(x) for x in q_meas],
                                 T_gripper2base=T_g2b.tolist(),
                                 tags={str(t): np.asarray(c, float).tolist() for t, c in found.items()}))
+            save_meta()
             for tid, corners in found.items():
-                obs.append(Observation(_inv(T_g2b), tags[tid], corners, tid, "card"))
+                obs.append(Observation(_inv(T_g2b), tags[tid][1], corners, tid, tags[tid][0]))
             if found:
+                if poses_with_tags == 0 and K is not None:
+                    # first sighting: where does the tag actually lie? PnP through the
+                    # guessed camera pose is good to a few cm, which is all the aim needs
+                    tid, corners = next(iter(found.items()))
+                    from calib.tags import tag_pose
+                    T_t2b = T_g2b @ _cam_guess_T(cam_guess) @ tag_pose(corners, a.size, K, dist) @ _inv(tags[tid][1])
+                    was = card_xyz
+                    card_xyz = tuple(float(x) for x in T_t2b[:3, 3])
+                    print(f"  tag located at {np.round(card_xyz, 3).tolist()} (aim was {np.round(was, 3).tolist()})")
                 poses_with_tags += 1
                 seen_R.append(T_g2b[:3, :3])
             return found
@@ -303,15 +353,29 @@ def run_session(a):
             print(f"  standing pose: tags {sorted(found)} (dry run: one frame where the arm is)")
 
         q_prev = q.copy()
+        dead = 0
         for i in range(1, a.poses + 1):
-            q_goal, plan = next_pose(arm, rng, q_prev, card_xyz, seen_R, cam=cam_guess)
+            q_goal, kind = None, None
+            for _ in range(3):                       # three fresh draws before calling it a dead end
+                q_goal, kind = next_pose(arm, rng, q_prev, tuple(card_xyz), seen_R, cam=cam_guess)
+                if q_goal is not None:
+                    break
             if q_goal is None:
-                print(f"  pose {i:2d}: nothing plannable from here; stepping back toward the last good pose")
-                q_goal = q_prev if len(records) else q
-                if np.allclose(q_goal, q_prev):
-                    continue
+                dead += 1
+                if dead > 3:
+                    print(f"  pose {i:2d}: nothing plannable three times over; stopping")
+                    break
+                # back toward the start pose one capped step; the next round plans from there
+                step = np.radians(STEP_DEG)
+                q_goal = q_prev + np.clip(q - q_prev, -step, step)
+                kind = "retreat"
+                if np.allclose(q_goal, q_prev, atol=1e-3):
+                    print(f"  pose {i:2d}: nothing plannable from the start pose; stopping")
+                    break
+            else:
+                dead = 0
             if not live:
-                print(f"  pose {i:2d}: would go to (deg) {np.round(np.degrees(q_goal), 1).tolist()}")
+                print(f"  {kind:8s} {i:2d}: would go to (deg) {np.round(np.degrees(q_goal), 1).tolist()}")
                 q_prev = q_goal
                 continue
             r = arm.move(q_goal, speed=a.speed)
@@ -325,10 +389,10 @@ def run_session(a):
             q_meas = measured(arm)
             found = capture(q_meas, i)
             spread = rotation_spread_R(seen_R) if seen_R else 0.0
-            print(f"  pose {i:2d}: tags {sorted(found)}  ({len(obs)} obs, "
+            print(f"  {kind:8s} {i:2d}: tags {sorted(found)}  ({len(obs)} obs, "
                   f"{poses_with_tags} poses, spread {spread:.1f} deg)", flush=True)
             q_prev = q_meas
-            if len(obs) >= a.min_obs and poses_with_tags >= MIN_POSES and spread >= MIN_SPREAD:
+            if len(obs) >= a.min_obs and poses_with_tags >= MIN_POSES and spread >= a.min_spread:
                 break
         if live and a.home:
             print("returning to the start pose")
@@ -340,25 +404,23 @@ def run_session(a):
             pass
         if cam is not None:
             cam.close()
-        with open(os.path.join(out, "poses.json"), "w") as f:
-            json.dump(dict(camera=a.camera, size=cam.size if cam else None, rotate=True,
-                           tag_size=a.size, card_nominal=card_xyz, iface=a.iface,
-                           live=live, records=records), f, indent=1)
+        save_meta()
         print("wrote", os.path.join(out, "poses.json"), f"({len(records)} frames)")
 
     if not live:
         return None
-    return solve_dir(out, K, dist, a.size, card_xyz, seed=a.seed, max_px=a.max_px, min_obs=a.min_obs)
+    return solve_dir(out, K, dist, a.size, card_xyz, seed=a.seed, max_px=a.max_px, min_obs=a.min_obs,
+                     tag_ids=a.tag)
 
 
 # -------------------------------------------------------------------- solve
-def solve_dir(d, K, dist, tag_size, card_xyz=None, seed=0, max_px=MAX_PX, min_obs=MIN_OBS):
+def solve_dir(d, K, dist, tag_size, card_xyz=None, seed=0, max_px=MAX_PX, min_obs=MIN_OBS, tag_ids=None):
     """Re-detect every saved frame and fit. Writes fit.json next to them."""
     import cv2
     from calib.handeye import Observation, solve
     with open(os.path.join(d, "poses.json")) as f:
         meta = json.load(f)
-    tags = _CARD_TAGS(tag_size)
+    tags = tag_layout(tag_ids if tag_ids is not None else meta.get("tag_ids"), tag_size)
     card_xyz = card_xyz or meta.get("card_nominal") or (0.35, 0.0, 0.0)
     obs, seen_R = [], []
     for r in meta["records"]:
@@ -368,13 +430,14 @@ def solve_dir(d, K, dist, tag_size, card_xyz=None, seed=0, max_px=MAX_PX, min_ob
         found = {t: c for t, c in _detect(img).items() if t in tags}
         T_g2b = np.asarray(r["T_gripper2base"], float)
         for tid, corners in found.items():
-            obs.append(Observation(_inv(T_g2b), tags[tid], corners, tid, "card"))
+            obs.append(Observation(_inv(T_g2b), tags[tid][1], corners, tid, tags[tid][0]))
         if found:
             seen_R.append(T_g2b[:3, :3])
     if len(obs) < 6:
         raise SystemExit(f"only {len(obs)} tag observations in {len(meta['records'])} frames; "
                          "is the card in view? (tags 0/1, 36h11)")
-    fit = solve(obs, K, dist, tag_size, {"card": card_nominal(card_xyz[:2], card_xyz[2])},
+    nominal = card_nominal(card_xyz[:2], card_xyz[2])
+    fit = solve(obs, K, dist, tag_size, {m: nominal for m, _ in tags.values()},
                 max_px=max_px, seed=seed)
     reasons = []
     if fit.rms_px > max_px:
@@ -384,8 +447,8 @@ def solve_dir(d, K, dist, tag_size, card_xyz=None, seed=0, max_px=MAX_PX, min_ob
     if fit.n_obs < min_obs:
         reasons.append(f"only {fit.n_obs} observations, wanted {min_obs}")
     T_c2g = np.asarray(fit.T_cam2base, float)          # "base" was the gripper here
-    T_card = np.asarray(fit.mounts["card"], float)
-    result = dict(T_cam2gripper=T_c2g.tolist(), T_card2base=T_card.tolist(),
+    mounts = {m: np.asarray(T, float).tolist() for m, T in fit.mounts.items()}
+    result = dict(T_cam2gripper=T_c2g.tolist(), T_tags2base=mounts,
                   rms_px=float(fit.rms_px), spread_deg=float(fit.spread_deg),
                   n_obs=int(fit.n_obs), trusted=not reasons, reason="; ".join(reasons),
                   K=np.asarray(K).tolist(), dist=np.asarray(dist).ravel().tolist(),
@@ -477,7 +540,9 @@ def main():
     s.add_argument("--width", type=int, default=0)
     s.add_argument("--camera-height", type=int, default=0)
     s.add_argument("--K", help="intrinsics .npz from calib_intrinsics.py --rotate")
-    s.add_argument("--size", type=float, default=0.070, help="AprilTag side [m] on the card")
+    s.add_argument("--size", type=float, default=0.070, help="AprilTag black-square side [m]")
+    s.add_argument("--tag", type=int, nargs="*", default=None,
+                   help="tag id(s) lying on the table (36h11); default: the two-sided card, ids 0/1")
     s.add_argument("--card", type=float, nargs=2, default=(0.35, 0.0), metavar=("X", "Y"),
                    help="rough card centre in the base frame [m]")
     s.add_argument("--table", type=float, default=0.0, help="table top z in the base frame [m]")
@@ -485,7 +550,10 @@ def main():
                    help="aim the poses with the camera pose from an earlier fit.json instead of the built-in guess")
     s.add_argument("--poses", type=int, default=40)
     s.add_argument("--speed", type=float, default=10.0, help="peak joint speed, deg/s")
-    s.add_argument("--settle", type=float, default=0.7, help="seconds to wait after a move before the frame")
+    s.add_argument("--settle", type=float, default=1.0, help="seconds to wait after a move before the frame")
+    s.add_argument("--dist", type=float, nargs=2, default=POSE["dist"], metavar=("MIN", "MAX"),
+                   help="camera distance range from the tags [m]")
+    s.add_argument("--min-spread", type=float, default=MIN_SPREAD, help="rotation-axis spread gate [deg]")
     s.add_argument("--seed", type=int, default=0)
     s.add_argument("--min-obs", type=int, default=MIN_OBS)
     s.add_argument("--max-px", type=float, default=MAX_PX)
@@ -498,6 +566,7 @@ def main():
     v.add_argument("dir")
     v.add_argument("--K", required=True)
     v.add_argument("--size", type=float, default=0.070)
+    v.add_argument("--tag", type=int, nargs="*", default=None)
     v.add_argument("--card", type=float, nargs=3, metavar=("X", "Y", "Z"))
     v.add_argument("--seed", type=int, default=0)
     v.add_argument("--max-px", type=float, default=MAX_PX)
@@ -517,7 +586,8 @@ def main():
         run_session(a)
     elif a.cmd == "solve":
         K, dist = load_K(a.K, a.size)
-        solve_dir(a.dir, K, dist, a.size, a.card, seed=a.seed, max_px=a.max_px, min_obs=a.min_obs)
+        solve_dir(a.dir, K, dist, a.size, a.card, seed=a.seed, max_px=a.max_px, min_obs=a.min_obs,
+                  tag_ids=a.tag)
     else:
         write_spec(a.fit, a.K, a.out)
 

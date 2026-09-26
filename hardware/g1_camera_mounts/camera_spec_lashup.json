@@ -1,0 +1,99 @@
+{
+  "frame": "gripper_link",
+  "units": "metres",
+  "handedness": "right",
+  "source": "calib_wrist.py fit calib_session/wrist_merged/fit.json: residual 27.78 px over 152 tag views, spread 29.9 deg -- NOT trusted: residual 27.78px > 1.5px",
+  "lens_entrance_pupil_m": [
+    -0.05060687411211338,
+    0.04299012698832195,
+    0.0935611657849058
+  ],
+  "optical_axis": [
+    0.7658312713898854,
+    -0.46909334958316684,
+    -0.4398339381382439
+  ],
+  "image_up": [
+    0.34962129600231007,
+    -0.27031196633365107,
+    0.8970487111849055
+  ],
+  "image_right": [
+    -0.5396919613474123,
+    -0.840763266463087,
+    -0.043008332021868434
+  ],
+  "T_gripper_camera_opencv": [
+    [
+      -0.5396919613474123,
+      -0.34962129600231007,
+      0.7658312713898854,
+      -0.05060687411211338
+    ],
+    [
+      -0.840763266463087,
+      0.27031196633365107,
+      -0.46909334958316684,
+      0.04299012698832195
+    ],
+    [
+      -0.043008332021868434,
+      -0.8970487111849055,
+      -0.4398339381382439,
+      0.0935611657849058
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "pitch_below_tool_axis_deg": 26.09328621924434,
+  "yaw_inboard_deg": -31.488649708810634,
+  "roll_deg": 0.0,
+  "lens": {
+    "recommended": {
+      "name": "as fitted (M12 wide on the 32 mm UVC board)",
+      "fov_deg": [
+        58.62,
+        45.67
+      ],
+      "fov_note": "vertical angle from the calibrated K on 1920x1080; the horizontal one is what a 4:3 render gives for it. The real frame is 74.7 deg wide: crop it to the centre 4:3 (1440x1080) before resizing and the two match."
+    }
+  },
+  "resolution_px": [
+    640,
+    480
+  ],
+  "intrinsics_full_frame": {
+    "K": [
+      [
+        1257.2410784993194,
+        0.0,
+        1007.7976467876623
+      ],
+      [
+        0.0,
+        1282.5093913726053,
+        521.1319818950168
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "width": 1920,
+    "height": 1080,
+    "fov_deg": [
+      74.73,
+      45.67
+    ]
+  },
+  "sensor_module": {
+    "kind": "32 x 32 mm UVC board camera, wide M12, upside down (frames rotated 180)",
+    "mass_g": 22.0
+  },
+  "notes": "Measured pose of the high-rear lash-up fitted 2026-09-25 (strut behind the housing, lens aimed down the jaw gap). Not the PR #2 outboard strut: payload.json's mass and collision primitives do not describe this mount."
+}
