@@ -19,7 +19,10 @@ set -euo pipefail
 : "${BATCH:=256}"
 : "${IMG_W:=160}"
 : "${IMG_H:=120}"
-: "${WIDTH:=48}"                          # student CNN width
+: "${WIDTH:=48}"                          # student CNN width (arch cnn)
+: "${ARCH:=cnn}"                          # cnn | resnet18 (ImageNet-pretrained trunk)
+: "${INIT_STUDENT:=}"                     # student.pt to start from: round 0 is then student-driven at BETAS[0]
+: "${REUSE_DATA:=}"                       # existing shard dirs (space separated) folded into every training set
 : "${JITTER:=3 0.7 0.3}"                  # per-scene wrist camera jitter: mm, deg, fovy deg
 : "${COMPOSITES:=0.5}"
 : "${DISTURB:=0.3}"
@@ -71,8 +74,10 @@ beta_for() {                          # BETAS[k], the last value repeating
     echo "$v"
 }
 
-DATA_DIRS=""
-PREV=""
+DATA_DIRS="${REUSE_DATA:+ $REUSE_DATA}"
+PREV="$INIT_STUDENT"
+export TORCH_HOME="${TORCH_HOME:-sim/runs/torch_home}"   # pretrained trunk weights, cached in the checkout
+mkdir -p "$TORCH_HOME"
 for (( r = 0; r < ROUNDS; r++ )); do
     RD="$DATA/r$r"; RO="$OUT/r$r"
     mkdir -p "$RD" "$RO"
@@ -98,12 +103,12 @@ for (( r = 0; r < ROUNDS; r++ )); do
     echo "round $r: $N_EP episodes in $(( $(date +%s) - T0 )) s, driving success $DRIVE_SUCC"
     DATA_DIRS="$DATA_DIRS $RD"
 
-    EP=$EPOCHS; [ "$r" -eq 0 ] && EP=$(( EPOCHS * 2 ))
+    EP=$EPOCHS; [ "$r" -eq 0 ] && [ -z "$INIT_STUDENT" ] && EP=$(( EPOCHS * 2 ))
     echo "== round $r: train $EP epochs on$DATA_DIRS =="
     T0=$(date +%s)
     # shellcheck disable=SC2086
     python $PY/student.py train --data $DATA_DIRS --out "$RO" --epochs "$EP" --batch "$BATCH" --device "$DEVICE" \
-        --width "$WIDTH" ${PREV:+--init "$PREV"} 2>&1 | tee "$RO/train.log" | grep -E "ticks from|^epoch +[0-9]*[05]:|best val"
+        --width "$WIDTH" --arch "$ARCH" ${PREV:+--init "$PREV"} 2>&1 | tee "$RO/train.log" | grep -E "ticks from|^epoch +[0-9]*[05]:|best val"
     PREV="$RO/student.pt"
     echo "round $r: trained in $(( $(date +%s) - T0 )) s"
 
