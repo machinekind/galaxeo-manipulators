@@ -87,7 +87,7 @@ class GraspEnv(gym.Env):
     def __init__(self, seed=0, pool=8, max_steps=120, hover=HOVER, noise=NOISE,
                  step_xyz=STEP_XYZ, step_yaw=STEP_YAW, wrist=None, wrist_size=(320, 240),
                  table_size=(480, 320), rand_physics=True, composites=0.0, disturb_p=0.0,
-                 force_p=0.0, wrist_jitter=(10.0, 2.0, 1.0)):
+                 force_p=0.0, wrist_jitter=(10.0, 2.0, 1.0), view_penalty=0.0):
         """`composites`: share of objects that are tools / markers / L, T shapes / pucks /
         bars instead of single primitives. `disturb_p`: chance per episode that the object
         is shoved 1-2 cm while the gripper descends. `force_p`: chance per episode that the
@@ -96,6 +96,11 @@ class GraspEnv(gym.Env):
         self.composites = float(composites)
         self.disturb_p, self.force_p = float(disturb_p), float(force_p)
         self.wrist_jitter = tuple(wrist_jitter)          # per-scene camera jitter: mm, deg, deg of fovy
+        # Teacher shaping for the student's sake: per tick the target sits outside the
+        # wrist frame (needs `wrist`). The teacher itself never needs to see the object,
+        # so without this it dead-reckons to positions the student cannot see; the
+        # student lost the object in 25-47 % of the ticks of its failed episodes.
+        self.view_penalty = float(view_penalty)
         self.base_seed = int(seed)
         self.pool_size = int(pool)
         self.max_steps = int(max_steps)
@@ -317,6 +322,8 @@ class GraspEnv(gym.Env):
         e_yaw = min(e_yaw, abs(math.pi - e_yaw))               # a pinch is symmetric under 180 deg
         r = -0.5 * e_pos - 0.2 * e_yaw - 0.01 - (0.3 if attempt else 0.0)
         obj = self.d.geom_xpos[self.obj_geom]
+        if self.view_penalty and self.wrist is not None and not self.target_in_view():
+            r -= self.view_penalty
         gap = self.arm.gap(self.d)
         held = closing and gap_ok(gap, self.grasp.width) and np.linalg.norm(obj - tcp) < 0.09
         if (self.first_close_tick is not None and not self.held_once
@@ -357,6 +364,19 @@ class GraspEnv(gym.Env):
         return np.concatenate([np.asarray(p, np.float32).ravel() for p in parts]).astype(np.float32)
 
     STUDENT_DIM = 6 + 1 + 3 + 2 + 1 + ACT_DIM + 1
+
+    def target_in_view(self, margin=0.04):
+        """Is the target's centre inside the live wrist frame (with a border margin)?"""
+        cid = self.m.camera("arm/wrist").id
+        pos, R = self.d.cam_xpos[cid], self.d.cam_xmat[cid].reshape(3, 3)
+        p = R.T @ (self.d.geom_xpos[self.obj_geom] - pos)          # MuJoCo camera: -z forward, +y up
+        x, y, z = p[0], -p[1], -p[2]
+        if z <= 1e-3:
+            return False
+        W, H = self.wrist_size
+        f = (H / 2) / np.tan(np.radians(self.m.cam_fovy[cid]) / 2)
+        u, v = f * x / z + W / 2, f * y / z + H / 2
+        return bool(margin * W <= u < (1 - margin) * W and margin * H <= v < (1 - margin) * H)
 
     def believed_uv(self):
         """Pixel of the believed grasp point in the wrist image, through the

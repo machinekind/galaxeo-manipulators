@@ -65,6 +65,9 @@ def main():
     ap.add_argument("--composites", type=float, default=0.0, help="share of composite objects (tools, markers, ...)")
     ap.add_argument("--disturb", type=float, default=0.0, help="chance per episode of a shove during descent")
     ap.add_argument("--force", type=float, default=0.0, help="chance per episode of a forced early close")
+    ap.add_argument("--wrist", help="camera spec json: attach the wrist camera (needed for --view-penalty)")
+    ap.add_argument("--view-penalty", type=float, default=0.0,
+                    help="per-tick cost while the target is outside the wrist frame (student-friendly teacher)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--init", help="policy.pt to start from")
     ap.add_argument("--device", default="cpu")
@@ -74,7 +77,8 @@ def main():
     torch.manual_seed(a.seed)
     out = os.path.join(a.out, a.name)
     os.makedirs(out, exist_ok=True)
-    kw = dict(pool=a.pool, hover=a.hover, composites=a.composites, disturb_p=a.disturb, force_p=a.force)
+    kw = dict(pool=a.pool, hover=a.hover, composites=a.composites, disturb_p=a.disturb, force_p=a.force,
+              wrist=a.wrist, view_penalty=a.view_penalty, wrist_jitter=(3.0, 0.7, 0.3))
     envs = gym.vector.AsyncVectorEnv([make_env(a.seed * 100 + i, kw) for i in range(a.envs)],
                                      shared_memory=False, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
     policy = Policy.load(a.init, a.device) if a.init else Policy(OBS_DIM, ACT_DIM, device=a.device)
