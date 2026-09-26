@@ -40,6 +40,7 @@ sim/runs/
 sim/datasets/
 sim/resume/
 .venv-mac/
+.worktrees/
 
 # --- python package build output ---------------------------------------------
 *.egg-info/

@@ -23,4 +23,6 @@ packages = ["galaxeo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/*_test.py are hand-run end-to-end scripts (hardware, MuJoCo), not pytest cases.
+python_files = ["test_*.py"]
 pythonpath = ["."]
