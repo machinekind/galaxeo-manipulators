@@ -40,3 +40,4 @@ sim/runs/
 sim/datasets/
 sim/resume/
 .venv-mac/
+so101/calib_*.json

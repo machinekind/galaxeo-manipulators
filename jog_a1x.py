@@ -66,7 +66,8 @@ LIMITS = [(-2.880, 2.880), (0.0, 3.142), (-3.316, 0.0),
           (-1.571, 1.571), (-1.571, 1.571), (-2.880, 2.880)]
 NAMES = ["J1 base yaw", "J2 shoulder", "J3 elbow",
          "J4 wrist pitch", "J5 wrist yaw", "J6 wrist roll"]
-CMD_ID, GRIP_ID, FB_ID, FF_ID = 0x050, 0x051, 0x052, 0x053
+CMD_ID, GRIP_ID, FB_ID, FF_ID, STATUS_ID = 0x050, 0x051, 0x052, 0x053, 0x054
+STATUS_BASELINE = 0x0010        # every group, both arms, in every healthy capture
 KEYS = {"q": (0, +1), "a": (0, -1), "w": (1, +1), "s": (1, -1),
         "e": (2, +1), "d": (2, -1), "r": (3, +1), "f": (3, -1),
         "t": (4, +1), "g": (4, -1), "y": (5, +1), "h": (5, -1),
@@ -129,6 +130,7 @@ class A1X:
         self.q = None; self.v = None; self.e = None
         self.t = 0.0; self.n = 0; self.n_tx = 0
         self.same = 0; self._last = None
+        self.status = None                      # 0x054: seven per-group words + one int16
         self.lock = threading.Lock()
 
     def drain(self):
@@ -138,6 +140,10 @@ class A1X:
             m = self.bus.recv(0.0)
             if m is None:
                 break
+            if m.arbitration_id == STATUS_ID and len(m.data) >= 16:
+                d = bytes(m.data)
+                self.status = [int.from_bytes(d[i:i + 2], "big", signed=False) for i in range(0, 16, 2)]
+                continue
             if m.arbitration_id != FB_ID or len(m.data) < 42:
                 continue
             d = bytes(m.data)
@@ -359,10 +365,54 @@ def check(arm, secs):
     print(f"{arm.n / secs:.0f} Hz")
     print("q (deg):   ", [round(math.degrees(x), 1) for x in arm.q[:N]], " gripper grp7:", round(math.degrees(arm.q[6]), 1))
     print("effort:    ", [round(x, 2) for x in arm.e])
+    if arm.status:
+        words = arm.status[:7]
+        flagged = [f"J{g + 1}" if g < 6 else "gripper" for g, w in enumerate(words) if w != STATUS_BASELINE]
+        print("status 0x054:", " ".join(f"{w:04x}" for w in words),
+              f" (last int16 {int.from_bytes(arm.status[7].to_bytes(2, 'big'), 'big', signed=True)})")
+        if flagged:
+            print(f"  {', '.join(flagged)} differs from the {STATUS_BASELINE:04x} baseline: "
+                  f"a fault bit is set on that group (see docs/PROTOCOL.md).")
     if arm.same > 50:
         print("payload FROZEN: the arm is in the released state (FF 2). Enable needed.")
     else:
         print("OK: reporting live.")
+    return 0
+
+
+def hold(arm, a, secs, grip=False):
+    """Diagnostic: stream the MEASURED pose for `secs` (nothing moves) and
+    print the 0x054 status words once a second, so a status bit can be
+    watched against the arm's LED while the host is talking. With --grip
+    the gripper is also ramped open and back (p_des 0 -> -1.5 -> 0, a bit
+    over half its travel) to see whether the gripper's word reacts."""
+    t0 = time.time()
+    while time.time() - t0 < 3.0 and arm.q is None:
+        arm.drain(); time.sleep(0.002)
+    if arm.q is None:
+        print("no feedback, not streaming"); return 2
+    pose = list(arm.q[:N])
+    print(f"streaming the measured pose {[round(math.degrees(x), 1) for x in pose]} "
+          f"for {secs:g}s{' + gripper open/close' if grip else ''}. Watch the LED.")
+    nxt = t0 = time.time(); last_rep = 0.0; g = 0.0
+    while time.time() - t0 < secs:
+        arm.drain(); now = time.time()
+        if now - arm.t > 0.15:
+            print("feedback lost, stopped"); return 2
+        if now >= nxt:
+            nxt = now + 1.0 / a.rate
+            arm.send_arm(pose, a.kp, a.kd)
+            if grip:
+                f = (now - t0) / secs                       # 0..1
+                g = -1.5 * math.sin(math.pi * f)            # 0 -> -1.5 -> 0
+                arm.send_grip(g, a.grip_kp, a.kd)
+        if now - last_rep >= 1.0 and arm.status:
+            last_rep = now
+            words = " ".join(f"{w:04x}" for w in arm.status[:7])
+            print(f"  {now - t0:4.0f}s  0x054: {words}   grip p_des {g:+.2f}  "
+                  f"grp7 {math.degrees(arm.q[6]):5.1f} deg  eff {arm.e[6]:+.2f}")
+        time.sleep(0.0005)
+    print("done; the arm re-latches where it is")
     return 0
 
 
@@ -473,6 +523,11 @@ def main():
                     help="xcan[:<usb addr>] (macOS, libusb driver), a SocketCAN name like can0 "
                          "(Linux), PCAN_USBBUSn (Windows), or <python-can interface>:<channel>")
     ap.add_argument("--check", action="store_true", help="read-only feedback report, then exit")
+    ap.add_argument("--hold", type=float, default=0.0, metavar="SECS",
+                    help="diagnostic: stream the measured pose for SECS and print "
+                         "the 0x054 status words each second (nothing moves)")
+    ap.add_argument("--hold-grip", action="store_true",
+                    help="with --hold: also ramp the gripper open and back")
     ap.add_argument("--dry-run", action="store_true", help="run the GUI but transmit nothing")
     ap.add_argument("--rate", type=float, default=200.0, help="stream rate, Hz")
     ap.add_argument("--speed", type=float, default=8.0, help="initial jog speed, deg/s")
@@ -506,6 +561,8 @@ def main():
     try:
         if a.check:
             return check(arm, 3.0)
+        if a.hold > 0:
+            return hold(arm, a, a.hold, a.hold_grip)
         jog = Jog(arm, a)
         try:
             gui(jog, a)
