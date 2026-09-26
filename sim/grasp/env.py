@@ -358,6 +358,29 @@ class GraspEnv(gym.Env):
 
     STUDENT_DIM = 6 + 1 + 3 + 2 + 1 + ACT_DIM + 1
 
+    def believed_uv(self):
+        """Pixel of the believed grasp point in the wrist image, through the
+        camera's CALIBRATED pose (the spec, without this scene's jitter) and the
+        gripper's forward kinematics -- what the real robot can compute. The
+        jitter is then the calibration error the student has to live with."""
+        if self.wrist is None:
+            return np.array([np.nan, np.nan], np.float32)
+        if not hasattr(self, "_cam_nominal"):
+            import wrist_camera as wc
+            design = wc.load_spec(camera_spec=self.wrist)
+            pos, R = wc.camera_pose(design, "right")           # gripper_link frame, MuJoCo axes
+            self._cam_nominal = (pos, R @ np.diag([1.0, -1.0, -1.0]), wc.lens_fov(design)[1])
+        pos_g, R_g, fovy = self._cam_nominal
+        gb = self.m.body("arm/gripper_link").id
+        Rw, tw = self.d.xmat[gb].reshape(3, 3), self.d.xpos[gb]
+        cam_pos, cam_R = tw + Rw @ pos_g, Rw @ R_g                 # OpenCV: z forward, y down
+        local = cam_R.T @ (self.believed_pos - cam_pos)
+        W, H = self.wrist_size
+        f = (H / 2) / np.tan(np.radians(fovy) / 2)
+        if local[2] <= 1e-3:
+            return np.array([np.nan, np.nan], np.float32)
+        return np.array([f * local[0] / local[2] + W / 2 - 0.5, f * local[1] / local[2] + H / 2 - 0.5], np.float32)
+
     def student_obs(self):
         """What a policy without ground truth can know: joints, gap, the believed
         grasp relative to the TCP, believed yaw error, gripper target, previous

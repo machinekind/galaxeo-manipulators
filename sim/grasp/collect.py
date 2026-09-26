@@ -87,22 +87,23 @@ def main():
         obs, info = env.reset(seed=a.seed + ep)
         if a.vis:
             randomise_visuals(env, rng)
-        imgs, sobs, acts, done = [], [], [], False
+        imgs, sobs, acts, uvs, done = [], [], [], [], False
         while not done:
             img = env.render_wrist()
             so = env.student_obs()
+            uv = env.believed_uv()
             label, _, _ = teacher.act(obs[None], deterministic=True)
             label = np.clip(label[0], -1, 1)
             if student is not None and rng.uniform() >= a.beta:
-                drive = student.act(img[None], so[None])[0]
+                drive = student.act(img[None], so[None], uv[None] if student.heat else None)[0]
             else:
                 drive = label
-            imgs.append(img); sobs.append(so); acts.append(label.astype(np.float32))
+            imgs.append(img); sobs.append(so); acts.append(label.astype(np.float32)); uvs.append(uv)
             obs, r, term, trunc, info = env.step(drive)
             done = term or trunc
         n_ok += info["success"]
         np.savez_compressed(os.path.join(a.out, f"ep{a.seed + ep}.npz"),
-                            img=np.stack(imgs), obs=np.stack(sobs), act=np.stack(acts),
+                            img=np.stack(imgs), obs=np.stack(sobs), act=np.stack(acts), uv=np.stack(uvs),
                             success=bool(info["success"]), outcome=info["outcome"], kind=info["kind"],
                             attempts=info["attempts"], disturbed=info["disturbed"], forced=info["forced"])
         if (ep + 1) % 20 == 0:
