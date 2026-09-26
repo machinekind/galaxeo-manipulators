@@ -47,3 +47,6 @@ sim/resume/
 /build/
 /dist/
 so101/calib_*.json
+
+# --- camera calibration sessions (intrinsics, wrist frames, fits) ---------------
+calib_session/
