@@ -117,3 +117,36 @@ def test_jog_stops_at_the_table_and_sends_nothing_until_armed(monkeypatch, cente
         assert sent and all(jog.checker.config_clear(p) is None for p in sent[::10])
     finally:
         jog.arm_off("test"); jog.stop(); arm.close()
+
+
+def test_jog_go_center_unfolds_a_folded_arm_into_the_box(monkeypatch, center):
+    import types
+
+    import jog_a1x
+
+    folded = [3.2, -0.3, 0.0, -0.9, 0.8, -2.9]                   # the rest pose on the table
+    bus = LiveFake(start_deg=folded)
+    monkeypatch.setattr(jog_a1x, "open_bus", lambda iface: bus)
+    a = types.SimpleNamespace(rate=200.0, speed=20.0, kp=20.0, kd=1.0, grip_kp=20.0, grip_start=-2.0,
+                              grip_closed=0.6, grip_speed=1.0, grip_force=1.2, home_rad=[0.0] * 6,
+                              home_speed=120.0)
+    arm = jog_a1x.A1X("fake", dry_run=False)
+    jog = jog_a1x.Jog(arm, a)
+    try:
+        time.sleep(0.3)
+        jog.go_center()
+        assert "arm first" in jog.status
+        assert jog.arm_on()
+        assert not jog.model.reach.contains(jog.model.fk(jog.target)[:3, 3])
+        jog.go_center()
+        t0 = time.time()
+        while "at box centre" not in jog.status and time.time() - t0 < 5.0:
+            time.sleep(0.05)
+        assert "at box centre" in jog.status, jog.status
+        tip = jog.model.fk(jog.target)[:3, 3]
+        assert np.linalg.norm(tip - center[1]) < 0.003
+        sent = [np.array(bus.pdes(d)) for i, d, _ in bus.tx if i == P.CMD_ID]
+        assert sent and all(jog.checker.config_clear(p) is None for p in sent[::10])
+        assert np.max(np.abs(np.diff(sent, axis=0))) < np.radians(120.0 / 200.0) * 1.5   # slewed, no jump
+    finally:
+        jog.arm_off("test"); jog.stop(); arm.close()

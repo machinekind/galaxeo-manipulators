@@ -23,7 +23,10 @@ slews every joint to --home (default all zeros: the folded pose) at
 "safe to disarm" once there. "Set home = here" takes the measured pose as
 home and prints the --home value to reuse. Prefer that over the zeros: a
 joint commanded even 0.2 deg into its mechanical stop pushes there forever,
-visible as steady effort at rest.
+visible as steady effort at rest. "Go to box centre" slews the same way to
+the middle of the gripper's reach box (galaxeo.arm, x 0.20..0.50 m over the
+table), the pose move_to_point_a1x.py needs to start from: a folded arm is
+outside the box and any plan from there is refused as a jump.
 
 How it moves the arm, and why it is safe to start:
 
@@ -64,7 +67,7 @@ from galaxeo.bus import open_bus
 from galaxeo.protocol import CMD_ID, FB_ID, FB_LEN, FF_ID, GRIP_ID, STATUS_ID
 
 try:
-    from galaxeo.arm import CollisionChecker
+    from galaxeo.arm import Arm as ArmModel
     from galaxeo.arm.model import limits as model_limits
 except ImportError as ex:                # numpy / mujoco missing
     raise SystemExit(f'jog_a1x.py needs galaxeo.arm:  pip install -e ".[arm]"  ({ex})')
@@ -147,12 +150,13 @@ class Jog:
         self.grip_t = None                      # None until first gripper key
         self.grip_frozen = False
         self.speed = a.speed                    # deg/s, from the slider
-        self.homing = False                     # Go-home in progress (slow, all joints)
+        self.slew = None                        # (pose rad, label): Go-home / Go-to-centre in progress
         self.status = "read-only"
         self.hz = 0.0
         self._stop = False
         self._enable_req = False
-        self.checker = CollisionChecker()       # table z = 0 and self-collision, on the target
+        self.model = ArmModel()                 # no transport: the model, IK and the reach box
+        self.checker = self.model.collision     # table z = 0 and self-collision, on the target
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -175,14 +179,14 @@ class Jog:
 
     def arm_off(self, why="disarmed"):
         with self.lock:
-            self.armed = False; self.vel = [0] * 7; self.homing = False
+            self.armed = False; self.vel = [0] * 7; self.slew = None
             self.status = why
 
     def set_vel(self, axis, sign):
         with self.lock:
             self.vel[axis] = sign
-            if sign and self.homing:
-                self.homing = False; self.status = "home cancelled by jog"
+            if sign and self.slew:
+                self.status = f"{self.slew[1]} cancelled by jog"; self.slew = None
             if axis == 6 and sign != 0 and self.grip_t is None:
                 self.grip_t = self.a.grip_start
 
@@ -201,7 +205,7 @@ class Jog:
             if self.arm.q is None or time.time() - self.arm.t > 0.15:
                 self.status = "no fresh feedback"; return
             self.a.home_rad = list(self.arm.q[:N])
-            self.homing = False
+            self.slew = None
             deg = ",".join(f"{math.degrees(x):.1f}" for x in self.a.home_rad)
             self.status = f"home set to here. Next time: --home {deg}"
             print(f"home = current pose. Next time start with:  --home {deg}")
@@ -209,11 +213,39 @@ class Jog:
     def go_home(self):
         """Slew every joint to --home at --home-speed. Any jog key cancels it.
         The gripper is left alone."""
+        self._slew_to(self.a.home_rad, "home")
+
+    def go_center(self):
+        """Slew to the middle of the reach box: IK from the measured pose, so the
+        arm unfolds the way it is already bent, then the same slow slew as
+        Go-home. The step-wise collision check in the loop guards the path."""
         with self.lock:
             if not self.armed:
-                self.status = "arm first, then go home"; return
+                self.status = "arm first, then go to box centre"; return
+            if self.arm.q is None or time.time() - self.arm.t > 0.15:
+                self.status = "no fresh feedback"; return
+            q = list(self.arm.q[:N])
+        center = self.model.reach.center
+        sol = self.model.kin.ik(center, seed=q)
+        if not sol.ok:
+            with self.lock:
+                self.status = f"box centre: IK misses by {sol.pos_err * 1e3:.0f} mm"
+            return
+        why = self.checker.config_clear(sol.q)
+        if why:
+            with self.lock:
+                self.status = f"box centre: {why}"
+            return
+        deg = ",".join(f"{math.degrees(x):.1f}" for x in sol.q)
+        print(f"box centre {center.round(3).tolist()} m = joints {deg} deg")
+        self._slew_to(list(sol.q), "box centre")
+
+    def _slew_to(self, pose, label):
+        with self.lock:
+            if not self.armed:
+                self.status = f"arm first, then go to {label}"; return
             self.vel = [0] * 7
-            self.homing = True
+            self.slew = (list(pose), label)
 
     def stop(self):
         self._stop = True
@@ -261,24 +293,25 @@ class Jog:
                     if not self.grip_frozen:
                         g = self.grip_t + self.vel[6] * a.grip_speed * dt
                         self.grip_t = min(a.grip_closed, max(a.grip_start, g))
-                if self.homing:
+                if self.slew:
+                    pose, label = self.slew
                     step_h = math.radians(a.home_speed) * dt
                     worst = 0.0
                     for j in range(N):
                         lo, hi = self.bounds[j]
-                        d = min(hi, max(lo, a.home_rad[j])) - self.target[j]
+                        d = min(hi, max(lo, pose[j])) - self.target[j]
                         worst = max(worst, abs(d))
                         self.target[j] += max(-step_h, min(step_h, d))
                     if worst < math.radians(0.05):
-                        self.homing = False
-                        self.status = "at home: holding. Safe to disarm."
+                        self.slew = None
+                        self.status = f"at {label}: holding." + (" Safe to disarm." if label == "home" else "")
                     else:
-                        self.status = f"going home at {a.home_speed:g} deg/s, {math.degrees(worst):.1f} deg to go"
+                        self.status = f"going to {label} at {a.home_speed:g} deg/s, {math.degrees(worst):.1f} deg to go"
                 if self.target != before:
                     why = self.checker.config_clear(self.target)
                     if why and not self.checker.config_clear(before):
                         self.target = before
-                        self.vel[:N] = [0] * N; self.homing = False
+                        self.vel[:N] = [0] * N; self.slew = None
                         self.status = f"blocked: {why}"
                 target = list(self.target); grip_t = self.grip_t
                 enable = self._enable_req; self._enable_req = False
@@ -399,6 +432,7 @@ def gui(jog, a):
     ttk.Button(ctl, text="Enable FF 1→5→6", command=jog.request_enable).pack(side="left", padx=2)
     ttk.Button(ctl, text=f"Go home ({a.home_speed:g}°/s)", command=jog.go_home).pack(side="left", padx=2)
     ttk.Button(ctl, text="Set home = here", command=jog.set_home_here).pack(side="left", padx=2)
+    ttk.Button(ctl, text="Go to box centre", command=jog.go_center).pack(side="left", padx=2)
     ttk.Label(ctl, text="speed deg/s").pack(side="left", padx=(12, 2))
     speed = tk.DoubleVar(value=a.speed)
     ttk.Scale(ctl, from_=1, to=a.max_speed, variable=speed, length=140,

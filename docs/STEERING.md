@@ -345,8 +345,10 @@ Keys: `q/a` J1, `w/s` J2, `e/d` J3, `r/f` J4, `t/g` J5, `y/h` J6, `o/c`
 gripper, `space` stop. The setpoint is seeded from the measured pose on ARM
 and only moves at the slider's deg/s, so nothing jumps; stale feedback disarms
 it; targets are clamped to the limits in [HARDWARE.md](HARDWARE.md), and a
-step that would put the arm into the table or into itself is refused. The
-Enable button sends FF 1 → 5 → 6 with the setpoint pinned throughout and is
+step that would put the arm into the table or into itself is refused. "Go to
+box centre" slews the arm, Go-home style, to the middle of the reach box: the
+place to start `move_to_point_a1x.py` from, since a folded arm is outside the
+box and any plan from there is refused. The Enable button sends FF 1 → 5 → 6 with the setpoint pinned throughout and is
 only for an arm that reports but ignores the jog.
 
 The gripper's setpoint cannot be read back, so its first key press starts it
