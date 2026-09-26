@@ -425,9 +425,10 @@ def solve_dir(d, K, dist, tag_size, card_xyz=None, seed=0, max_px=MAX_PX, min_ob
     obs, seen_R = [], []
     for r in meta["records"]:
         img = cv2.imread(os.path.join(d, r["frame"]))
-        if img is None:
-            continue
-        found = {t: c for t, c in _detect(img).items() if t in tags}
+        if img is not None:
+            found = {t: c for t, c in _detect(img).items() if t in tags}
+        else:   # frames not on disk (the repo keeps only poses.json): use the corners it stored
+            found = {int(t): np.asarray(c, float) for t, c in r.get("tags", {}).items() if int(t) in tags}
         T_g2b = np.asarray(r["T_gripper2base"], float)
         for tid, corners in found.items():
             obs.append(Observation(_inv(T_g2b), tags[tid][1], corners, tid, tags[tid][0]))
