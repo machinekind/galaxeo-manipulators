@@ -212,7 +212,11 @@ class GraspEnv(gym.Env):
             for g, obj in cands:
                 dxy = self.rng.normal(0.0, self.noise["xy"], 2)
                 dz = self.rng.normal(0.0, self.noise["z"])
-                dyaw = self.rng.normal(0.0, self.noise["yaw"])
+                # A round part has no yaw: any pinch across it is the same grasp. The
+                # hover's yaw IS the intended yaw then, or the teacher would chase a
+                # yaw target no image can reveal (the student failed 8/19 round objects
+                # against 30/41 of the rest before this).
+                dyaw = 0.0 if obj.round else self.rng.normal(0.0, self.noise["yaw"])
                 yaw = _yaw_of(g.R) + dyaw
                 p_hover = g.pos + np.array([dxy[0], dxy[1], self.hover + dz])
                 R_hover = _grasp_R(yaw)

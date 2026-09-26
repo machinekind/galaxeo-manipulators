@@ -17,6 +17,7 @@ set -euo pipefail
 : "${BETAS:=1.0 0.5 0.3 0.2 0.1 0.05 0.0}"  # teacher share per round; the last value repeats
 : "${EPOCHS:=15}"                         # student epochs per round (round 0 gets 2x)
 : "${BATCH:=256}"
+: "${LR:=3e-4}"                           # 1e-4 for the pretrained resnet18 trunk
 : "${IMG_W:=160}"
 : "${IMG_H:=120}"
 : "${WIDTH:=48}"                          # student CNN width (arch cnn)
@@ -108,7 +109,7 @@ for (( r = 0; r < ROUNDS; r++ )); do
     T0=$(date +%s)
     # shellcheck disable=SC2086
     python $PY/student.py train --data $DATA_DIRS --out "$RO" --epochs "$EP" --batch "$BATCH" --device "$DEVICE" \
-        --width "$WIDTH" --arch "$ARCH" ${PREV:+--init "$PREV"} 2>&1 | tee "$RO/train.log" | grep -E "ticks from|^epoch +[0-9]*[05]:|best val"
+        --width "$WIDTH" --arch "$ARCH" --lr "$LR" ${PREV:+--init "$PREV"} 2>&1 | tee "$RO/train.log" | grep -E "ticks from|^epoch +[0-9]*[05]:|best val"
     PREV="$RO/student.pt"
     echo "round $r: trained in $(( $(date +%s) - T0 )) s"
 
