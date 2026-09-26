@@ -46,6 +46,7 @@ class FakeRobot:
         return np.zeros(6)
 
     def move(self, q_goal, dur=1.5):
+        self.aborted = "stop after startup"
         return None
 
 
@@ -67,10 +68,10 @@ def test_move_to_point_waits_for_fresh_feedback_before_q(monkeypatch, capsys, ar
     monkeypatch.setattr(M, "pose_error", lambda T_got, T_goal: np.zeros(6))
     monkeypatch.setitem(sys.modules, "cv2", object())
     monkeypatch.setattr(M, "read_pose", lambda arm, secs: (np.zeros(6), 200.0))
-    monkeypatch.setattr(M.time, "sleep", lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
     monkeypatch.setattr(sys, "argv", argv)
 
-    M.main()
+    with pytest.raises(SystemExit, match="2"):
+        M.main()
 
     assert [arm.dry_run for arm in FakeArm.instances] == expected_dry_run
     assert FakeRobot.wait_calls == [(True, 3.0)]
