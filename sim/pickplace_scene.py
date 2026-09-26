@@ -142,6 +142,84 @@ def _sample_object(rng, name):
                 rgba=np.concatenate([rng.uniform(0.2, 0.95, 3), [1.0]]))
 
 
+COMPOSITES = ("marker", "tool", "lshape", "tshape", "puck", "bar")
+
+
+def _part(kind, size, pos, half, yaw=0.0):
+    return dict(kind=kind, size=size, pos=np.asarray(pos, float), half=np.asarray(half, float), yaw=float(yaw))
+
+
+def _sample_composite(rng, name):
+    """One everyday-shaped object welded from primitives, resting flat on the table.
+
+    Parts are given in the body frame whose origin sits ON the table top; each
+    part's local z is its own half height, so the whole thing rests without
+    settling. `half` is the horizontal half extent used for placement, and the
+    grasp proposals run per part."""
+    kind = COMPOSITES[rng.integers(len(COMPOSITES))]
+    parts = []
+    if kind == "marker":                          # a pen: thin capsule lying along local x
+        r, hl = rng.uniform(0.005, 0.009), rng.uniform(0.040, 0.070)
+        parts.append(_part("capsule", f"{r} {hl}", (0, 0, r), (hl + r, r, r), 0.0))
+        parts[-1]["axis"] = "x"
+        half, height = (hl + r, r, r), 2 * r
+    elif kind == "tool":                          # handle + head, like a screwdriver or a hammer
+        hy, hz = rng.uniform(0.006, 0.012), rng.uniform(0.005, 0.010)
+        hl = rng.uniform(0.045, 0.070)
+        head = (rng.uniform(0.012, 0.024), rng.uniform(0.010, 0.018), rng.uniform(0.008, 0.016))
+        parts.append(_part("box", f"{hl} {hy} {hz}", (-head[0], 0, hz), (hl, hy, hz)))
+        parts.append(_part("box", f"{head[0]} {head[1]} {head[2]}", (hl - head[0] + head[0], 0, head[2]),
+                           head))
+        hz_all = max(hz, head[2])
+        half, height = (hl + head[0], max(hy, head[1]), hz_all), 2 * hz_all
+    elif kind == "lshape":
+        a, b, w, h = rng.uniform(0.030, 0.055), rng.uniform(0.025, 0.045), rng.uniform(0.007, 0.013), rng.uniform(0.006, 0.014)
+        parts.append(_part("box", f"{a} {w} {h}", (0, 0, h), (a, w, h)))
+        parts.append(_part("box", f"{w} {b} {h}", (a - w, b - w, h), (w, b, h)))
+        half, height = (a, b, h), 2 * h
+    elif kind == "tshape":
+        a, b, w, h = rng.uniform(0.030, 0.055), rng.uniform(0.020, 0.040), rng.uniform(0.007, 0.013), rng.uniform(0.006, 0.014)
+        parts.append(_part("box", f"{a} {w} {h}", (0, 0, h), (a, w, h)))
+        parts.append(_part("box", f"{w} {b} {h}", (a - w, 0, h), (w, b, h)))
+        half, height = (a, b, h), 2 * h
+    elif kind == "puck":                          # a short standing cylinder, a lid or a coin stack
+        r, hh = rng.uniform(0.015, 0.032), rng.uniform(0.005, 0.014)
+        parts.append(_part("cylinder", f"{r} {hh}", (0, 0, hh), (r, r, hh)))
+        half, height = (r, r, hh), 2 * hh
+    else:                                         # bar: a flat stick, like a ruler or a battery
+        hl, hy, hz = rng.uniform(0.035, 0.065), rng.uniform(0.006, 0.014), rng.uniform(0.004, 0.010)
+        parts.append(_part("box", f"{hl} {hy} {hz}", (0, 0, hz), (hl, hy, hz)))
+        half, height = (hl, hy, hz), 2 * hz
+    mass = float(rng.uniform(0.02, 0.15))
+    return dict(name=name, kind=kind, parts=parts, half=np.array(half, float), height=height,
+                mass=mass, rgba=np.concatenate([rng.uniform(0.2, 0.95, 3), [1.0]]))
+
+
+def _object_xml(o):
+    """<body> for one object, primitive or composite."""
+    q = yaw_quat(o["yaw"])
+    contact = " ".join(f'{k}="{v}"' for k, v in CONTACT.items())
+    rgba = " ".join(f"{v:.3f}" for v in o["rgba"])
+    if "parts" not in o:
+        return (f'<body name="{o["name"]}" pos="{o["pos"][0]:.5f} {o["pos"][1]:.5f} {o["pos"][2]:.5f}" '
+                f'quat="{q[0]:.5f} {q[1]:.5f} {q[2]:.5f} {q[3]:.5f}">'
+                f'<freejoint name="{o["name"]}"/>'
+                f'<geom name="{o["name"]}" type="{o["kind"]}" size="{o["size"]}" mass="{o["mass"]:.4f}" '
+                f'rgba="{rgba}" {contact}/></body>')
+    n = len(o["parts"])
+    geoms = []
+    for i, part in enumerate(o["parts"]):
+        pq = ""
+        if part.get("axis") == "x":               # capsule lying along x: rotate its z axis onto x
+            pq = ' quat="0.70711 0 0.70711 0"'
+        geoms.append(f'<geom name="{o["name"]}_p{i}" type="{part["kind"]}" size="{part["size"]}" '
+                     f'pos="{part["pos"][0]:.5f} {part["pos"][1]:.5f} {part["pos"][2]:.5f}"{pq} '
+                     f'mass="{o["mass"] / n:.4f}" rgba="{rgba}" {contact}/>')
+    return (f'<body name="{o["name"]}" pos="{o["pos"][0]:.5f} {o["pos"][1]:.5f} {o["pos"][2]:.5f}" '
+            f'quat="{q[0]:.5f} {q[1]:.5f} {q[2]:.5f} {q[3]:.5f}">'
+            f'<freejoint name="{o["name"]}"/>' + "".join(geoms) + '</body>')
+
+
 def _place_objects(rng, objs):
     """Random xy inside the reachable patch, random yaw, no mutual overlap."""
     placed = []
@@ -151,7 +229,8 @@ def _place_objects(rng, objs):
             yaw = rng.uniform(-np.pi, np.pi)
             r = float(np.hypot(o["half"][0], o["half"][1]))
             if all(np.hypot(x - p["pos"][0], y - p["pos"][1]) > r + p["clear"] + 0.045 for p in placed):
-                o["pos"] = np.array([x, y, TABLE_TOP + o["half"][2] + 0.001])
+                z = TABLE_TOP + 0.001 + (0.0 if "parts" in o else o["half"][2])
+                o["pos"] = np.array([x, y, z])
                 o["yaw"] = yaw
                 o["clear"] = r
                 placed.append(o)
@@ -201,15 +280,20 @@ def _reachable(model, data, targets):
     return True
 
 
-def build(seed=0, sway=True, max_tries=60, arm_hook=None):
+def build(seed=0, sway=True, max_tries=60, arm_hook=None, composites=0.0):
     """Compile one randomised episode. Returns (model, data, info).
 
     `arm_hook(spec)` is called on the fresh arm spec before it is attached,
-    which is where `wrist_camera.attach_wrist_camera` has to run."""
+    which is where `wrist_camera.attach_wrist_camera` has to run.
+    `composites` is the share of objects drawn from `_sample_composite`
+    (tools, markers, L and T shapes, pucks, bars) instead of single primitives;
+    the planner's perception only sees single-geom bodies, so leave it 0 for
+    planner runs."""
     rng = np.random.default_rng(seed)
     for attempt in range(max_tries):
         n_obj = int(rng.integers(1, 4))
-        objs = [_sample_object(rng, f"obj{i}") for i in range(n_obj)]
+        objs = [(_sample_composite if rng.uniform() < composites else _sample_object)(rng, f"obj{i}")
+                for i in range(n_obj)]
         if not _place_objects(rng, objs):
             continue
         dog_c, dog_yaw, back_top = _sample_dog(rng)
@@ -218,16 +302,7 @@ def build(seed=0, sway=True, max_tries=60, arm_hook=None):
                           dog_c, (TORSO_HALF[0] + 0.03, TORSO_HALF[1] + 0.03), dog_yaw):
             continue
 
-        extra = [_dog_xml(back_top)]
-        for o in objs:
-            q = yaw_quat(o["yaw"])
-            extra.append(
-                f'<body name="{o["name"]}" pos="{o["pos"][0]:.5f} {o["pos"][1]:.5f} {o["pos"][2]:.5f}" '
-                f'quat="{q[0]:.5f} {q[1]:.5f} {q[2]:.5f} {q[3]:.5f}">'
-                f'<freejoint name="{o["name"]}"/>'
-                f'<geom name="{o["name"]}" type="{o["kind"]}" size="{o["size"]}" mass="{o["mass"]:.4f}" '
-                f'rgba="{" ".join(f"{v:.3f}" for v in o["rgba"])}" '
-                + " ".join(f'{k}="{v}"' for k, v in CONTACT.items()) + '/></body>')
+        extra = [_dog_xml(back_top)] + [_object_xml(o) for o in objs]
         eye = (0.95, -1.75, 1.45)
         extra.append(f'<camera name="table_cam" mode="fixed" pos="{eye[0]} {eye[1]} {eye[2]}" '
                      f'xyaxes="{look_at(eye, (0.03, -0.36, 0.62))}"/>')

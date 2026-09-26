@@ -36,6 +36,9 @@ def main():
     ap.add_argument("--video", metavar="DIR")
     ap.add_argument("--wrist", metavar="SPEC_JSON", help="add the wrist camera from this spec (for --video)")
     ap.add_argument("--fps", type=int, default=20)
+    ap.add_argument("--composites", type=float, default=0.0)
+    ap.add_argument("--disturb", type=float, default=0.0)
+    ap.add_argument("--force", type=float, default=0.0)
     a = ap.parse_args()
     if not a.random and not a.policy:
         ap.error("give a policy.pt or --random")
@@ -43,11 +46,12 @@ def main():
     if not a.random:
         from grasp.ppo import Policy
         policy = Policy.load(a.policy)
-    env = GraspEnv(seed=a.seed, pool=a.n, hover=a.hover, wrist=a.wrist)
+    env = GraspEnv(seed=a.seed, pool=a.n, hover=a.hover, wrist=a.wrist, composites=a.composites,
+                   disturb_p=a.disturb, force_p=a.force)
     if a.video:
         import cv2
         os.makedirs(a.video, exist_ok=True)
-    outcomes, attempts = Counter(), []
+    outcomes, attempts, rows = Counter(), [], []
     for ep in range(a.n):
         obs, info = env.reset(seed=a.seed + ep)
         frames = []
@@ -67,9 +71,10 @@ def main():
                 act = act[0]
             obs, r, term, trunc, info = env.step(act)
             done = term or trunc
-        outcomes[info["outcome"]] += 1; attempts.append(info["attempts"])
+        outcomes[info["outcome"]] += 1; attempts.append(info["attempts"]); rows.append(info)
+        flags = "".join(k[0] for k in ("disturbed", "forced", "first_close_failed") if info[k]) or "-"
         print(f"seed {a.seed + ep}: {info['outcome']:8s} attempts {info['attempts']}  ticks {env.steps:3d}  "
-              f"{info['kind']}", flush=True)
+              f"{info['kind']:9s} {flags}", flush=True)
         if a.video and frames:
             path = os.path.join(a.video, f"ep{ep:02d}_{info['outcome']}.mp4")
             h, w = frames[0].shape[:2]
@@ -80,6 +85,11 @@ def main():
     n = a.n
     print(f"success {outcomes['success']}/{n}  " + "  ".join(f"{k} {v}" for k, v in outcomes.items() if k != "success")
           + f"  mean attempts {np.mean(attempts):.2f}")
+    for flag in ("disturbed", "forced", "first_close_failed"):
+        sub = [r for r in rows if r[flag]]
+        if sub:
+            print(f"  {flag}: success {sum(r['success'] for r in sub)}/{len(sub)}")
+    print("  flags: d disturbed, f forced early close, f first close failed")
     env.close()
 
 

@@ -28,6 +28,20 @@ from grasp.env import ACT_DIM, OBS_DIM, GraspEnv                   # noqa: E402
 from grasp.ppo import Policy, gae, ppo_update                       # noqa: E402
 
 
+def final_info(info, i):
+    """Info of environment i's episode that just ended.
+
+    With SAME_STEP autoreset the top-level info already describes the new
+    episode; gymnasium parks the old one under "final_info", either as a dict
+    of arrays or as an array of dicts depending on the version."""
+    fi = info.get("final_info")
+    if fi is None:
+        return {k: v[i] for k, v in info.items() if not k.startswith("_") and hasattr(v, "__len__")}
+    if isinstance(fi, dict):
+        return {k: v[i] for k, v in fi.items() if not k.startswith("_")}
+    return fi[i] or {}
+
+
 def make_env(seed, kw):
     def thunk():
         return GraspEnv(seed=seed, **kw)
@@ -48,6 +62,9 @@ def main():
     ap.add_argument("--ent", type=float, default=0.0)
     ap.add_argument("--hover", type=float, default=0.06)
     ap.add_argument("--pool", type=int, default=8, help="scenes per process")
+    ap.add_argument("--composites", type=float, default=0.0, help="share of composite objects (tools, markers, ...)")
+    ap.add_argument("--disturb", type=float, default=0.0, help="chance per episode of a shove during descent")
+    ap.add_argument("--force", type=float, default=0.0, help="chance per episode of a forced early close")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--init", help="policy.pt to start from")
     ap.add_argument("--device", default="cpu")
@@ -57,7 +74,7 @@ def main():
     torch.manual_seed(a.seed)
     out = os.path.join(a.out, a.name)
     os.makedirs(out, exist_ok=True)
-    kw = dict(pool=a.pool, hover=a.hover)
+    kw = dict(pool=a.pool, hover=a.hover, composites=a.composites, disturb_p=a.disturb, force_p=a.force)
     envs = gym.vector.AsyncVectorEnv([make_env(a.seed * 100 + i, kw) for i in range(a.envs)],
                                      shared_memory=False, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
     policy = Policy.load(a.init, a.device) if a.init else Policy(OBS_DIM, ACT_DIM, device=a.device)
@@ -93,10 +110,11 @@ def main():
                         B_rew[t, i] += a.gamma * float(v_last[0])
             B_done[t] = done.astype(np.float32)
             ep_ret += rew; ep_len += 1
-            if "outcome" in info:
-                for i in np.where(done)[0]:
-                    finished.append((bool(info["success"][i]), int(info["attempts"][i]), ep_ret[i], ep_len[i]))
-                    ep_ret[i] = 0.0; ep_len[i] = 0
+            for i in np.where(done)[0]:
+                fin = final_info(info, i)          # the episode that ended, not the one just reset
+                finished.append((bool(fin.get("success", False)), int(fin.get("attempts", 0)),
+                                 ep_ret[i], ep_len[i]))
+                ep_ret[i] = 0.0; ep_len[i] = 0
             obs = nobs
         _, _, last_val = policy.act(obs)
         adv, ret = gae(B_rew, B_val, B_done, last_val, a.gamma, a.lam)

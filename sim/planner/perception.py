@@ -28,6 +28,7 @@ class ObjectObs:
     quat: np.ndarray         # world orientation, wxyz
     half: np.ndarray         # half-extents in the object frame [m]
     kind: str                # box | cylinder | sphere | capsule
+    part: int = 0            # which geom of the body, for composite objects (name is the body)
 
     @property
     def R(self):
@@ -81,17 +82,25 @@ class SimPerception:
     """Ground truth from MjData, with optional isotropic noise."""
 
     def __init__(self, model, data, prefix="obj", tag_site="dog/tag",
-                 platform_geom="dog/torso", pos_noise=0.0, rot_noise=0.0, rng=None):
+                 platform_geom="dog/torso", pos_noise=0.0, rot_noise=0.0, rng=None, parts=False):
+        """`parts=True` also lists multi-geom bodies, one ObjectObs per geom
+        (same `name`, `part` = geom index within the body, pose of the geom)."""
         self.m, self.d = model, data
         self.tag = model.site(tag_site).id
         self.platform_half = model.geom(platform_geom).size.copy()
         self.pos_noise, self.rot_noise = pos_noise, rot_noise
         self.rng = rng or np.random.default_rng(0)
-        self.bodies = []
+        self.bodies = []                  # (name, body, geom, part)
         for b in range(model.nbody):
             name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, b) or ""
-            if name.startswith(prefix) and model.body_geomnum[b] == 1:
-                self.bodies.append((name, b, model.body_geomadr[b]))
+            if not name.startswith(prefix):
+                continue
+            n = model.body_geomnum[b]
+            if n == 1:
+                self.bodies.append((name, b, model.body_geomadr[b], 0))
+            elif parts:
+                for k in range(n):
+                    self.bodies.append((name, b, model.body_geomadr[b] + k, k))
 
     def _noisy(self, pos, quat):
         if self.pos_noise:
@@ -104,7 +113,7 @@ class SimPerception:
 
     def objects(self) -> list[ObjectObs]:
         out = []
-        for name, b, g in self.bodies:
+        for name, b, g, part in self.bodies:
             size, kind = self.m.geom_size[g], KINDS[int(self.m.geom_type[g])]
             if kind == "box":
                 half = size[:3].copy()
@@ -114,8 +123,13 @@ class SimPerception:
                 half = np.array([size[0], size[0], size[1]])
             else:                                   # capsule, long axis local z
                 half = np.array([size[0], size[0], size[1] + size[0]])
-            pos, quat = self._noisy(self.d.xpos[b].copy(), self.d.xquat[b].copy())
-            out.append(ObjectObs(name, pos, quat, half, kind))
+            if part == 0 and self.m.body_geomnum[b] == 1:
+                pos, quat = self.d.xpos[b].copy(), self.d.xquat[b].copy()
+            else:                                    # the geom's own world pose
+                pos, quat = self.d.geom_xpos[g].copy(), np.zeros(4)
+                mujoco.mju_mat2Quat(quat, self.d.geom_xmat[g])
+            pos, quat = self._noisy(pos, quat)
+            out.append(ObjectObs(name, pos, quat, half, kind, part))
         return out
 
     def dog(self) -> DogObs:

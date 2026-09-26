@@ -86,8 +86,15 @@ class GraspEnv(gym.Env):
 
     def __init__(self, seed=0, pool=8, max_steps=120, hover=HOVER, noise=NOISE,
                  step_xyz=STEP_XYZ, step_yaw=STEP_YAW, wrist=None, wrist_size=(320, 240),
-                 table_size=(480, 320), rand_physics=True):
+                 table_size=(480, 320), rand_physics=True, composites=0.0, disturb_p=0.0,
+                 force_p=0.0):
+        """`composites`: share of objects that are tools / markers / L, T shapes / pucks /
+        bars instead of single primitives. `disturb_p`: chance per episode that the object
+        is shoved 1-2 cm while the gripper descends. `force_p`: chance per episode that the
+        first close is forced early, before alignment, so the policy has to recover."""
         super().__init__()
+        self.composites = float(composites)
+        self.disturb_p, self.force_p = float(disturb_p), float(force_p)
         self.base_seed = int(seed)
         self.pool_size = int(pool)
         self.max_steps = int(max_steps)
@@ -121,9 +128,35 @@ class GraspEnv(gym.Env):
 
     def _scene(self, k):
         if k not in self.pool:
-            model, _, info = build(self.base_seed * 1000 + k, sway=False, arm_hook=self._arm_hook())
+            model, _, info = build(self.base_seed * 1000 + k, sway=False, arm_hook=self._arm_hook(),
+                                   composites=self.composites)
             self.pool[k] = (model, info)
         return self.pool[k]
+
+    def _solve_hover(self, pos, R, allow_name):
+        """Joints for the hover pose: warm-started IK from the nearest earlier
+        solution, collision-checked; the planner's full seed fan only as a
+        fallback. Resets were 80 % IK before this."""
+        cache = getattr(self, "_q_cache", None)
+        if cache is None:
+            cache = self._q_cache = []
+        seeds = []
+        if cache:
+            d = [np.linalg.norm(p - pos) for p, _ in cache]
+            seeds.append(cache[int(np.argmin(d))][1])
+        seeds.append(Q_HOME)
+        for s0 in seeds:
+            q, ok = self.arm.ik(s0, pos, R, iters=120)
+            if ok and self.motion.collides(q, OPEN, {allow_name}) is None:
+                break
+        else:
+            q, why = self.motion.solve(Q_HOME, pos, R, OPEN, {allow_name}, home=Q_HOME)
+            if why:
+                return q, why
+        cache.append((np.asarray(pos, float).copy(), q.copy()))
+        if len(cache) > 64:
+            del cache[0]
+        return q, None
 
     # ------------------------------------------------------------------- reset
     def reset(self, *, seed=None, options=None):
@@ -151,8 +184,10 @@ class GraspEnv(gym.Env):
             self.d.qpos[adr + 3:adr + 7] = yaw_quat(o["yaw"])
             self.d.qvel[self.m.jnt_dofadr[j]:self.m.jnt_dofadr[j] + 6] = 0.0
             if self.rand_physics:
-                g = self.m.geom(o["name"]).id
-                self.m.geom_friction[g, 0] = self.rng.uniform(0.6, 1.6)
+                b = self.m.body(o["name"]).id
+                mu = self.rng.uniform(0.6, 1.6)
+                for g in range(self.m.body_geomadr[b], self.m.body_geomadr[b] + self.m.body_geomnum[b]):
+                    self.m.geom_friction[g, 0] = mu
         self.d.mocap_pos[0] = info["dog"]["nominal_pos"]
         self.d.mocap_quat[0] = info["dog"]["nominal_quat"]
         self.d.qpos[self.arm.qadr] = Q_HOME
@@ -162,18 +197,23 @@ class GraspEnv(gym.Env):
         for _ in range(100):                       # let the objects settle
             mujoco.mj_step(self.m, self.d)
 
-        per = SimPerception(self.m, self.d)
-        seen = per.objects()
-        self.rng.shuffle(seen)
-        for obj in seen:
-            for g in propose_grasps(obj):
+        per = SimPerception(self.m, self.d, parts=True)
+        bodies = {}
+        for o in per.objects():
+            bodies.setdefault(o.name, []).append(o)
+        names = list(bodies)
+        self.rng.shuffle(names)
+        for name in names:
+            cands = [(g, part) for part in bodies[name] for g in propose_grasps(part, min_opening=0.008)]
+            cands.sort(key=lambda t: -t[0].score)
+            for g, obj in cands:
                 dxy = self.rng.normal(0.0, self.noise["xy"], 2)
                 dz = self.rng.normal(0.0, self.noise["z"])
                 dyaw = self.rng.normal(0.0, self.noise["yaw"])
                 yaw = _yaw_of(g.R) + dyaw
                 p_hover = g.pos + np.array([dxy[0], dxy[1], self.hover + dz])
                 R_hover = _grasp_R(yaw)
-                q, why = self.motion.solve(Q_HOME, p_hover, R_hover, OPEN, {obj.name}, home=Q_HOME)
+                q, why = self._solve_hover(p_hover, R_hover, obj.name)
                 if why:
                     continue
                 self.target, self.grasp = obj, g
@@ -194,8 +234,10 @@ class GraspEnv(gym.Env):
         for _ in range(50):
             mujoco.mj_step(self.m, self.d)
         b = self.m.body(self.target.name).id
+        self.shape = next(o["kind"] for o in objs if o["name"] == self.target.name)
         self.obj_body = b
-        self.obj_rest = self.d.xpos[b].copy()
+        self.obj_geom = self.m.body_geomadr[b] + self.target.part
+        self.obj_rest = self.d.geom_xpos[self.obj_geom].copy()
         self.g_cmd = 1.0                            # gripper target in [0 closed, 1 open]
         self.prev_action = np.zeros(ACT_DIM, np.float32)
         self.attempts = 0
@@ -203,6 +245,13 @@ class GraspEnv(gym.Env):
         self.held_once = False
         self.steps = 0
         self.outcome = ""
+        self._held = False
+        self.disturb = bool(self.rng.uniform() < self.disturb_p)
+        self.force = bool(self.rng.uniform() < self.force_p)
+        self.disturbed = self.forced = False
+        self.force_left = 0
+        self.first_close_tick = None
+        self.first_close_failed = False
         return True
 
     # -------------------------------------------------------------------- step
@@ -218,11 +267,29 @@ class GraspEnv(gym.Env):
             self.p_cmd, self.yaw_cmd, self.q_cmd = p, yaw, q
         # gripper: continuous target, an attempt is counted when it crosses to closing
         g = float(np.clip(0.5 * (a[4] + 1.0), 0.0, 1.0))        # 1 open .. 0 closed
+        tcp_now = self.d.site_xpos[self.arm.site]
+        if self.force and not self.forced and self.attempts == 0 and self.steps > 2 \
+                and np.linalg.norm(tcp_now[:2] - self.grasp.pos[:2]) < 0.03 \
+                and tcp_now[2] > self.grasp.pos[2] + 0.035:                 # tips still above the object
+            self.forced, self.force_left = True, 6                # slam the jaws shut early
+        if self.force_left > 0:
+            self.force_left -= 1
+            g = 0.0
+        if self.disturb and not self.disturbed and tcp_now[2] < self.grasp.pos[2] + 0.03:
+            self.disturbed = True                                 # a shove: 1-2 cm across the table
+            j = self.m.joint(self.target.name).id
+            v = self.m.jnt_dofadr[j]
+            ang = self.rng.uniform(0, 2 * math.pi)
+            self.d.qvel[v:v + 2] = self.rng.uniform(0.25, 0.45) * np.array([math.cos(ang), math.sin(ang)])
         closing = g < 0.4
         attempt = closing and not self.closing
         self.closing = closing
         if attempt:
             self.attempts += 1
+            if self.first_close_tick is None:
+                self.first_close_tick = self.steps
+            elif not self.held_once:
+                self.first_close_failed = True                   # retrying without ever holding
         self.g_cmd = g
         self.d.ctrl[self.arm.acts] = self.q_cmd
         self.d.ctrl[self.arm.grip] = CLOSED + g * (OPEN - CLOSED)
@@ -237,9 +304,12 @@ class GraspEnv(gym.Env):
         e_yaw = abs(_wrap(self.yaw_cmd - _yaw_of(self.grasp.R)))
         e_yaw = min(e_yaw, abs(math.pi - e_yaw))               # a pinch is symmetric under 180 deg
         r = -0.5 * e_pos - 0.2 * e_yaw - 0.01 - (0.3 if attempt else 0.0)
-        obj = self.d.xpos[self.obj_body]
+        obj = self.d.geom_xpos[self.obj_geom]
         gap = self.arm.gap(self.d)
         held = closing and gap_ok(gap, self.grasp.width) and np.linalg.norm(obj - tcp) < 0.09
+        if (self.first_close_tick is not None and not self.held_once
+                and self.steps == self.first_close_tick + 8 and not held):
+            self.first_close_failed = True
         if held and not self.held_once:
             self.held_once = True
             r += 2.0
@@ -265,7 +335,7 @@ class GraspEnv(gym.Env):
         q = self.d.qpos[self.arm.qadr]
         qn = 2.0 * (q - self.arm.lo) / (self.arm.hi - self.arm.lo) - 1.0
         gap = self.arm.gap(self.d)
-        obj = self.d.xpos[self.obj_body]
+        obj = self.d.geom_xpos[self.obj_geom]
         e_yaw = _wrap(self.yaw_cmd - _yaw_of(self.grasp.R))
         held = getattr(self, "_held", False)
         parts = [qn, [gap * 10.0], (self.grasp.pos - tcp) * 10.0,
@@ -276,7 +346,8 @@ class GraspEnv(gym.Env):
 
     def _info(self):
         return dict(outcome=self.outcome, attempts=self.attempts, success=self.outcome == "success",
-                    target=self.target.name, kind=self.target.kind)
+                    target=self.target.name, kind=self.shape, part=self.target.part,
+                    disturbed=self.disturbed, forced=self.forced, first_close_failed=self.first_close_failed)
 
     # ----------------------------------------------------------------- render
     def render_camera(self, camera, size):
