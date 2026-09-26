@@ -8,6 +8,9 @@ bus      - transports behind one recv/send/close interface: SocketCAN (stdlib),
 xcan_usb - the userspace libusb driver behind the XCAN transport.
 
 Importing any of them needs only the standard library.
+
+arm      - the installed arm: model, IK, collisions, reach box, guarded moves
+           (extra "arm": numpy, mujoco).
 """
 
 __version__ = "0.1.0"
