@@ -18,12 +18,17 @@ transport  CAN bus (BusTransport), MuJoCo (SimTransport); fake bus in `fake`
 api        Arm: plan / move / stop
 """
 
+from .api import Arm, Plan
 from .collision import CollisionChecker
 from .kinematics import IKResult, Kinematics, down_rotation
 from .model import GRIPPER, JOINTS, Box, Sphere, Tool
+from .motion import Motion, MoveResult, enable
 from .reach import ReachBox
+from .transport import BusTransport, Reading, SimTransport
 
 __all__ = [
+    "Arm", "Plan", "MoveResult", "Motion", "enable",
     "Kinematics", "IKResult", "down_rotation", "CollisionChecker", "ReachBox",
     "Tool", "GRIPPER", "JOINTS", "Box", "Sphere",
+    "BusTransport", "SimTransport", "Reading",
 ]
