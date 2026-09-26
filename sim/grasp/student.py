@@ -146,7 +146,8 @@ def evaluate(a):
     from collect import WRIST_SPEC
     st = Student.load(a.policy)
     env = GraspEnv(seed=a.seed, pool=a.n, wrist=a.wrist or WRIST_SPEC, wrist_size=tuple(a.size),
-                   composites=a.composites, disturb_p=a.disturb, force_p=a.force)
+                   composites=a.composites, disturb_p=a.disturb, force_p=a.force,
+                   wrist_jitter=tuple(a.jitter))
     ok, att = 0, []
     for ep in range(a.n):
         obs, info = env.reset(seed=a.seed + ep); done = False
@@ -180,6 +181,8 @@ def main():
     e.add_argument("--composites", type=float, default=0.5)
     e.add_argument("--disturb", type=float, default=0.3)
     e.add_argument("--force", type=float, default=0.3)
+    e.add_argument("--jitter", type=float, nargs=3, default=(3.0, 0.7, 0.3), metavar=("MM", "DEG", "FOVY"),
+                   help="per-scene wrist camera jitter; 0 0 0 pins it at the measured pose")
     a = ap.parse_args()
     (train if a.cmd == "train" else evaluate)(a)
 

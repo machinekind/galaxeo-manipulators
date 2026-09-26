@@ -17,8 +17,10 @@ set -euo pipefail
 : "${BETAS:=1.0 0.5 0.3 0.2 0.1 0.05 0.0}"  # teacher share per round; the last value repeats
 : "${EPOCHS:=15}"                         # student epochs per round (round 0 gets 2x)
 : "${BATCH:=256}"
-: "${IMG_W:=128}"
-: "${IMG_H:=96}"
+: "${IMG_W:=160}"
+: "${IMG_H:=120}"
+: "${WIDTH:=48}"                          # student CNN width
+: "${JITTER:=3 0.7 0.3}"                  # per-scene wrist camera jitter: mm, deg, fovy deg
 : "${COMPOSITES:=0.5}"
 : "${DISTURB:=0.3}"
 : "${FORCE:=0.3}"
@@ -82,12 +84,12 @@ for (( r = 0; r < ROUNDS; r++ )); do
         if [ -z "$PREV" ]; then
             python $PY/collect.py --teacher "$TEACHER" --out "$RD" --episodes "$PER_SHARD" --seed "$SEED_K" \
                 --size "$IMG_W" "$IMG_H" --composites "$COMPOSITES" --disturb "$DISTURB" --force "$FORCE" --vis \
-                > "$RO/collect_$k.log" 2>&1 &
+                --jitter $JITTER > "$RO/collect_$k.log" 2>&1 &
         else
             python $PY/collect.py --teacher "$TEACHER" --student "$PREV" --beta "$BETA" --out "$RD" \
                 --episodes "$PER_SHARD" --seed "$SEED_K" --size "$IMG_W" "$IMG_H" \
                 --composites "$COMPOSITES" --disturb "$DISTURB" --force "$FORCE" --vis \
-                > "$RO/collect_$k.log" 2>&1 &
+                --jitter $JITTER > "$RO/collect_$k.log" 2>&1 &
         fi
     done
     wait
@@ -101,14 +103,14 @@ for (( r = 0; r < ROUNDS; r++ )); do
     T0=$(date +%s)
     # shellcheck disable=SC2086
     python $PY/student.py train --data $DATA_DIRS --out "$RO" --epochs "$EP" --batch "$BATCH" --device "$DEVICE" \
-        ${PREV:+--init "$PREV"} 2>&1 | tee "$RO/train.log" | grep -E "ticks from|^epoch +[0-9]*[05]:|best val"
+        --width "$WIDTH" ${PREV:+--init "$PREV"} 2>&1 | tee "$RO/train.log" | grep -E "ticks from|^epoch +[0-9]*[05]:|best val"
     PREV="$RO/student.pt"
     echo "round $r: trained in $(( $(date +%s) - T0 )) s"
 
     echo "== round $r: evaluate =="
-    python $PY/student.py eval "$PREV" --n "$EVAL_N" --seed 50000 --size "$IMG_W" "$IMG_H" \
+    python $PY/student.py eval "$PREV" --n "$EVAL_N" --seed 50000 --size "$IMG_W" "$IMG_H" --jitter $JITTER \
         --composites "$COMPOSITES" --disturb "$DISTURB" --force "$FORCE" 2>&1 | tee "$RO/eval_mix.log" | tail -1
-    python $PY/student.py eval "$PREV" --n "$EVAL_N" --seed 51000 --size "$IMG_W" "$IMG_H" \
+    python $PY/student.py eval "$PREV" --n "$EVAL_N" --seed 51000 --size "$IMG_W" "$IMG_H" --jitter $JITTER \
         --composites 0 --disturb 0 --force 0 2>&1 | tee "$RO/eval_plain.log" | tail -1
     {
         echo "round $r  episodes $N_EP  driving_success $DRIVE_SUCC  teacher_share $BETA"

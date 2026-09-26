@@ -87,7 +87,7 @@ class GraspEnv(gym.Env):
     def __init__(self, seed=0, pool=8, max_steps=120, hover=HOVER, noise=NOISE,
                  step_xyz=STEP_XYZ, step_yaw=STEP_YAW, wrist=None, wrist_size=(320, 240),
                  table_size=(480, 320), rand_physics=True, composites=0.0, disturb_p=0.0,
-                 force_p=0.0):
+                 force_p=0.0, wrist_jitter=(10.0, 2.0, 1.0)):
         """`composites`: share of objects that are tools / markers / L, T shapes / pucks /
         bars instead of single primitives. `disturb_p`: chance per episode that the object
         is shoved 1-2 cm while the gripper descends. `force_p`: chance per episode that the
@@ -95,6 +95,7 @@ class GraspEnv(gym.Env):
         super().__init__()
         self.composites = float(composites)
         self.disturb_p, self.force_p = float(disturb_p), float(force_p)
+        self.wrist_jitter = tuple(wrist_jitter)          # per-scene camera jitter: mm, deg, deg of fovy
         self.base_seed = int(seed)
         self.pool_size = int(pool)
         self.max_steps = int(max_steps)
@@ -122,8 +123,10 @@ class GraspEnv(gym.Env):
         rng = self.rng
 
         def hook(spec):
+            j = self.wrist_jitter
             wc.attach_wrist_camera(spec, hand="right", design=design, collision=False, visual=False,
-                                   jitter=dict(pos_mm=10.0, rot_deg=2.0, fovy_deg=1.0), rng=rng)
+                                   jitter=dict(pos_mm=j[0], rot_deg=j[1], fovy_deg=j[2]) if any(j) else None,
+                                   rng=rng)
         return hook
 
     def _scene(self, k):

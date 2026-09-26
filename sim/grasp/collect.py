@@ -66,6 +66,9 @@ def main():
     ap.add_argument("--force", type=float, default=0.3)
     ap.add_argument("--vis", action="store_true", help="randomise lights and table colour per episode")
     ap.add_argument("--pool", type=int, default=24)
+    ap.add_argument("--jitter", type=float, nargs=3, default=(3.0, 0.7, 0.3), metavar=("MM", "DEG", "FOVY"),
+                   help="per-scene wrist camera jitter. 10/2/1 (the calibration's uncertainty) caps a "
+                        "single-frame student: it cannot tell a camera offset from an object offset.")
     a = ap.parse_args()
 
     from grasp.ppo import Policy
@@ -77,7 +80,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     rng = np.random.default_rng(a.seed)
     env = GraspEnv(seed=a.seed, pool=a.pool, wrist=a.wrist, wrist_size=tuple(a.size),
-                   composites=a.composites, disturb_p=a.disturb, force_p=a.force)
+                   composites=a.composites, disturb_p=a.disturb, force_p=a.force, wrist_jitter=tuple(a.jitter))
     t0 = time.time()
     n_ok = 0
     for ep in range(a.episodes):
