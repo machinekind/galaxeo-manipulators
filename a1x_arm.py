@@ -160,10 +160,15 @@ class A1XArm:
     def _send(self, cid, payload):
         if self.dry_run or not self.tx:
             return
-        try:
-            self.sock.send_frame(cid, payload)      # real bus: can_io's module-level API
-        except AttributeError:
-            self.sock.send(cid, payload)            # tests: a bus-level stub
+        if can_io is None:
+            raise RuntimeError("can_io is missing; cannot transmit on SocketCAN")
+        if hasattr(can_io, "send_frame"):
+            can_io.send_frame(self.sock, cid, payload)
+        else:
+            try:
+                self.sock.send_frame(cid, payload)
+            except AttributeError:
+                self.sock.send(cid, payload)
         self.n_tx += 1
 
     def send_arm(self, p, kp=20.0, kd=1.0):
