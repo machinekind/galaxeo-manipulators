@@ -219,6 +219,11 @@ class GraspEnv(gym.Env):
                 self.target, self.grasp = obj, g
                 self.p_cmd, self.yaw_cmd, self.q_cmd = p_hover.copy(), yaw, q.copy()
                 self.p0 = p_hover.copy()
+                # what the hover BELIEVES it is above: the true grasp plus the perception error.
+                # The student gets this (it is what the planner or VLA hands over); only the
+                # privileged teacher gets the true grasp and object.
+                self.believed_pos = g.pos + np.array([dxy[0], dxy[1], dz])
+                self.believed_yaw = yaw
                 break
             else:
                 continue
@@ -342,6 +347,21 @@ class GraspEnv(gym.Env):
                  [math.sin(2 * e_yaw), math.cos(2 * e_yaw)],      # 180-deg symmetric
                  (obj - tcp) * 10.0, self.target.half * 10.0, [self.grasp.width * 10.0],
                  [self.g_cmd], self.prev_action, [self.attempts / 3.0], [1.0 if held else 0.0]]
+        return np.concatenate([np.asarray(p, np.float32).ravel() for p in parts]).astype(np.float32)
+
+    STUDENT_DIM = 6 + 1 + 3 + 2 + 1 + ACT_DIM + 1
+
+    def student_obs(self):
+        """What a policy without ground truth can know: joints, gap, the believed
+        grasp relative to the TCP, believed yaw error, gripper target, previous
+        action, attempts. The wrist image (`render_wrist`) carries the rest."""
+        tcp, R = self.arm.tcp_pose(self.d)
+        q = self.d.qpos[self.arm.qadr]
+        qn = 2.0 * (q - self.arm.lo) / (self.arm.hi - self.arm.lo) - 1.0
+        e_yaw = _wrap(self.yaw_cmd - self.believed_yaw)
+        parts = [qn, [self.arm.gap(self.d) * 10.0], (self.believed_pos - tcp) * 10.0,
+                 [math.sin(2 * e_yaw), math.cos(2 * e_yaw)], [self.g_cmd], self.prev_action,
+                 [self.attempts / 3.0]]
         return np.concatenate([np.asarray(p, np.float32).ravel() for p in parts]).astype(np.float32)
 
     def _info(self):
