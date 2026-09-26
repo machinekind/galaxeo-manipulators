@@ -201,8 +201,11 @@ def _reachable(model, data, targets):
     return True
 
 
-def build(seed=0, sway=True, max_tries=60):
-    """Compile one randomised episode. Returns (model, data, info)."""
+def build(seed=0, sway=True, max_tries=60, arm_hook=None):
+    """Compile one randomised episode. Returns (model, data, info).
+
+    `arm_hook(spec)` is called on the fresh arm spec before it is attached,
+    which is where `wrist_camera.attach_wrist_camera` has to run."""
     rng = np.random.default_rng(seed)
     for attempt in range(max_tries):
         n_obj = int(rng.integers(1, 4))
@@ -232,7 +235,10 @@ def build(seed=0, sway=True, max_tries=60):
             BASE_XML.replace("</worldbody>", "".join(extra) + "</worldbody>"))
         # a fresh copy per attach: MjSpec.attach takes ownership of the child,
         # and reusing one across compiles segfaults
-        spec.attach(_arm_spec().copy(), prefix="arm/", frame=spec.body("arm_mount").add_frame())
+        arm_spec = _arm_spec().copy()
+        if arm_hook is not None:
+            arm_hook(arm_spec)
+        spec.attach(arm_spec, prefix="arm/", frame=spec.body("arm_mount").add_frame())
         model = spec.compile()
 
         data = mujoco.MjData(model)
