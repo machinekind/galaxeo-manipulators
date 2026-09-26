@@ -99,15 +99,13 @@ class A1XArm:
     def __init__(self, iface="can0", dry_run=True, tx=False):
         if not dry_run and not tx:
             raise ValueError("live arm needs tx=True (or use dry_run=True)")
-        if not dry_run and can_io is None:
+        if can_io is None:
             raise SystemExit("can_io is missing (no SocketCAN on this machine?)")
         self.iface = iface
         self.dry_run = dry_run
         self.tx = tx
-        self.sock = None
-        if not dry_run:
-            self.sock = can_io.open_socket(iface, rx_only=False)
-            self.sock.setblocking(False)
+        self.sock = can_io.open_socket(iface, rx_only=not tx)
+        self.sock.setblocking(False)
         self.q = None; self.v = None; self.e = None
         self.t = 0.0; self.n = 0; self.n_tx = 0
         self.same = 0; self._last = None
@@ -402,4 +400,3 @@ class GripperFK:
 # --------------------------------------------------------------------- deg
 def deg(q):
     return ", ".join(f"{math.degrees(x):6.1f}" for x in q)
-
