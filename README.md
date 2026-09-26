@@ -131,6 +131,14 @@ driver keeps its own copy, pinned byte for byte by `tests/test_protocol.py`
 What does not change whichever app drives the arm: the A1X model, its reach,
 its collisions and a safe way to move it. Any app imports it.
 
+Who uses it today: the digital twin's Spectacles driver, which turns a pinch
+in the glasses into `plan` and `move` calls. Its page is
+[digital_twin_training/docs/SPECS.md](https://github.com/machinekind/digital_twin_training/blob/specs-galaxeo-arm/docs/SPECS.md);
+the two-machine runbook (glasses on one machine, arm and cameras on another)
+is [docs/RIG.md](https://github.com/machinekind/digital_twin_training/blob/specs-galaxeo-arm/docs/RIG.md)
+there; the glasses side (Lens, relay, marker registration) is
+[specs-lens](https://github.com/machinekind/specs-lens/tree/reach-project#readme).
+
 ```bash
 pip install -e ".[arm]"          # + numpy, mujoco
 ```
@@ -171,7 +179,10 @@ point between the finger plates). Joints are radians, as on the wire.
 
 The effort thresholds (20 on moves, 12 descending, 3 samples in a row, in
 `0x052` effort units) are first-session guesses, not measurements: see
-`galaxeo/arm/transport.py`. Nothing here has run on the arm yet.
+`galaxeo/arm/transport.py`. This package has not run on the arm yet; the
+twin's earlier copy of the same ramp and guard moved the real A1X on
+2026-09-26, and the dry-mode effort log from that day is the input for
+replacing the guesses.
 
 ```bash
 python -m pytest tests            # needs numpy, mujoco, pytest; fake bus and sim only
