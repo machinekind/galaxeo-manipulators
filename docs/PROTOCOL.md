@@ -59,9 +59,17 @@ Which is also why J3 reading ~+0.026 rad (+1.49 deg) at rest is a **zero-offset
 / calibration difference and not a decode error**. The driver's `joint_offsets`
 parameter (radians, subtracted from the raw reading) compensates.
 
-### Group 7 is not the gripper position
+### Group 7 is the gripper motor angle, not the vendor's stroke value
 
-An earlier reading of this protocol assumed it was. It is not. The vendor
+Group 7 tracks the gripper's commanded p_des. It is not the value the vendor
+publishes on `/hdas/feedback_gripper`. Measured 2026-09-27 over XCAN with
+`python -m galaxeo.xcan_usb --grip-test`: group 7 went -0.27 deg at the start,
+-85.60 deg holding p_des -1.50, and -0.40 deg holding p_des 0.00. That is
+about 57 deg per p_des unit, or 0.99 rad per rad: the gripper joint's own
+angle in the same units as its command. It moves with the jaws, so it can
+serve as jaw feedback. Calibrate the mapping to jaw opening on your arm.
+
+What an earlier note here got right: the vendor
 publishes 3.1–3.4 rad on `/hdas/feedback_gripper`, and that value does not
 appear anywhere in the 48-byte payload under any of the `/4700`, `/750`, `/600`
 or `/1000` scales — all 24 int16 fields were checked. Gripper feedback is
@@ -69,8 +77,8 @@ decoded from elsewhere or derived, likely through the unexplained constants in
 `arm_decode_impl` (100.0, 17.5, 6.69696, 20.09088, 46.87872, 33.48480, 5.5),
 which look like a stroke conversion.
 
-**Unresolved.** If you need gripper position, measure it, don't read it out of
-`0x052`.
+So `/hdas/feedback_gripper` is a derived stroke value. How it is derived from
+group 7 is unresolved.
 
 ## 0x050 — joint command
 
@@ -141,10 +149,15 @@ driver's `can_io.py` (f3b38a5, Linux, where rounding `len` up to 12 was said
 to stop the gripper). Nothing after that reproduces it: until b114d5a,
 `jog_a1x.py` padded `0x051` to 12 zero bytes itself, and 3f483a6 records that
 sweep moving the gripper 85 deg. A 12-byte zero-padded frame is also exactly
-what `galaxeo.xcan_usb` sends. So the claim is **unverified since f3b38a5**. A
-gripper that does not react is more likely the bit-12 fault below or the
-intermittent deafness `so101_bridge.py` works around. To check on the Mac:
-`python -m galaxeo.xcan_usb --grip-test`.
+what `galaxeo.xcan_usb` sends.
+
+**Verified 2026-09-27 on XCAN: the gripper moves.** This was a Mac with the
+XCAN dongle (fw 3.2.0) running `python -m galaxeo.xcan_usb --grip-test`.
+Group 7 went -0.27 → -85.60 deg at p_des -1.50, then back to -0.40 deg at
+p_des 0.00 (85.3 deg of travel), and the gripper's `0x054` word dropped
+RECEIVE_TIMEOUT while `0x051` streamed. The f3b38a5 claim is wrong. A gripper
+that does not react is more likely the bit-12 fault below or the intermittent
+deafness `so101_bridge.py` works around. Run `--grip-test` again to check.
 
 ## 0x053 — function frames
 

@@ -75,8 +75,8 @@ def pack_frame(can_id: int, data: bytes, fd: bool = True) -> bytes:
     field carries the ACTUAL payload length and the kernel maps it to the next FD DLC
     (pcan_usb_fd_encode_msg: can_fd_len2dlc), so a 10-byte 0x051 is 12 bytes on the
     wire either way; only the 2 padding bytes differ (zeros here, stale URB bytes when
-    the kernel pads). "The gripper ignores a 12-byte 0x051" is unverified since
-    f3b38a5, and 3f483a6 saw 12-byte zero-padded frames drive it 85 deg.
+    the kernel pads). The gripper takes the 12-byte frame: verified 2026-09-27 on
+    XCAN, where it moved 85 deg (docs/PROTOCOL.md, 0x051).
     """
     data = bytes(data)
     n = len(data)
@@ -156,9 +156,9 @@ class XcanBus:
 
     A 10-byte 0x051 goes out as DLC 9, 12 bytes zero-padded, the same wire frame as
     SocketCAN's apart from the 2 padding bytes (galaxeo.xcan_usb.encode_tx_record).
-    The old caveat that the gripper ignores this frame is unverified since f3b38a5,
-    where it was made about a Linux driver; check on the arm with
-    python -m galaxeo.xcan_usb --grip-test.
+    Verified 2026-09-27 on XCAN: the gripper moves (python -m galaxeo.xcan_usb
+    --grip-test: 85 deg of travel, RECEIVE_TIMEOUT cleared). The old caveat that it
+    ignores this frame (f3b38a5) was wrong.
     """
 
     def __init__(self, addr: Optional[int] = None):

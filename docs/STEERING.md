@@ -386,7 +386,8 @@ python -m galaxeo.xcan_usb --grip-test [--addr 6]   # TRANSMITS 0x051: gripper o
 and ends with `RESULT:`. It counts the frame as delivered if group 7 of
 `0x052` moves more than 3 deg or the gripper's `0x054` word drops bit 4
 (RECEIVE_TIMEOUT) while it streams. It warns first if bit 12, the gripper
-fault that only a power cycle clears, is set.
+fault that only a power cycle clears, is set. First run, 2026-09-27: 85.3 deg of
+travel and RECEIVE_TIMEOUT cleared, so the gripper works over XCAN.
 
 `jog_a1x.py` uses it by default on macOS (`--iface xcan`, or `xcan:<usb
 address>` to pin one of two dongles; with two plugged in it picks the one that

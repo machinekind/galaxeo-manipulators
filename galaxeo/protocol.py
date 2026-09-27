@@ -88,7 +88,7 @@ Number = Union[int, float]
 class Feedback(NamedTuple):
     """One decoded 0x052 frame: 7 groups (J1..J6, then the gripper group)."""
 
-    pos: tuple   # rad; group 7 is NOT the gripper position (docs/PROTOCOL.md)
+    pos: tuple   # rad; group 7 = gripper motor angle, ~1:1 with its p_des (docs/PROTOCOL.md)
     vel: tuple   # rad/s
     eff: tuple   # effort units (raw / 600)
 
