@@ -1,4 +1,4 @@
-"""Userspace PCAN-USB FD driver over libusb, read-only proof of concept.
+"""Userspace PCAN-USB FD driver over libusb, for the XCAN dongle on macOS.
 
 Speaks the uCAN protocol the Linux kernel's peak_usb driver uses for the
 PCAN-USB FD (and the XCAN clones that report the same 0c72:0012 id), so the
@@ -8,6 +8,7 @@ drivers/net/can/usb/peak_usb/pcan_usb_fd.c and include/linux/can/dev/peak_canfd.
 
     python -m galaxeo.xcan_usb            # listen-only, decode 0x052, 5 s
     python -m galaxeo.xcan_usb --secs 20 --addr 6
+    python -m galaxeo.xcan_usb --grip-test [--addr 6]   # TRANSMITS: gripper open, close
 
 Requires pyusb and libusb (pip install "galaxeo[xcan]"; brew install libusb).
 
@@ -70,6 +71,8 @@ OPTION_ERROR, OPTION_CANDFDISO, USB_OPT_CALIBRATION = 0x0001, 0x0004, 0x8000
 MSG_CAN_RX, MSG_ERROR, MSG_STATUS, MSG_BUSLOAD = 0x0001, 0x0002, 0x0003, 0x0004
 MSG_CALIBRATION, MSG_OVERRUN = 0x100, 0x101
 FLAG_EXT_DATA_LEN, FLAG_EXT_ID, FLAG_RTR = 0x10, 0x02, 0x01
+FLAG_BRS = 0x20                     # PUCAN_MSG_BITRATE_SWITCH
+MSG_CAN_TX, TX_HEADER_LEN = 0x1000, 20   # PUCAN_MSG_CAN_TX, sizeof(struct pucan_tx_msg)
 DLC2LEN = list(range(9)) + [12, 16, 20, 24, 32, 48, 64]
 
 # vendor's timings, 80 MHz clock: 1 Mbit/s and 5 Mbit/s at sample point 0.875
@@ -79,6 +82,46 @@ FAST = dict(brp=1, tseg1=13, tseg2=2, sjw=2)
 
 def opc(opcode, channel=0):
     return struct.pack("<H", (channel << 12) | (opcode & 0x3FF))
+
+
+def encode_tx_record(can_id, data, fd=True, brs=True, channel=0):
+    """The USB bytes for one transmitted frame: a pucan_tx_msg record plus the null-size end tag.
+
+    Field for field what pcan_usb_fd_encode_msg (drivers/net/can/usb/peak_usb/pcan_usb_fd.c)
+    writes, struct pucan_tx_msg from include/linux/can/dev/peak_canfd.h, little-endian:
+
+        size u16 | type u16 = 0x1000 | tag_low u32 | tag_high u32 |
+        channel_dlc u8 = channel | dlc << 4 | client u8 | flags u16 | can_id u32 | d[]
+
+    flags: PUCAN_MSG_EXT_DATA_LEN (0x10) for FD, PUCAN_MSG_BITRATE_SWITCH (0x20) with BRS,
+    PUCAN_MSG_RTR / EXT_ID / ESI / SINGLE_SHOT never (galaxeo sends none of those).
+
+    The kernel never writes tag_low, tag_high, client, the alignment padding after the
+    payload, or the upper half of the end tag: they hold whatever the reused kmalloc'd URB
+    buffer held before. Here they are zero. The firmware sends DLC2LEN[dlc] bytes from
+    d[], so for a 10-byte 0x051 (DLC 9) both drivers put 12 bytes on the wire and only
+    d[10..11] can differ: stale bytes from Linux, zeros from here.
+
+    An FD payload is zero-padded to its DLC length before the record is sized: for 10
+    bytes that is the kernel's own size (ALIGN(20 + 10, 4) = 32); for the 60-byte arm frame
+    it is 84 where the kernel writes 80 and lets the firmware read d[60..63] out of the end
+    tag. Same wire bytes; the 84-byte record is what the arm has been driven with.
+    """
+    data = bytes(data)
+    if fd:
+        if len(data) > 64:
+            raise ValueError(f"CAN FD carries at most 64 bytes, got {len(data)}")
+        dlc = next(i for i, ln in enumerate(DLC2LEN) if ln >= len(data))
+        data = data.ljust(DLC2LEN[dlc], b"\x00")
+        flags = FLAG_EXT_DATA_LEN | (FLAG_BRS if brs else 0)
+    else:
+        if len(data) > 8:
+            raise ValueError(f"classic CAN carries at most 8 bytes, got {len(data)}")
+        dlc = len(data); flags = 0
+    size = (TX_HEADER_LEN + len(data) + 3) & ~3
+    rec = struct.pack("<HHIIBBHI", size, MSG_CAN_TX, 0, 0, (channel & 0xF) | (dlc << 4), 0, flags,
+                      can_id & 0x7FF)
+    return (rec + data).ljust(size, b"\x00") + bytes(4)          # null size = end of list
 
 
 class PcanUsbFd:
@@ -168,18 +211,8 @@ class PcanUsbFd:
 
     # ---- transmit (pcan_usb_fd_encode_msg) ---------------------------------------------
     def send(self, can_id, data, fd=True, brs=True):
-        """One CAN or CAN FD frame on the message pipe. FD lengths are rounded up
-        to a legal DLC and zero-padded, as the wire would carry them anyway."""
-        data = bytes(data)
-        if fd:
-            dlc = next(i for i, ln in enumerate(DLC2LEN) if ln >= len(data))
-            data = data.ljust(DLC2LEN[dlc], b"\x00")
-            flags = FLAG_EXT_DATA_LEN | (0x20 if brs else 0)
-        else:
-            dlc = len(data); flags = 0
-        size = (20 + len(data) + 3) & ~3
-        rec = struct.pack("<HHIIBBHI", size, 0x1000, 0, 0, dlc << 4, 0, flags, can_id & 0x7FF)
-        rec = (rec + data).ljust(size, b"\x00") + bytes(4)          # null size = end of list
+        """One CAN or CAN FD frame on the message pipe; the bytes are encode_tx_record's."""
+        rec = encode_tx_record(can_id, data, fd=fd, brs=brs)
         n = self.dev.write(EP_MSG_OUT, rec, timeout=100)
         if n != len(rec):
             raise RuntimeError(f"short msg write {n}/{len(rec)}")
@@ -313,8 +346,88 @@ class XcanBus:
         self.dev.stop()
 
 
+def grip_test(d, a):
+    """Bench check that 0x051 from this driver reaches the gripper: ramp p_des open, then
+    closed, streaming 0x051 only (no 0x050: the joints keep holding where they are).
+
+    Two independent signs of delivery, printed at the end:
+      * group 7 of 0x052 (position, effort) changes between the open and closed holds;
+      * the gripper's 0x054 status word drops bit 4 (0x0010, RECEIVE_TIMEOUT) while
+        0x051 is streamed, which it does only for frames it accepted (docs/PROTOCOL.md).
+    """
+    from .protocol import FB_ID, FB_LEN, GRIP_ID, STATUS_ID, decode_feedback, encode_gripper
+
+    st = dict(fb=None, t=0.0, words=[], n_tx=0)
+
+    def drain():
+        for kind, rec in d.read(5):             # 5 ms: one 200 Hz period
+            if kind != "rx":
+                continue
+            if rec["id"] == FB_ID and len(rec["data"]) == FB_LEN:
+                st["fb"] = decode_feedback(rec["data"]); st["t"] = time.time()
+            elif rec["id"] == STATUS_ID and len(rec["data"]) >= 16:
+                st["words"].append((time.time(), struct.unpack(">8H", rec["data"][:16])))
+
+    t0 = time.time()
+    while st["fb"] is None and time.time() - t0 < 3.0:
+        drain()
+    if st["fb"] is None:
+        logger.error("no 0x052 feedback in 3 s: not sending anything. Arm powered? Right dongle (--addr)?")
+        return 2
+    t_idle = time.time()
+    while time.time() - t_idle < 1.2:               # one 0x054 at 1 Hz, before we talk
+        drain()
+    idle_words = [w for _, w in st["words"]]
+    if idle_words and idle_words[-1][6] & 0x1000:
+        logger.warning("gripper status word %04x has bit 12 set: gripper fault, it will not drive "
+                       "until the arm is power-cycled (docs/PROTOCOL.md)", idle_words[-1][6])
+    grp7 = lambda: (math.degrees(st["fb"].pos[6]), st["fb"].eff[6])
+    logger.info("gripper test: 0x051 at %g Hz, kp %g kd %g, open p_des %+.2f then close %+.2f, %gs each",
+                a.rate, a.grip_kp, a.kd, a.open, a.close, a.each)
+    logger.info("  record for p_des %+.2f: %s", a.open,
+                encode_tx_record(GRIP_ID, encode_gripper(a.open, a.grip_kp, a.kd)).hex())
+    logger.info("  start: grp7 pos %+7.2f deg  eff %+.2f", *grp7())
+    start_pos = grp7()[0]
+    t_stream = time.time()
+    results = []
+    p_from = 0.0
+    for tag, target in (("open", a.open), ("close", a.close)):
+        ts = time.time(); nxt = ts; peak = 0.0
+        while time.time() - ts < a.each:
+            drain(); now = time.time()
+            if now - st["t"] > 0.25:
+                logger.error("feedback lost for 0.25 s: stopped")
+                return 2
+            if now >= nxt:
+                nxt = max(nxt + 1.0 / a.rate, now - 1.0 / a.rate)   # catch up, never burst
+                f = min(1.0, (now - ts) / 1.0)                        # 1 s ramp, then hold
+                d.send(GRIP_ID, encode_gripper(p_from + (target - p_from) * f, a.grip_kp, a.kd))
+                st["n_tx"] += 1
+            peak = max(peak, abs(st["fb"].eff[6]))
+        pos, _eff = grp7()
+        results.append((tag, pos, peak))
+        logger.info("  %-5s p_des %+.2f: grp7 pos %+7.2f deg  |eff| peak %.2f", tag, target, pos, peak)
+        p_from = target
+    t_end = time.time()
+    moved = max(abs(results[0][1] - start_pos), abs(results[1][1] - results[0][1]))
+    streamed = [w[6] for t, w in st["words"] if t_stream + 1.0 < t < t_end]
+    heard = bool(streamed) and all(not w & 0x0010 for w in streamed)
+    logger.info("sent %d frames on 0x051", st["n_tx"])
+    logger.info("gripper status word: idle %s, while streaming %s",
+                " ".join(f"{w[6]:04x}" for w in idle_words[-1:]) or "?",
+                " ".join(f"{w:04x}" for w in streamed) or "?")
+    logger.info("grp7 moved up to %.1f deg (start -> open -> close)", moved)
+    if moved > 3.0 or heard:
+        logger.info("RESULT: the gripper receives 0x051 over XCAN (%s)",
+                    ", ".join(x for x, ok in (("it moved", moved > 3.0), ("RECEIVE_TIMEOUT cleared", heard)) if ok))
+        return 0
+    logger.info("RESULT: no sign the gripper received 0x051 (did not move, RECEIVE_TIMEOUT stayed set)")
+    return 1
+
+
 def main(argv=None):
-    """Read-only check: firmware info, then decode 0x052 for --secs. Transmits no frame."""
+    """Read-only check: firmware info, then decode 0x052 for --secs. Transmits no frame,
+    except with --grip-test, which streams 0x051 to open and close the gripper."""
     from .protocol import FB_ID, FB_LEN, decode_feedback
 
     ap = argparse.ArgumentParser(prog="python -m galaxeo.xcan_usb", description=main.__doc__)
@@ -322,8 +435,20 @@ def main(argv=None):
     ap.add_argument("--secs", type=float, default=5.0)
     ap.add_argument("-v", action="store_true")
     ap.add_argument("--normal", action="store_true", help="normal mode: the adapter ACKs frames (still sends none)")
+    ap.add_argument("--grip-test", action="store_true",
+                    help="TRANSMITS: stream 0x051 to open, then close the gripper, and report whether "
+                         "group 7 of 0x052 and the gripper's 0x054 word react")
+    ap.add_argument("--open", type=float, default=-1.5, help="--grip-test open p_des (about -2.0 = fully open)")
+    ap.add_argument("--close", type=float, default=0.0, help="--grip-test close p_des (about +0.6 = fully closed)")
+    ap.add_argument("--each", type=float, default=3.0, help="--grip-test seconds per direction")
+    ap.add_argument("--rate", type=float, default=200.0, help="--grip-test stream rate, Hz (jog and bridge use 200)")
+    ap.add_argument("--grip-kp", type=float, default=20.0, help="--grip-test kp (jog_a1x.py default)")
+    ap.add_argument("--kd", type=float, default=1.0, help="--grip-test kd (jog_a1x.py default)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if a.grip_test and a.grip_kp <= 0:
+        logger.error("--grip-kp must be > 0")
+        return 2
 
     try:
         d = PcanUsbFd(a.addr, a.v)
@@ -335,6 +460,12 @@ def main(argv=None):
     if a.v:
         logger.info("  raw: %s", raw.hex())
     d.drv_loaded(True)
+    if a.grip_test:
+        d.start(listen_only=False)
+        try:
+            return grip_test(d, a)
+        finally:
+            d.stop()
     d.start(listen_only=not a.normal)
     logger.info("listening %gs (%s, sends no frames)", a.secs,
                 "normal mode, ACK only" if a.normal else "listen-only mode")
