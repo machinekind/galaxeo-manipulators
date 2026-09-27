@@ -15,6 +15,7 @@ isn't any.
 | [3. ROS 2 driver](#3-ros-2-driver) | + Docker | `/hdas/*` topics, RViz, your own nodes |
 | [4. Script it over raw CAN](#4-script-it-over-raw-can) | Python 3 only | ~40 lines to a moving arm |
 | [5. On-screen jog](#5-on-screen-jog) | Python 3, macOS (libusb) or Linux | hold a key, a joint moves |
+| [6. Steer with your head](#6-steer-with-your-head) | + a webcam, MediaPipe | the arm turns and nods with your head |
 
 ---
 
@@ -382,15 +383,67 @@ python -m galaxeo.xcan_usb --normal   # standalone: fw info, then 0x052 at ~200 
 
 `jog_a1x.py` uses it by default on macOS (`--iface xcan`, or `xcan:<usb
 address>` to pin one of two dongles; with two plugged in it picks the one that
-hears traffic). The driver refuses to run anywhere else: Linux already has
-the adapter as SocketCAN, and the panel goes through python-can there
-(`--iface can0`, or `PCAN_USBBUS1` on Windows with PCAN-Basic). Two things learned on the way:
+hears traffic). It also runs on **Windows** (below); on Linux it refuses,
+since the adapter is SocketCAN there (`--iface can0`). Two things learned on the way:
 
 * In **listen-only** mode the adapter does not ACK, so the arm retransmits
   every frame back-to-back and 0x052 appears at ~6 kHz with a repeating
   payload. Normal mode (ACK only, nothing sent) gives the true 200 Hz.
 * The dongle is a **full-speed** USB device: command packets go out in
   64-byte pieces, as the kernel driver does.
+
+### Windows: WinUSB, not PEAK's driver
+
+Measured 2026-09-27 on a clone XCAN (`0c72:0012`, fw 3.2.0). Under PEAK's own
+Windows driver (`PCAN_USBBUS1`, PCAN-Basic) the channel delivers **about 3 s**
+of 0x052 after it opens and then nothing — no error frame, bus state OK,
+PCAN-Basic's status quiet, the arm still transmitting. Unplugging the adapter
+buys another 3 s. So on Windows bind the adapter to **WinUSB** with
+[Zadig](https://zadig.akeo.ie) (Options → List All Devices → XCAN-USB FD →
+WinUSB → Replace Driver) and use `xcan` as on macOS: 60 s at a steady 200 Hz,
+repeated opens in one process, guarded moves, the gripper and head steering
+all verified that way.
+
+```bash
+pip install -e ".[xcan,arm]"          # pyusb + libusb-package (ships libusb-1.0.dll)
+python -m galaxeo.xcan_usb --normal   # fw info, then 0x052
+```
+
+`galaxeo.bus.default_iface()` picks for you on Windows: `xcan` when the
+adapter is on WinUSB, `PCAN_USBBUS1` when it is still on PEAK's driver (a USB
+probe, nothing on the bus). **Windows binds drivers per USB port**: moving the
+adapter to another port can bring PEAK's driver back — replug it where Zadig
+ran, or run Zadig again. To go back to PEAK: Device Manager → the adapter →
+Uninstall device, replug.
+
+---
+
+## 6. Steer with your head
+
+`head_steer_a1x.py` follows your head from a webcam (MediaPipe Face
+Landmarker): turn → J1, nod → J4, tilt → J6.
+
+```bash
+pip install -e ".[arm,head]"                 # + mediapipe; the face model downloads on first use
+python head_steer_a1x.py --dry-run           # camera + angles + targets, no arm: check directions
+python head_steer_a1x.py                     # lift, SPACE follows, X lowers the arm and exits
+```
+
+On start the arm goes from its rest pose to a **look pose** (tool forward,
+~0.29 m over the table) through `galaxeo.arm` guarded moves. **SPACE**
+captures your head and the measured arm pose and from then on streams only the
+difference, so nothing jumps; each joint stays inside a window around the look
+pose (±45° J1, ±30° J4, ±45° J6). **X** lowers the arm through the look pose to
+a relaxed pose (folded, wrist straight, shoulder and elbow half a degree off
+their stops) — the pose to cut power in.
+
+The stream starts from the measured pose, slews at `--max-speed` (30°/s) and
+stops — the arm holding where it is — on stale or frozen feedback, on a joint
+that stays away from its setpoint (deaf or blocked), on an effort moving more
+than `--effort-stop` from its value at SPACE, or on ESC. Losing your face
+holds the arm; your face coming back re-anchors without a jump. Keys `1/2/3`
+flip turn/nod/tilt live (`--invert yaw|pitch|roll` for good); the defaults are
+for a camera in front of the operator.
 
 ---
 

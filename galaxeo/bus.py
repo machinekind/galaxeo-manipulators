@@ -150,7 +150,9 @@ class SocketCanBus:
 
 
 class XcanBus:
-    """The XCAN / PCAN-USB FD dongle on macOS through galaxeo.xcan_usb (pyusb + libusb).
+    """The XCAN / PCAN-USB FD dongle on macOS or Windows through galaxeo.xcan_usb (pyusb + libusb).
+
+    On Windows the adapter must be bound to WinUSB (Zadig) instead of PEAK's driver.
 
     Caveat: the adapter can only send legal FD lengths, so a 10-byte 0x051 goes out
     as 12 bytes (DLC 9), which the gripper has been seen to ignore. Arm frames are
@@ -158,8 +160,8 @@ class XcanBus:
     """
 
     def __init__(self, addr: Optional[int] = None):
-        if platform.system() != "Darwin":
-            raise RuntimeError("xcan is the macOS driver. On Linux the same dongle is SocketCAN "
+        if platform.system() not in ("Darwin", "Windows"):
+            raise RuntimeError("xcan is the macOS / Windows driver. On Linux the same dongle is SocketCAN "
                                "(kernel peak_usb): ./can_up.sh, then iface can0.")
         from . import xcan_usb             # stdlib-only import; pyusb loads on open
         self._xcan = xcan_usb
@@ -228,5 +230,38 @@ def open_bus(iface: str) -> CanBus:
 
 
 def default_iface() -> str:
-    """The usual interface on this OS: xcan on macOS, can0 elsewhere."""
-    return "xcan" if platform.system() == "Darwin" else "can0"
+    """The usual interface on this OS: xcan on macOS, can0 on Linux; on Windows the one the
+    adapter's driver allows (see `windows_iface`)."""
+    system = platform.system()
+    if system == "Darwin":
+        return "xcan"
+    if system == "Windows":
+        return windows_iface()
+    return "can0"
+
+
+def windows_iface() -> str:
+    """xcan when the XCAN / PCAN-USB FD adapter is bound to WinUSB, else PCAN_USBBUS1 (PEAK's driver).
+
+    With PEAK's driver the clone XCAN delivers ~3 s of frames and then goes silent without an
+    error (2026-09-27), so WinUSB + xcan is the working path. Probing only configures the USB
+    device; nothing goes on the CAN bus. A device another process holds answers busy, which
+    still means WinUSB.
+    """
+    try:
+        from . import xcan_usb
+        usb = xcan_usb._usb()
+        dev = usb.core.find(idVendor=xcan_usb.VID, idProduct=xcan_usb.PID, backend=xcan_usb._backend())
+    except Exception:                       # no pyusb / libusb: only PCAN-Basic can be meant
+        return "PCAN_USBBUS1"
+    if dev is None:
+        return "PCAN_USBBUS1"
+    try:
+        dev.set_configuration()
+        return "xcan"
+    except NotImplementedError:             # bound to a vendor driver, not WinUSB
+        return "PCAN_USBBUS1"
+    except usb.core.USBError:               # WinUSB, but held by another process
+        return "xcan"
+    finally:
+        usb.util.dispose_resources(dev)

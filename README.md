@@ -84,6 +84,7 @@ XCAN dongle through `xcan_usb.py`.
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
 | `jog_a1x.py` | on-screen jog, one joint per key. Runs on macOS |
 | `move_to_point_a1x.py` | tool to a point in the base frame (`--point x y z`), planned and guarded by `galaxeo.arm` |
+| `head_steer_a1x.py` | the arm follows your head from a webcam (MediaPipe); lifts, follows on SPACE, lowers on X |
 | `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package--galaxeo) |
 | `galaxeo/arm/` | the installed arm: model, IK, collisions, reach box, guarded moves. See [Installed arm](#installed-arm--galaxeoarm) |

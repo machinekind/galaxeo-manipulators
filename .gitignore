@@ -50,3 +50,6 @@ so101/calib_*.json
 
 # --- camera calibration sessions (intrinsics, wrist frames, fits) ---------------
 calib_session/
+
+# --- MediaPipe models, downloaded on first use (head_steer_a1x.py) -------------
+models/

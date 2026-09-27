@@ -47,10 +47,21 @@ def _usb():
 
 
 def _backend():
-    if platform.system() != "Darwin":
-        raise XcanError("galaxeo.xcan_usb is the macOS driver. Linux already has this adapter as "
+    system = platform.system()
+    if system not in ("Darwin", "Windows"):
+        raise XcanError("galaxeo.xcan_usb is the macOS / Windows driver. Linux already has this adapter as "
                         "SocketCAN (kernel peak_usb); use ./can_up.sh and can0.")
     usb = _usb()
+    if system == "Windows":
+        # The adapter must be bound to WinUSB (Zadig), not to PEAK's driver; libusb-package ships the DLL.
+        try:
+            import libusb_package
+        except ImportError as ex:
+            raise XcanError('libusb for Windows is missing:  pip install "galaxeo[xcan]"') from ex
+        backend = libusb_package.get_libusb1_backend()
+        if backend is None:
+            raise XcanError("libusb-1.0.dll could not be loaded (libusb-package)")
+        return backend
     lib = find_library("usb-1.0") or "/opt/homebrew/lib/libusb-1.0.dylib"
     backend = usb.backend.libusb1.get_backend(find_library=lambda n: lib)
     if backend is None:
@@ -100,6 +111,10 @@ class PcanUsbFd:
             # device" (errno 19), which reads like an unplugged cable.
             raise XcanError(f"cannot claim XCAN usb addr {self.dev.address}: {ex}\n"
                             "  Is another jog_a1x.py / galaxeo.xcan_usb still running? One process per dongle.") from ex
+        except NotImplementedError as ex:
+            # Windows: libusb cannot open a device bound to a vendor driver (PEAK's pcan_usb).
+            raise XcanError("the XCAN adapter is not bound to WinUSB. Replace its driver with WinUSB in "
+                            "Zadig (https://zadig.akeo.ie), or use iface PCAN_USBBUS1 with PEAK's driver.") from ex
 
     # ---- vendor control requests (pcan_usb_pro_send_req) --------------------
     def fw_info(self):
@@ -164,7 +179,11 @@ class PcanUsbFd:
             self.drv_loaded(False)
         except Exception as ex:
             logger.warning("stop: %s", ex)
-        _usb().util.release_interface(self.dev, 0)
+        usb = _usb()
+        usb.util.release_interface(self.dev, 0)
+        # Close the device handle too: on Windows (WinUSB) an open handle makes the next open in
+        # the same process fail with "Access denied" until the process exits.
+        usb.util.dispose_resources(self.dev)
 
     # ---- transmit (pcan_usb_fd_encode_msg) ---------------------------------------------
     def send(self, can_id, data, fd=True, brs=True):
