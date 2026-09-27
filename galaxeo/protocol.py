@@ -39,7 +39,7 @@ N_JOINTS = 6          # J1..J6
 N_GROUPS = 7          # feedback groups: J1..J6 + gripper
 GROUP_LEN = 10        # one joint in a command: 5 x int16
 CMD_LEN = N_JOINTS * GROUP_LEN   # 60: the vendor sends 60 bytes, not 64
-GRIP_LEN = GROUP_LEN             # 10: the gripper ignores a 12-byte frame
+GRIP_LEN = GROUP_LEN             # 10 (12 on the wire, DLC 9); see docs/PROTOCOL.md 0x051
 FB_LEN = 48
 FB_FOOTER = bytes.fromhex("5c2e0024a827")
 

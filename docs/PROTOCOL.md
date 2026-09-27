@@ -120,6 +120,32 @@ effort rising 0.013 → 2.25, end to end. (The A1XY unboxing guide's line about
 grippers not being included is about what ships in the box, not about what this
 protocol supports.)
 
+### On the wire: 12 bytes, whatever the host passes
+
+CAN FD has no 10-byte frame. Every host sends `0x051` as DLC 9, which is 12
+data bytes; `candump` on the sending host shows `[10]` because it prints the
+local echo of what the host passed in, not what went out on the wire. On Linux the kernel
+takes `len` 10 and maps it to DLC 9 (`pcan_usb_fd_encode_msg` in
+`drivers/net/can/usb/peak_usb/pcan_usb_fd.c`: `can_fd_len2dlc`, then
+`memcpy(tx_msg->d, cfd->data, cfd->len)` into a 32-byte record,
+`ALIGN(sizeof(struct pucan_tx_msg) + len, 4)`). The adapter then sends the 2
+padding bytes d[10..11] from a TX URB buffer that is `kmalloc`ed once and reused
+(`pcan_usb_core.c`), so they hold stale bytes. `galaxeo.xcan_usb` writes the same record
+with those bytes zero. Every other field matches: size 32, type `0x1000`,
+`channel_dlc` `0x90`, flags `0x30` (EXT_DATA_LEN | BITRATE_SWITCH), id `0x051`.
+The kernel does not write `tag_low`, `tag_high` or `client` either.
+`tests/test_xcan_usb.py` pins the bytes.
+
+The claim that "the gripper ignores a 12-byte `0x051`" comes from the ROS 2
+driver's `can_io.py` (f3b38a5, Linux, where rounding `len` up to 12 was said
+to stop the gripper). Nothing after that reproduces it: until b114d5a,
+`jog_a1x.py` padded `0x051` to 12 zero bytes itself, and 3f483a6 records that
+sweep moving the gripper 85 deg. A 12-byte zero-padded frame is also exactly
+what `galaxeo.xcan_usb` sends. So the claim is **unverified since f3b38a5**. A
+gripper that does not react is more likely the bit-12 fault below or the
+intermittent deafness `so101_bridge.py` works around. To check on the Mac:
+`python -m galaxeo.xcan_usb --grip-test`.
+
 ## 0x053 — function frames
 
 One byte. `hdas_msg/srv/FunctionFrame`, field `uint8 command`.
