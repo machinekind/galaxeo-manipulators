@@ -382,7 +382,7 @@ def grip_test(d, a):
         logger.warning("gripper status word %04x has bit 12 set: gripper fault, it will not drive "
                        "until the arm is power-cycled (docs/PROTOCOL.md)", idle_words[-1][6])
     grp7 = lambda: (math.degrees(st["fb"].pos[6]), st["fb"].eff[6])
-    logger.info("gripper test: 0x051 at %g Hz, kp %g kd %g, open p_des %+.2f then close %+.2f, %gs each",
+    logger.info("gripper test: 0x051 at %g Hz, kp %g kd %g, open p_des %+.2f, close %+.2f, open again, %gs each",
                 a.rate, a.grip_kp, a.kd, a.open, a.close, a.each)
     logger.info("  record for p_des %+.2f: %s", a.open,
                 encode_tx_record(GRIP_ID, encode_gripper(a.open, a.grip_kp, a.kd)).hex())
@@ -391,7 +391,7 @@ def grip_test(d, a):
     t_stream = time.time()
     results = []
     p_from = 0.0
-    for tag, target in (("open", a.open), ("close", a.close)):
+    for tag, target in (("open", a.open), ("close", a.close), ("open", a.open)):   # ends open
         ts = time.time(); nxt = ts; peak = 0.0
         while time.time() - ts < a.each:
             drain(); now = time.time()

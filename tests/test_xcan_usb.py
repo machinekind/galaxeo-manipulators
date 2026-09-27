@@ -92,7 +92,8 @@ def test_grip_test_reports_a_gripper_that_follows(monkeypatch):
     assert X.grip_test(d, _args()) == 0
     assert d.sent and all(struct.unpack(">h", f[4:6])[0] == 1200 for f in d.sent)   # kp 20
     assert min(struct.unpack(">h", f[:2])[0] for f in d.sent) == -7050              # reached open
-    assert 900 <= len(d.sent) <= 1250                                                # ~200 Hz x 6 s
+    assert 1350 <= len(d.sent) <= 1900                                               # ~200 Hz x 9 s
+    assert struct.unpack(">h", d.sent[-1][:2])[0] == -7050                           # ends open
 
 
 def test_grip_test_reports_a_deaf_gripper(monkeypatch):
