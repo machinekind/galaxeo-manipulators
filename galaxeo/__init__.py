@@ -11,6 +11,8 @@ Importing any of them needs only the standard library.
 
 arm      - the installed arm: model, IK, collisions, reach box, guarded moves
            (extra "arm": numpy, mujoco).
+vision   - two env cameras → stereo cloud in the base → GraspGenX ZMQ client
+           (extra "vision": numpy, opencv, pyzmq, msgpack).
 """
 
 __version__ = "0.1.0"
