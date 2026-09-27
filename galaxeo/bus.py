@@ -10,10 +10,10 @@ Every backend imports its third-party module only when it is opened, so this
 module imports on any OS with nothing but the standard library. A missing module
 is an ImportError that names the pip extra to install.
 
-send(can_id, data, fd=True) puts the payload on the wire with its TRUE length:
-the gripper answers only a 10-byte 0x051 frame and ignores a 12-byte one. Use
-fd=False for the 1-byte function frames on 0x053 (classic CAN, as the vendor
-sends them).
+send(can_id, data, fd=True) hands the payload over at its TRUE length (10 bytes for
+0x051, 60 for 0x050). CAN FD has no 10- or 60-byte frame: every backend sends the
+next DLC length (12, 64), and the extra bytes are padding. Use fd=False for the
+1-byte function frames on 0x053 (classic CAN, as the vendor sends them).
 """
 
 from __future__ import annotations
@@ -72,9 +72,11 @@ def pack_frame(can_id: int, data: bytes, fd: bool = True) -> bytes:
     """The complete SocketCAN struct: 16 bytes (classic) or 72 (FD), true length in `len`.
 
     SocketCAN wants the whole struct written, not header + payload (EINVAL). The len
-    field carries the ACTUAL payload length: the kernel maps it to the next FD DLC
-    itself, while rounding it here changes what the peer sees (the gripper ignores a
-    12-byte 0x051).
+    field carries the ACTUAL payload length and the kernel maps it to the next FD DLC
+    (pcan_usb_fd_encode_msg: can_fd_len2dlc), so a 10-byte 0x051 is 12 bytes on the
+    wire either way; only the 2 padding bytes differ (zeros here, stale URB bytes when
+    the kernel pads). The gripper takes the 12-byte frame: verified 2026-09-27 on
+    XCAN, where it moved 85 deg (docs/PROTOCOL.md, 0x051).
     """
     data = bytes(data)
     n = len(data)
@@ -152,9 +154,11 @@ class SocketCanBus:
 class XcanBus:
     """The XCAN / PCAN-USB FD dongle on macOS through galaxeo.xcan_usb (pyusb + libusb).
 
-    Caveat: the adapter can only send legal FD lengths, so a 10-byte 0x051 goes out
-    as 12 bytes (DLC 9), which the gripper has been seen to ignore. Arm frames are
-    unaffected.
+    A 10-byte 0x051 goes out as DLC 9, 12 bytes zero-padded, the same wire frame as
+    SocketCAN's apart from the 2 padding bytes (galaxeo.xcan_usb.encode_tx_record).
+    Verified 2026-09-27 on XCAN: the gripper moves (python -m galaxeo.xcan_usb
+    --grip-test: 85 deg of travel, RECEIVE_TIMEOUT cleared). The old caveat that it
+    ignores this frame (f3b38a5) was wrong.
     """
 
     def __init__(self, addr: Optional[int] = None):
