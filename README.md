@@ -50,6 +50,7 @@ no LeRobot needed).
 | [**HARDWARE.md**](docs/HARDWARE.md) | wiring, bus timings, joint limits, telling two adapters apart |
 | [**VENDOR_SDK.md**](docs/VENDOR_SDK.md) | which Galaxea SDK is which, and where the useful one lives |
 | [**TWIN.md**](docs/TWIN.md) | the A1X in the digital twin: install, configuration, first session |
+| [**GRASP.md**](docs/GRASP.md) | the wrist-camera grasp student: weights, bench measurements, running it in the twin |
 | [docs/notes/](docs/notes/) | working notes, kept for provenance |
 
 ## What's in here
@@ -85,10 +86,13 @@ XCAN dongle through `xcan_usb.py`.
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
 | `jog_a1x.py` | on-screen jog, one joint per key. Runs on macOS |
 | `move_to_point_a1x.py` | tool to a point in the base frame (`--point x y z`), planned and guarded by `galaxeo.arm` |
+| `grasp_model.py` | the grasp student's checkpoint: fetch over HTTPS with its sha256, check, time on this CPU |
+| `grasp_bench.py` | the grasp student's bench: jaw stroke, table touch, grasp point, latency, dot, into the rig file |
 | `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package--galaxeo) |
 | `galaxeo/arm/` | the installed arm: model, IK, collisions, reach box, guarded moves. See [Installed arm](#installed-arm--galaxeoarm) |
 | `galaxeo/robot/` | the A1X as a robot package for the digital twin: robot folder and `a1x` backend. See [docs/TWIN.md](docs/TWIN.md) |
+| `galaxeo/grasp/` | the wrist-camera grasp student as a twin strategy. See [Grasp student](#grasp-student--galaxeograsp) |
 | `import_twin_model.py` | regenerates the twin's model `galaxeo/robot/a1x/a1x.xml` from the URDF |
 | `galaxeo/xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
@@ -194,6 +198,25 @@ replacing the guesses.
 ```bash
 python -m pytest tests            # needs numpy, mujoco, pytest; fake bus and sim only
 ```
+
+### Grasp student — `galaxeo.grasp`
+
+A policy trained in simulation that does the last centimetres of a top-down
+grasp from the wrist camera, as a strategy of the digital twin (`grasp` in the
+panel's Strategie tab, sim or real by the twin's backend). The package holds
+the training contract, the per-rig file, the network and the camera geometry;
+it never imports the twin.
+
+```bash
+pip install -e ".[grasp]"        # + numpy 2, torch, opencv-contrib-python
+python3 grasp_model.py fetch ~/models/student.pt
+python3 grasp_bench.py show --rig rig.json
+```
+
+`grasp_bench.py` moves the arm through `galaxeo.arm` and the jaw through the
+`a1x` backend, one owner of the CAN link at a time; `--sim` rehearses on the
+MuJoCo model. Runbook, limits and open issues:
+[docs/GRASP.md](docs/GRASP.md).
 
 ### The container — `docker/`
 
