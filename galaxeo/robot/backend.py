@@ -91,9 +91,12 @@ GRIP_TRAVEL_MARGIN_S = 0.2
 FOREIGN_WINDOW_S = 0.5
 #: The last payloads remembered per CAN id: the adapter's echo is not another sender.
 ECHO_KEEP = 16
-#: An echo arrives within this time of the send or not at all [s]; a later copy is another sender
-#: (e.g. a second backend holding the same pose with the same gains).
-ECHO_WINDOW_S = 0.05
+#: An echo arrives within this time of the send or not at all [s], counted to the exchange before
+#: the drain that finds it (frames carry no receive stamp, and it came in after that exchange): a
+#: CAN thread stalled by the GIL or a garbage collection drains late, and its own echo must not
+#: look like another sender. Several loop periods; a later copy is another sender (e.g. a second
+#: backend holding the same pose with the same gains), and so is a second copy of one send.
+ECHO_WINDOW_S = 0.25
 #: The fault while another sender is seen. No joint name: the twin takes it for an arm fault and STOPs.
 FOREIGN_FAULT = "inny nadawca na laczu CAN (ramki rozkazu spoza blizniaka)"
 
@@ -389,6 +392,13 @@ class A1XArm:
         a = self.acfg
         return a.gripper_closed_pdes + v / 100.0 * (a.gripper_open_pdes - a.gripper_closed_pdes)
 
+    def _pdes_app(self, p: float | None) -> float | None:
+        """Gripper p_des -> 0..100, the inverse of `_pdes`; None stays None."""
+        if p is None:
+            return None
+        a = self.acfg
+        return (p - a.gripper_closed_pdes) * 100.0 / (a.gripper_open_pdes - a.gripper_closed_pdes)
+
     def _grip_app(self) -> float:
         """Gripper 0..100: measured through the two points, or (without them) the last command / assumption."""
         a = self.acfg
@@ -624,7 +634,8 @@ class A1XArm:
 
     def _check_sender(self, can_id: int, data: bytes, now: float) -> None:
         """A command frame on the link: our own echo, or another sender (counted, a fault for a while)."""
-        if self._own_payload(can_id, data, now):
+        received_after = now if self._last_io is None else min(self._last_io, now)
+        if self._own_payload(can_id, data, received_after):
             return
 
         if now - self._foreign_t >= FOREIGN_WINDOW_S:
@@ -632,11 +643,12 @@ class A1XArm:
         self._foreign += 1
         self._foreign_t = now
 
-    def _own_payload(self, can_id: int, data: bytes, now: float) -> bool:
-        """Whether `data` is the echo of a fresh frame of ours on `can_id`; one send explains one echo."""
+    def _own_payload(self, can_id: int, data: bytes, received_after: float) -> bool:
+        """Whether `data`, received after the time `received_after`, is the echo of a frame of ours on
+        `can_id` sent at most ECHO_WINDOW_S before; one send explains one echo."""
         sent = self._sent.get(can_id, ())
         for i, mine in enumerate(sent):
-            if now - mine.t > ECHO_WINDOW_S:
+            if received_after - mine.t > ECHO_WINDOW_S:
                 continue
             # XCAN pads FD frames with zeros to an allowed length (0x050: 60 -> 64, 0x051: 10 -> 12).
             padded = (len(data) > len(mine.data) and data.startswith(mine.data)
@@ -795,16 +807,12 @@ class A1XArm:
 
                 a = self.acfg
                 span = a.gripper_open_pdes - a.gripper_closed_pdes
-
-                def app(p: float | None) -> float | None:
-                    return None if p is None else (p - a.gripper_closed_pdes) * 100.0 / span
-
                 fb = self._fresh_fb()
                 measured = self.gripper_measured()
                 return GripperState(
                     commanded=self._g_cmd,
-                    target=app(self._g_target),
-                    streamed=app(self._g_stream),
+                    target=self._pdes_app(self._g_target),
+                    streamed=self._pdes_app(self._g_stream),
                     position=self._grip_app() if measured else None,
                     frozen=self._g_frozen,
                     effort=None if fb is None else float(fb.eff[6]),

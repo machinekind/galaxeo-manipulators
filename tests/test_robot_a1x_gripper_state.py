@@ -251,7 +251,7 @@ def test_gripper_state_never_raises_and_logs_the_error_once(monkeypatch, caplog)
 def test_the_constants_of_the_sender_check():
     assert FOREIGN_WINDOW_S == 0.5
     assert ECHO_KEEP == 16
-    assert ECHO_WINDOW_S == 0.05
+    assert ECHO_WINDOW_S == 0.25
 
 
 def test_the_other_sender_fault_names_no_joint_so_the_twin_stops():
@@ -294,6 +294,28 @@ def test_a_command_frame_the_backend_never_sent_is_counted_and_reported_for_half
 
     assert rig.arm.foreign_frames() == 2
     assert rig.arm.faults() == [FOREIGN_FAULT]
+
+
+def stalled_echo(stall_s: float) -> Rig:
+    """Our last 0x050 echoed back while the CAN thread stalls `stall_s` (the GIL, a garbage
+    collection) before its next exchange."""
+    rig = connected()
+    open_stream(rig)
+    rig.arm.send_joints({"arm_joint1": 40.0})
+    rig.run(0.1)
+    rig.bus.rx.append(Frame(P.CMD_ID, rig.bus.frames(P.CMD_ID)[-1]))
+    rig.clock.t += stall_s
+    rig.bus.tick(stall_s)
+    rig.arm.io_step(rig.clock.t)
+    return rig
+
+
+def test_our_own_echo_drained_after_a_60_ms_stall_is_no_fault():
+    assert stalled_echo(0.06).arm.faults() == []
+
+
+def test_our_own_echo_drained_after_a_60_ms_stall_is_not_counted_as_another_sender():
+    assert stalled_echo(0.06).arm.foreign_frames() == 0
 
 
 def test_the_count_starts_again_on_the_next_connect():
@@ -346,7 +368,7 @@ def test_an_echo_of_the_backends_own_payloads_is_not_another_sender():
 
     # A second copy of an echoed payload, one sent more than the echo window ago, or one padded with
     # anything but zeros: another sender.
-    stale = rig.bus.frames(P.CMD_ID)[-12]                                      # 60 ms old at the next drain
+    stale = rig.bus.frames(P.CMD_ID)[-round((ECHO_WINDOW_S + 0.05) / STEP)]   # 0.3 s old at the next drain
     rig.bus.rx.extend([
         Frame(P.CMD_ID, cmd[-1]),
         Frame(P.CMD_ID, stale),
