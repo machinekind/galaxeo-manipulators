@@ -325,13 +325,16 @@ def complete_rig(path: Path, **change: Any) -> Path:
 
 
 def sim_rig(path: Path, *, touch: float = TOUCH_EXPECTED_Z, xy: tuple[float, float] = CUBE_XY,
-            yaw: float = CUBE_YAW, camera_s: float = 0.0) -> Path:
-    path.write_text(json.dumps({
+            yaw: float = CUBE_YAW, camera_s: float = 0.0, stroke_s: float | None = None) -> Path:
+    data = {
         "version": 1,
         "table": {"touch_tcp_z": touch},
         "grasp": {"tcp": [xy[0], xy[1], touch + TIP_CLEAR], "yaw": yaw, "object_height": 0.03},
         "latency": {"camera_s": camera_s},
-    }), encoding="utf-8")
+    }
+    if stroke_s is not None:
+        data["gripper"] = {"stroke_close_s_effort": stroke_s}
+    path.write_text(json.dumps(data), encoding="utf-8")
     return path
 
 
@@ -1146,11 +1149,11 @@ def test_shadow_never_reports_a_success(shadow_run):
     assert shadow_run["strategy"].ending.success is None
 
 
-def close_on_tick_3(use_policy, hover: Hover, *, shadow: bool) -> Seen:
+def close_on_tick_3(use_policy, hover: Hover, *, shadow: bool, rig_json: str = "") -> Seen:
     """The policy ticks of a run that closes the jaw on its fourth policy tick."""
     policy = use_policy(ScriptedPolicy(segments((3, STILL), (40, CLOSE))))
     arm = at_hover(hover)
-    strategy = start(policy, arm, shadow=shadow)
+    strategy = start(policy, arm, shadow=shadow, rig_json=rig_json)
     ticks = drive(strategy, arm, policy, seconds=2.0)
     return Seen(ticks=policy_ticks(ticks), calls=list(policy.calls))
 
@@ -1161,6 +1164,23 @@ def read_gap(call: Call) -> float:
 
 def test_in_shadow_the_policy_reads_a_jaw_closing_at_the_stream_rate(use_policy, hover):
     run = close_on_tick_3(use_policy, hover, shadow=True)
+    closed_at = run.ticks[3].obs.t
+    want = [GAP_CLOSED + GAP_PER_UNIT * max(0.0, 100.0 - STREAM_UNITS_S * (t.obs.t - closed_at)) for t in run.ticks[4:]]
+    np.testing.assert_allclose([read_gap(c) for c in run.calls[4:]], want, atol=1e-7)
+
+
+def test_in_shadow_the_policy_reads_a_jaw_closing_at_the_rate_measured_on_the_rig(use_policy, hover, tmp_path):
+    # A 2 s close stroke recorded by grasp_bench.py gripper: 50 units/s.
+    rig = sim_rig(tmp_path / "rig.json", stroke_s=2.0)
+    run = close_on_tick_3(use_policy, hover, shadow=True, rig_json=str(rig))
+    closed_at = run.ticks[3].obs.t
+    want = [GAP_CLOSED + GAP_PER_UNIT * max(0.0, 100.0 - 50.0 * (t.obs.t - closed_at)) for t in run.ticks[4:]]
+    np.testing.assert_allclose([read_gap(c) for c in run.calls[4:]], want, atol=1e-7)
+
+
+def test_a_rig_without_a_measured_stroke_leaves_the_stream_rate(use_policy, hover, tmp_path):
+    rig = sim_rig(tmp_path / "rig.json")
+    run = close_on_tick_3(use_policy, hover, shadow=True, rig_json=str(rig))
     closed_at = run.ticks[3].obs.t
     want = [GAP_CLOSED + GAP_PER_UNIT * max(0.0, 100.0 - STREAM_UNITS_S * (t.obs.t - closed_at)) for t in run.ticks[4:]]
     np.testing.assert_allclose([read_gap(c) for c in run.calls[4:]], want, atol=1e-7)

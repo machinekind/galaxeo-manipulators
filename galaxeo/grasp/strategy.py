@@ -29,7 +29,8 @@ integrates from the measured pose. The supervisor rate-limits each target to `ma
 The jaw gap the policy reads is the measured gripper, `GAP_CLOSED + GAP_PER_UNIT * opening`: the
 A1X measures its jaw, the simulated arm reports the scene's finger slide. In shadow the real jaw
 stays open, the floor stays above the object and nothing is a success; the gap there comes from
-a virtual jaw that follows the policy's own command (`_VirtualJaw`).
+a virtual jaw that follows the policy's own command (`_VirtualJaw`) at the jaw speed measured on
+the rig (`Rig.jaw_units_s`), else at the contract's `STREAM_UNITS_S`.
 
 Every ending answers `done=True`. An ending that may hold the object (success, lifted, tick or
 time cap) keeps the last episode target, jaw included; any other holds where the arm measures.
@@ -320,8 +321,7 @@ class _Believed:
 
 @dataclass
 class _VirtualJaw:
-    """Shadow only: the opening a jaw would have under the policy's command, slewed at the A1X
-    backend's gripper stream rate.
+    """Shadow only: the opening a jaw would have under the policy's command, slewed at `rate`.
 
     The real jaw is pinned open in shadow, so its measured gap would tell the policy that its close
     did nothing: a gap training never showed after a close.
@@ -329,10 +329,11 @@ class _VirtualJaw:
 
     opening: float                     # 0..100
     t: float                           # obs.t of the last update [s]
+    rate: float                        # units/s
 
     def follow(self, t: float, commanded: float) -> float:
         """The opening at `t`; the time since the last update counts whole, skipped ticks included."""
-        step = STREAM_UNITS_S * max(t - self.t, 0.0)
+        step = self.rate * max(t - self.t, 0.0)
         self.t = t
         self.opening += min(max(_units(commanded) - self.opening, -step), step)
         return self.opening
@@ -870,11 +871,17 @@ class Grasp:
         self.phase = Phase.EPISODE
         floor = self._floor_of(self._sag)
         cmd = GraspCommand(self._hover.p, self._hover.yaw, self._hover.q, floor_z=floor)
-        jaw = _VirtualJaw(opening=GRIP_OPEN, t=obs.t) if self.config.shadow else None
+        jaw = _VirtualJaw(opening=GRIP_OPEN, t=obs.t, rate=self._jaw_rate()) if self.config.shadow else None
         self._episode = _Episode(cmd=cmd, sag_used=self._sag, sag_est=self._sag, t0=obs.t, floor_z0=floor,
                                  next_policy_t=obs.t, target={**self._hover_deg, GRIPPER: GRIP_OPEN}, jaw=jaw)
         self._guard = ImpactGuard(ARM, lag_deg=EPISODE_LAG_DEG, lag_s=GUARD_LAG_S)
         logger.info("grasp episode: floor %.1f mm, sag %.1f mm", floor * 1000.0, self._sag * 1000.0)
+
+    def _jaw_rate(self) -> float:
+        """The virtual jaw's speed [units/s]: the jaw stroke measured on this rig (`gripper` of
+        grasp_bench.py), else the contract's stream rate."""
+        measured = self._rig.jaw_units_s()
+        return STREAM_UNITS_S if measured is None else measured
 
     def _run_episode(self, obs: Observation) -> Move:
         ep = self._episode
