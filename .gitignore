@@ -50,3 +50,6 @@ so101/calib_*.json
 
 # --- camera calibration sessions (intrinsics, wrist frames, fits) ---------------
 calib_session/
+
+# --- worktree virtualenv -------------------------------------------------------
+.venv/
