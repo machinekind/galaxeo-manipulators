@@ -15,6 +15,7 @@ is the model's finger slide in metres (`finger_qpos`).
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence, Tuple, Union
@@ -61,11 +62,12 @@ GRIPPER = Tool()
 
 @dataclass(frozen=True)
 class Box:
-    """Obstacle: axis-aligned box in the base frame, centre and half-sizes [m]."""
+    """Obstacle: box in the base frame, centre and half-sizes [m], turned by `yaw` [rad] about base z."""
 
     center: Tuple[float, float, float]
     half: Tuple[float, float, float]
     name: str = ""
+    yaw: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -84,7 +86,8 @@ def _as_obstacles(obstacles: Iterable[Obstacle]) -> Tuple[Obstacle, ...]:
     out = []
     for o in obstacles or ():
         if isinstance(o, Box):
-            out.append(Box(tuple(float(v) for v in o.center), tuple(float(v) for v in o.half), o.name))
+            out.append(Box(tuple(float(v) for v in o.center), tuple(float(v) for v in o.half), o.name,
+                           float(o.yaw)))
         elif isinstance(o, Sphere):
             out.append(Sphere(tuple(float(v) for v in o.center), float(o.radius), o.name))
         else:
@@ -115,6 +118,7 @@ def build(tool: Tool = GRIPPER, obstacles: Sequence[Obstacle] = ()) -> mujoco.Mj
         if isinstance(o, Box):
             g.type = mujoco.mjtGeom.mjGEOM_BOX
             g.size = list(o.half)
+            g.quat = [math.cos(o.yaw / 2.0), 0.0, 0.0, math.sin(o.yaw / 2.0)]
         else:
             g.type = mujoco.mjtGeom.mjGEOM_SPHERE
             g.size = [o.radius, 0.0, 0.0]

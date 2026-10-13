@@ -60,6 +60,23 @@ def test_caller_obstacles_boxes_and_spheres(kin, checker):
     assert checker.config_clear(q) is None
 
 
+def wall_beside_the_tool(kin, yaw):
+    """A thin wall 10 cm beside the tool, 30 cm long along x before it is turned by `yaw`."""
+    q = solve(kin, [0.35, 0.0, 0.10])
+    tip = kin.fk(q)[:3, 3]
+    return q, Box((float(tip[0]), float(tip[1]) + 0.10, float(tip[2])), (0.15, 0.005, 0.05), "wall", yaw=yaw)
+
+
+def test_an_unturned_box_beside_the_tool_is_clear(kin, checker):
+    q, wall = wall_beside_the_tool(kin, 0.0)
+    assert checker.config_clear(q, [wall]) is None
+
+
+def test_a_box_turned_by_its_yaw_runs_where_the_turned_box_does(kin, checker):
+    q, wall = wall_beside_the_tool(kin, np.pi / 2)
+    assert "wall" in (checker.config_clear(q, [wall]) or "")
+
+
 def test_path_is_checked_not_only_the_goal(kin, checker):
     a = solve(kin, [0.30, -0.20, 0.10])
     b = solve(kin, [0.30, 0.20, 0.10])
