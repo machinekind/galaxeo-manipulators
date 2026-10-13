@@ -18,6 +18,22 @@ fingertips: [finger2_tip, finger1_tip]
 roll_joint: arm_joint6
 jaw_bodies: [gripper_finger_link1, gripper_finger_link2]
 
+# The wrist camera the grasp student was trained with (galaxeo.grasp.contract: T_GRIPPER_CAMERA,
+# FOVY_DEG, 160x120): an ideal pinhole on gripper_link, pose T_cam2body in OpenCV axes. A
+# simulated arm renders it; a real arm gets the workspace camera of the same name, the raw
+# 1920x1080 frame that the strategy re-projects.
+cameras:
+  wrist:
+    body: gripper_link
+    pose:
+      - [-0.5396919613474123, -0.34962129600231007, 0.7658312713898854, -0.05060687411211338]
+      - [-0.840763266463087, 0.27031196633365107, -0.46909334958316684, 0.04299012698832195]
+      - [-0.043008332021868434, -0.8970487111849055, -0.4398339381382439, 0.0935611657849058]
+      - [0.0, 0.0, 0.0, 1.0]
+    fovy_deg: 45.67
+    width: 160
+    height: 120
+
 # The model's `home` keyframe (1.0 / -1.6 / 0.6 rad) with the gripper closed (0), like the
 # station's home ("Set home = here" stores gripper 0) and like an A1X without gripper feedback
 # reports (`a1x.gripper_start`).
