@@ -166,7 +166,11 @@ point between the finger plates). Joints are radians, as on the wire.
   from the URDF; joint limits come from it.
 * **Kinematics** - FK and IK of the tool frame in MuJoCo. IK reports its
   residual, keeps to the limits, and puts the point before the orientation.
-* **Collision** - self, table and caller boxes/spheres; poses and whole paths.
+  `ik_step` is the grasp training's own solver (one warm 6-D start), for the
+  wrist-camera grasp policy; `link_pose` and `fingertips` give body poses and
+  the lowest fingertip corners.
+* **Collision** - self, table and caller boxes/spheres; poses and whole paths,
+  optionally at a given jaw opening.
 * **Reach box** - `arm.reach`, x 0.20..0.50, y ±0.30, z 0.05..0.30 m for the
   gripper: every corner of a 4x4x3 grid solves within 3 mm and is clear.
   Cached in `assets/reach.json`, recomputed when the model or tool changes.

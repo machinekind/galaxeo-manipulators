@@ -71,6 +71,49 @@ def test_path_is_checked_not_only_the_goal(kin, checker):
     assert why is not None and "post" in why and "of the way" in why
 
 
+# ---- the jaw opening --------------------------------------------------------------------------
+# A top-down hover on the arm's left, where the grasp policy works.
+HOVER = np.radians([90.0, 120.0, -77.0, 47.0, 0.0, 0.0])
+
+
+def beside_the_jaws(kin, side):
+    """A cup outside the jaws at the home opening (finger plate at 44 mm) but on the plate of a fully open finger."""
+    T = kin.fk(HOVER)
+    return Sphere(tuple(T[:3, 3] + side * 0.062 * T[:3, 1]), 0.004, "cup")
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0], ids=["finger1", "finger2"])
+def test_a_wide_open_finger_hits_what_the_home_opening_misses(kin, checker, side):
+    cup = [beside_the_jaws(kin, side)]
+
+    why = checker.config_clear(HOVER, cup, opening=0.05)
+
+    assert checker.config_clear(HOVER, cup) is None
+    assert checker.config_clear(HOVER, cup, opening=0.0) is None
+    assert why is not None
+    assert "cup" in why
+    assert "gripper_finger_link" in why
+
+
+def test_path_clear_checks_every_sample_at_the_given_opening(kin, checker):
+    cup = [beside_the_jaws(kin, 1.0)]
+    start = HOVER.copy()
+    start[5] -= 0.6                                                # the jaws turn into the cup about the approach axis
+
+    why = checker.path_clear(start, HOVER, cup, opening=0.05)
+
+    assert checker.path_clear(start, HOVER, cup) is None
+    assert checker.config_clear(start, cup, opening=0.05) is None
+    assert why is not None
+    assert "cup" in why
+    assert "of the way" in why
+
+
+def test_an_opening_outside_the_finger_range_is_refused(checker):
+    with pytest.raises(ValueError, match="finger opening"):
+        checker.config_clear(HOVER, opening=0.06)
+
+
 # ---- reach ----------------------------------------------------------------------------------
 def test_every_grid_point_of_the_box_is_reachable_and_collision_free(kin, checker):
     box = ReachBox.load()

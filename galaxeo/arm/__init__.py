@@ -9,7 +9,7 @@
         result = arm.move(plan.joints, speed=20.0)
 
 model      the A1X MJCF + table plane z = 0 + tool frame (Tool, Box, Sphere)
-kinematics FK and IK of the tool frame
+kinematics FK and IK of the tool frame, the grasp training's warm IK step, body poses, fingertips
 collision  self, table and obstacle checks, pose and path
 reach      the safe reach box, cached in assets/reach.json
 guard      impact guard: lag and effort rules, backoff pose
@@ -20,7 +20,7 @@ api        Arm: plan / move / stop
 
 from .api import Arm, Plan
 from .collision import CollisionChecker
-from .kinematics import IKResult, Kinematics, down_rotation
+from .kinematics import IKResult, IKStep, Kinematics, down_rotation
 from .model import GRIPPER, JOINTS, Box, Sphere, Tool
 from .motion import Motion, MoveResult, enable
 from .reach import ReachBox
@@ -28,7 +28,7 @@ from .transport import BusTransport, Reading, SimTransport
 
 __all__ = [
     "Arm", "Plan", "MoveResult", "Motion", "enable",
-    "Kinematics", "IKResult", "down_rotation", "CollisionChecker", "ReachBox",
+    "Kinematics", "IKResult", "IKStep", "down_rotation", "CollisionChecker", "ReachBox",
     "Tool", "GRIPPER", "JOINTS", "Box", "Sphere",
     "BusTransport", "SimTransport", "Reading",
 ]

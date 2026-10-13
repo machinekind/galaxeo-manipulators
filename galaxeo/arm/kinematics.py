@@ -14,18 +14,27 @@ IK is damped least squares on the tool-site Jacobian, with two choices that matt
     result wins. A single DLS start gets stuck in local minima (30 cm residual was
     measured over most of the A1X workspace).
 
+`ik_step` is the other solver: the one the grasp policy was trained with, one warm
+6-D start per control step and nothing else, so the policy sees the joints it learnt on.
+
 Joint limits come from the model and are never left.
 """
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
 import mujoco
 import numpy as np
 
-from .model import GRIPPER, Tool, build, indices
+from .model import GRIPPER, Tool, build, finger_qpos, indices
+
+# Training's step cap: a bigger step in a badly conditioned pose jumps to another branch.
+STEP_CAP_RAD = 0.3
+
+_BOX_CORNERS = np.array(list(itertools.product((-1.0, 1.0), repeat=3)))
 
 
 @dataclass
@@ -34,6 +43,16 @@ class IKResult:
     pos_err: float       # tool position residual [m]
     rot_err: float       # tool rotation residual [rad]; 0 when no rotation was asked
     ok: bool             # pos_err < tol; orientation is best effort
+
+
+@dataclass
+class IKStep:
+    q: np.ndarray        # arm_joint1..6 [rad], clipped to lo/hi
+    pos_err: float       # [m] at the returned q
+    rot_err: float       # [rad] at the returned q
+    jump: float          # max |q - seed| [rad], seed as given (before clipping)
+    iters: int           # updates made; 0 when the seed already meets the tolerances
+    converged: bool      # True only if the loop exited through the tolerance test
 
 
 class Kinematics:
@@ -47,10 +66,10 @@ class Kinematics:
         self.lo, self.hi = self.ix.lo, self.ix.hi
         self.home = self.ix.home
 
-    def _apply(self, q: np.ndarray) -> None:
+    def _apply(self, q: np.ndarray, opening: Optional[float] = None) -> None:
         d = self.data
         d.qpos[self.ix.qadr] = q
-        d.qpos[self.ix.finger_qadr] = self.ix.finger_home
+        d.qpos[self.ix.finger_qadr] = finger_qpos(self.ix, opening)
         mujoco.mj_kinematics(self.model, d)
 
     def fk(self, q: Sequence[float]) -> np.ndarray:
@@ -61,6 +80,113 @@ class Kinematics:
         T[:3, :3] = d.site_xmat[self.ix.site].reshape(3, 3)
         T[:3, 3] = d.site_xpos[self.ix.site]
         return T
+
+    def link_pose(self, q: Sequence[float], body: str) -> np.ndarray:
+        """Pose of a body of the arm in the base frame, 4x4; the fingers at the home opening."""
+        self._apply(np.asarray(q, float))
+        d = self.data
+        i = self.model.body(body).id
+        T = np.eye(4)
+        T[:3, :3] = d.xmat[i].reshape(3, 3)
+        T[:3, 3] = d.xpos[i]
+        return T
+
+    def fingertips(self, q: Sequence[float], opening: Optional[float] = None) -> np.ndarray:
+        """Lowest corner (base z) of each curled fingertip box in the base frame [m], rows finger 1, finger 2.
+
+        A tilted tool puts a corner below the tool point: an open finger rolled 5 deg by joint 5
+        sits 5 mm lower, so a table rule on the tool point alone lets the fingertips into the table.
+        `opening` [m] as in `model.finger_qpos`; None = the home opening.
+        """
+        self._apply(np.asarray(q, float), opening)
+        m = self.model
+        d = self.data
+        out = np.empty((2, 3))
+        for row, g in enumerate(self.ix.tips):
+            corners = d.geom_xpos[g] + (_BOX_CORNERS * m.geom_size[g]) @ d.geom_xmat[g].reshape(3, 3).T
+            out[row] = corners[np.argmin(corners[:, 2])]
+        return out
+
+    def ik_step(
+        self,
+        position: Sequence[float],
+        rotation: np.ndarray,
+        seed: Sequence[float],
+        *,
+        iters: int = 60,
+        damping: float = 0.05,
+        tol_pos: float = 1e-3,
+        tol_rot: float = 5e-3,
+        lo: Optional[Sequence[float]] = None,
+        hi: Optional[Sequence[float]] = None,
+    ) -> IKStep:
+        """One warm start of the grasp training's solver (sim/a1x_control.py, Arm.ik), step for step.
+
+        The grasp policy learnt on exactly these joints and residuals, so this is 6-D damped least
+        squares from `seed` with no restarts and no randomness; `ik` lands elsewhere. `lo`/`hi` [rad]
+        narrow the model ranges, so a step the caller's limits would cut comes back unconverged.
+
+        The tolerance test runs before each update, as in training. When the loop runs out, the
+        errors are recomputed at the final q but `converged` stays False even if they meet the
+        tolerances: training refused such a step, and taking it would command what the policy never saw.
+        """
+        q_seed = np.asarray(seed, float).reshape(6)
+        q_lo = self.lo if lo is None else np.maximum(self.lo, np.asarray(lo, float).reshape(6))
+        q_hi = self.hi if hi is None else np.minimum(self.hi, np.asarray(hi, float).reshape(6))
+        if np.any(q_lo > q_hi):
+            raise ValueError(f"ik_step: lo {q_lo.tolist()} above hi {q_hi.tolist()}")
+        q = np.clip(q_seed, q_lo, q_hi)
+
+        target = np.asarray(position, float).reshape(3)
+        want = np.zeros(4)
+        mujoco.mju_mat2Quat(want, np.ascontiguousarray(rotation, float).ravel())
+
+        m = self.model
+        d = self.data
+        cols = self.ix.dadr
+        jacp = np.zeros((3, m.nv))
+        jacr = np.zeros((3, m.nv))
+
+        converged = False
+        updates = 0
+        for _ in range(iters):
+            err = self._pose_error(q, target, want)
+            if np.linalg.norm(err[:3]) < tol_pos and np.linalg.norm(err[3:]) < tol_rot:
+                converged = True
+                break
+
+            mujoco.mj_comPos(m, d)
+            mujoco.mj_jacSite(m, d, jacp, jacr, self.ix.site)
+            J = np.vstack([jacp[:, cols], jacr[:, cols]])
+            dq = J.T @ np.linalg.solve(J @ J.T + damping ** 2 * np.eye(6), err)
+            step = min(1.0, STEP_CAP_RAD / (np.linalg.norm(dq) + 1e-9))
+            q = np.clip(q + step * dq, q_lo, q_hi)
+            updates += 1
+
+        if not converged:
+            err = self._pose_error(q, target, want)
+
+        return IKStep(
+            q=q,
+            pos_err=float(np.linalg.norm(err[:3])),
+            rot_err=float(np.linalg.norm(err[3:])),
+            jump=float(np.max(np.abs(q - q_seed))),
+            iters=updates,
+            converged=converged,
+        )
+
+    def _pose_error(self, q: np.ndarray, target: np.ndarray, want: np.ndarray) -> np.ndarray:
+        """Tool position error [m] and rotation error as a rotation vector [rad] at q, as training measured them."""
+        self._apply(q)
+        d = self.data
+        cur = np.zeros(4)
+        err = np.zeros(4)
+        w = np.zeros(3)
+        mujoco.mju_mat2Quat(cur, d.site_xmat[self.ix.site])
+        mujoco.mju_negQuat(cur, cur)
+        mujoco.mju_mulQuat(err, want, cur)
+        mujoco.mju_quat2Vel(w, err, 1.0)
+        return np.concatenate([target - d.site_xpos[self.ix.site], w])
 
     def ik(
         self,
