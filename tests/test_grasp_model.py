@@ -41,6 +41,9 @@ class Response:
     def geturl(self) -> str:
         return self.url
 
+    def bytes_read(self) -> int:
+        return self._stream.tell()
+
     def __enter__(self) -> Response:
         return self
 
@@ -141,6 +144,55 @@ def test_another_file_at_the_destination_is_not_overwritten(tmp_path, blob_publi
 
     assert code == 1
     assert dest.read_bytes() == b"mine"
+
+
+def test_a_directory_at_the_destination_is_refused_before_downloading(tmp_path, blob_published):
+    dest = tmp_path / "student.pt"
+    dest.mkdir()
+    opener = Opener(Response(BLOB, URL))
+
+    code = fetch(dest, opener)
+
+    assert code == 1
+    assert opener.calls == []
+
+
+def test_a_dangling_symlink_at_the_destination_is_refused_before_downloading(tmp_path, blob_published):
+    dest = tmp_path / "student.pt"
+    dest.symlink_to(tmp_path / "elsewhere.pt")
+    opener = Opener(Response(BLOB, URL))
+
+    code = fetch(dest, opener)
+
+    assert code == 1
+    assert opener.calls == []
+
+
+def test_a_server_sending_more_than_the_published_size_is_cut_off(tmp_path, blob_published):
+    response = Response(BLOB * 1000, URL)
+
+    code = fetch(tmp_path / "student.pt", Opener(response))
+
+    assert code == 1
+    assert response.bytes_read() <= len(BLOB) + 4096
+
+
+def test_an_oversized_download_leaves_nothing(tmp_path, blob_published):
+    fetch(tmp_path / "student.pt", Opener(Response(BLOB * 1000, URL)))
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_failed_rename_leaves_no_part_file(tmp_path, blob_published, monkeypatch):
+    def refuse(src, dst):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(gm.os, "replace", refuse)
+
+    code = fetch(tmp_path / "student.pt", Opener(Response(BLOB, URL)))
+
+    assert code == 1
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_fetch_has_no_default_destination():

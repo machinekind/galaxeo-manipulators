@@ -62,39 +62,52 @@ def _https(url: str) -> bool:
     return str(url).lower().startswith("https://")
 
 
+@dataclass(frozen=True)
+class Streamed:
+    size: int
+    sha256: str
+
+
+def _stream(published: Published, part: Path, opener: Callable[..., Any], timeout_s: float) -> Streamed:
+    """The response body into `part`, stopped as soon as it outgrows the published size."""
+    digest = hashlib.sha256()
+    size = 0
+    with opener(published.url, timeout=timeout_s) as response:
+        final = response.geturl()
+        # A redirect to plain HTTP would deliver bytes nobody vouches for until the hash.
+        if not _https(final):
+            raise FetchError(f"{published.url} przekierowuje na {final}, nie https")
+        with open(part, "wb") as f:
+            while chunk := response.read(CHUNK):
+                size += len(chunk)
+                # A server that keeps streaming would otherwise fill the disk before the hash is checked.
+                if size > published.size:
+                    raise FetchError(f"{published.url} wysyla wiecej niz {published.size} B - przerwano")
+                digest.update(chunk)
+                f.write(chunk)
+    return Streamed(size=size, sha256=digest.hexdigest())
+
+
 def download(published: Published, dest: Path, *, opener: Callable[..., Any] = urllib.request.urlopen,
              timeout_s: float = TIMEOUT_S) -> None:
-    """Streams `published.url` into `<dest>.part`, then renames it to `dest` if size and sha256 match."""
+    """Streams `published.url` into `<dest>.part`, then renames it to `dest` if size and sha256 match;
+    whatever fails, the `.part` file is gone."""
     if not _https(published.url):
         raise FetchError(f"pobieram tylko przez https://, nie {published.url}")
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
-    digest = hashlib.sha256()
-    size = 0
     try:
-        with opener(published.url, timeout=timeout_s) as response:
-            final = response.geturl()
-            # A redirect to plain HTTP would deliver bytes nobody vouches for until the hash.
-            if not _https(final):
-                raise FetchError(f"{published.url} przekierowuje na {final}, nie https")
-            with open(part, "wb") as f:
-                while chunk := response.read(CHUNK):
-                    digest.update(chunk)
-                    f.write(chunk)
-                    size += len(chunk)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        got = _stream(published, part, opener, timeout_s)
+        if got.size != published.size or got.sha256 != published.sha256:
+            raise FetchError(f"pobrano {got.size} B o sha256 {got.sha256}, oczekiwano {published.size} B o sha256 "
+                             f"{published.sha256}; nic nie zapisano")
+        os.replace(part, dest)
     except BaseException as exc:
         part.unlink(missing_ok=True)
         if isinstance(exc, (OSError, http.client.HTTPException)):
-            raise FetchError(f"pobieranie {published.url} nie powiodlo sie: {exc}") from exc
+            raise FetchError(f"pobieranie {published.url} do {dest} nie powiodlo sie: {exc}") from exc
         raise
-
-    got = digest.hexdigest()
-    if size != published.size or got != published.sha256:
-        part.unlink(missing_ok=True)
-        raise FetchError(f"pobrano {size} B o sha256 {got}, oczekiwano {published.size} B o sha256 "
-                         f"{published.sha256}; nic nie zapisano")
-    os.replace(part, dest)
 
 
 def load_policy(path: Path, sha256: str) -> Any:
@@ -113,6 +126,10 @@ class Deps:
 
 def fetch(a: argparse.Namespace, deps: Deps) -> int:
     dest = Path(a.path).expanduser()
+    # A directory or a symlink there would take the download and fail only at the rename.
+    if dest.is_symlink() or (dest.exists() and not dest.is_file()):
+        print(f"{dest} nie jest zwyklym plikiem (katalog albo dowiazanie) - nie pobieram.", file=sys.stderr)
+        return 1
     if dest.is_file():
         got = file_sha256(dest)
         if got == PUBLISHED.sha256:
