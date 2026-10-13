@@ -204,8 +204,10 @@ grasp:
   dump_every: 20
 ```
 
-In this order: **simulation** (arm `sim`, `rig_json` empty, the training look below; the cube comes
-from the scene), **shadow** (ten episodes on the real arm with the rig file and a camera recording;
+In this order: **simulation** (arm `sim`, the training look below; the panel does not pass objects
+to strategies yet, so give a sim rig file with a taught point, `grasp_bench.py point --sim --rig
+sim.json ...`, and put the cube at that point in the twin's scene; the 50-episode evaluation with
+objects from the scene is OpenProject #163), **shadow** (ten episodes on the real arm with the rig file and a camera recording;
 no automatic stop, the fingertips at least 5 mm above the cube's top, the tool descending and yawing
 towards it; then write `"shadow_done": "10 clean episodes <date>, <initials>"` in `overrides`),
 **real** (three attempts, the freeze decision equal to the running `a1x.gripper_force`, teaching
@@ -217,16 +219,17 @@ whose joint ranges are not training's; a real arm without `rig_json`; a rig file
 or misses what the mode needs (the `show` list); a checkpoint that is missing, has another sha256 or
 another schema; no frame from `camera`, or one that is not RGB uint8, not 160x120 on a simulated arm
 or not 1920x1080 on a real one; a wrist calibration that does not fit; no table touch; no believed
-grasp (no object and no taught point); no hover, or a hover outside the training envelope.
+grasp (no object and no taught point); on a real arm an object reported more than 1 s ago or further
+than 10 cm from the table touch point (the touch height was measured there); no hover, a hover
+outside the training envelope, or a hover where the open jaw hits the object box.
 
-**A run**: straight up when the tool is low near the hover, the staged plan to the hover at 20 deg/s
+**A run**: straight up when the tool is low near the hover, the staged plan to the hover at no more than 20 deg/s
 (each stage collision-checked with the object box), the jaw opened there (99, then 100), until the
 arm stands still at the hover, 0.3 s of sag measurement, then the policy on a 50 ms grid for at most
 120 ticks or 12 s. The strategy is called at 100 Hz; the ticks between send nothing.
 
-**Endings.** Every ending holds the arm where it measures; after `success`, `lifted`, `tick cap` and
-`time cap` the jaw keeps its command (it may hold the object), after any other it stops where it
-measures.
+**Endings.** `success`, `lifted`, `tick cap` and `time cap` keep the last episode target, jaw included
+(the jaw may hold the object); every other ending holds the arm and the jaw where they measure.
 
 | ending | when |
 |---|---|
@@ -236,6 +239,7 @@ measures.
 | `impact lag <joint>` | a joint more than 4 deg (pre-positioning) or 3 deg (episode) behind the supervisor's command for 0.15 s |
 | `table` | the measured tool (the lower of the TCP and the lowest fingertip) under the table touch + 0.5 mm on two ticks |
 | `camera` | a frame older than 0.5 s, a frame that cannot be re-projected, or five ticks in a row without a fresh frame |
+| `rate limited` | ten policy ticks in a row where the supervisor's command trails the previous target: a speed limit below the policy's 90 deg/s (panel slider, `velocity_scale`) |
 | `pairing`, `lag` | five ticks in a row without a joint sample within 60 ms of the exposure; ten ticks with the arm more than 8 deg behind |
 | `ik`, `collision`, `not arrived`, `j5 offset` | pre-positioning: a step up refused near the object, no clear staged plan, the hover not reached in 3 s, joint 5 more than 1 deg off zero at the hover (real arm) |
 | `non-finite`, `error` | a non-finite observation, action or target; an exception in a tick |
