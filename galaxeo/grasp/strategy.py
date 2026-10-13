@@ -26,8 +26,9 @@ step keeps the commanded TCP, yaw and joints and commits the rest; the command n
 integrates from the measured pose. The supervisor rate-limits each target to `max_vel`.
 
 The jaw gap the policy reads is the measured gripper, `GAP_CLOSED + GAP_PER_UNIT * opening`: the
-A1X measures its jaw, the simulated arm reports the scene's finger slide. In shadow the jaw stays
-open (the policy sees it open too), the floor stays above the object, and nothing is a success.
+A1X measures its jaw, the simulated arm reports the scene's finger slide. In shadow the real jaw
+stays open, the floor stays above the object and nothing is a success; the gap there comes from
+a virtual jaw that follows the policy's own command (`_VirtualJaw`).
 
 Every ending answers `done=True` with the measured arm pose as the target. After an ending
 that may hold the object (success, lifted, tick or time cap) the jaw keeps its command; after
@@ -101,6 +102,7 @@ from .contract import (
     SAG_MAX,
     SHADOW_CLEAR,
     SHADOW_FLOOR_ABOVE_BELIEVED,
+    STREAM_UNITS_S,
     TABLE_END_BELOW,
     TABLE_END_TICKS,
     TICK_S,
@@ -290,6 +292,26 @@ class _Believed:
 
 
 @dataclass
+class _VirtualJaw:
+    """Shadow only: the opening a jaw would have under the policy's command, slewed at the A1X
+    backend's gripper stream rate.
+
+    The real jaw is pinned open in shadow, so its measured gap would tell the policy that its close
+    did nothing: a gap training never showed after a close.
+    """
+
+    opening: float                     # 0..100
+    t: float                           # obs.t of the last update [s]
+
+    def follow(self, t: float, commanded: float) -> float:
+        """The opening at `t`; the time since the last update counts whole, skipped ticks included."""
+        step = STREAM_UNITS_S * max(t - self.t, 0.0)
+        self.t = t
+        self.opening += min(max(_units(commanded) - self.opening, -step), step)
+        return self.opening
+
+
+@dataclass
 class _Episode:
     """The state of the episode between policy ticks."""
 
@@ -318,6 +340,7 @@ class _Episode:
     infer_ms: list[float] = field(default_factory=list)
     pending: TickRecord | None = None
     pending_target: dict[str, float] | None = None
+    jaw: _VirtualJaw | None = None     # shadow only
 
 
 def smoothstep(x: float) -> float:
@@ -786,8 +809,10 @@ class Grasp:
         floor = self._floor_of(self._sag)
         cmd = GraspCommand(self._hover.p, self._hover.yaw, self._hover.q, floor_z=floor)
         grip = GRIP_OPEN
+        jaw = _VirtualJaw(opening=GRIP_OPEN, t=obs.t) if self.config.shadow else None
         self._episode = _Episode(cmd=cmd, sag_used=self._sag, sag_est=self._sag, t0=obs.t, floor_z0=floor,
-                                 next_policy_t=obs.t, target={**self._hover_deg, GRIPPER: grip}, grip=grip)
+                                 next_policy_t=obs.t, target={**self._hover_deg, GRIPPER: grip}, grip=grip,
+                                 jaw=jaw)
         self._guard = ImpactGuard(ARM, lag_deg=EPISODE_LAG_DEG, lag_s=GUARD_LAG_S)
         logger.info("grasp episode: floor %.1f mm, sag %.1f mm", floor * 1000.0, self._sag * 1000.0)
 
@@ -879,7 +904,7 @@ class Grasp:
         if rec.lag_deg > LAG_HOLD_DEG:
             raise _Skip("lag")
 
-        gap = GAP_CLOSED + GAP_PER_UNIT * _units(obs.joints[GRIPPER])
+        gap = GAP_CLOSED + GAP_PER_UNIT * self._jaw_opening(ep, obs)
         rec.gap = gap
         q_pair = _arm_rad(paired.joints)
         vector = self._observer.build(q_pair, gap, ep.cmd)
@@ -904,6 +929,14 @@ class Grasp:
         rec.kind = "policy"
         ep.policy_ticks += 1
         return tcp
+
+    @staticmethod
+    def _jaw_opening(ep: _Episode, obs: Observation) -> float:
+        """The opening the policy reads: the measured jaw, or in shadow the virtual one under the
+        jaw command before this tick's step."""
+        if ep.jaw is None:
+            return _units(obs.joints[GRIPPER])
+        return ep.jaw.follow(obs.t, 100.0 * float(ep.cmd.state.g_cmd))
 
     def _frame(self, obs: Observation, rec: TickRecord) -> Frame:
         try:

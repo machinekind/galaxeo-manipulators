@@ -41,6 +41,7 @@ from galaxeo.grasp.contract import (  # noqa: E402
     RAW_H,
     RAW_W,
     SHADOW_FLOOR_ABOVE_BELIEVED,
+    STREAM_UNITS_S,
     TICK_S,
     TIP_CLEAR,
     TOUCH_EXPECTED_Z,
@@ -969,6 +970,55 @@ def test_shadow_keeps_the_command_floor_above_the_believed_point(shadow_run):
 
 def test_shadow_never_reports_a_success(shadow_run):
     assert shadow_run["strategy"].ending.success is None
+
+
+@dataclass(frozen=True)
+class Closed:
+    """Policy ticks of a run that closes the jaw on its fourth tick, with what the policy read."""
+
+    ticks: list[Tick]
+    calls: list[Call]
+
+
+def close_on_tick_3(use_policy, hover: Hover, *, shadow: bool) -> Closed:
+    policy = use_policy(ScriptedPolicy(segments((3, STILL), (40, CLOSE))))
+    arm = at_hover(hover)
+    strategy = start(policy, arm, shadow=shadow)
+    ticks = drive(strategy, arm, policy, seconds=2.0)
+    return Closed(ticks=policy_ticks(ticks), calls=list(policy.calls))
+
+
+def read_gap(call: Call) -> float:
+    return float(call.obs[6]) / 10.0
+
+
+def test_in_shadow_the_policy_reads_a_jaw_closing_at_the_stream_rate(use_policy, hover):
+    run = close_on_tick_3(use_policy, hover, shadow=True)
+    closed_at = run.ticks[3].obs.t
+    want = [GAP_CLOSED + GAP_PER_UNIT * max(0.0, 100.0 - STREAM_UNITS_S * (t.obs.t - closed_at)) for t in run.ticks[4:]]
+    np.testing.assert_allclose([read_gap(c) for c in run.calls[4:]], want, atol=1e-7)
+
+
+def test_in_shadow_the_policy_reads_an_open_jaw_until_its_close_command(use_policy, hover):
+    run = close_on_tick_3(use_policy, hover, shadow=True)
+    np.testing.assert_allclose([read_gap(c) for c in run.calls[:4]], GAP_CLOSED + GAP_PER_UNIT * 100.0, atol=1e-7)
+
+
+def test_in_shadow_the_measured_jaw_stays_open_meanwhile(use_policy, hover):
+    run = close_on_tick_3(use_policy, hover, shadow=True)
+    assert {t.obs.joints["gripper"] for t in run.ticks} == {100.0}
+
+
+def test_outside_shadow_the_policy_reads_the_measured_jaw(use_policy, hover):
+    run = close_on_tick_3(use_policy, hover, shadow=False)
+    want = [GAP_CLOSED + GAP_PER_UNIT * min(max(t.obs.joints["gripper"], 0.0), 100.0) for t in run.ticks]
+    np.testing.assert_allclose([read_gap(c) for c in run.calls], want, atol=1e-7)
+
+
+def test_outside_shadow_the_measured_jaw_closes_with_the_command(use_policy, hover):
+    # The fake jaw moves 300 units/s: closed 0.4 s after the command.
+    run = close_on_tick_3(use_policy, hover, shadow=False)
+    assert run.ticks[12].obs.joints["gripper"] == 0.0
 
 
 # ================================================================== success
