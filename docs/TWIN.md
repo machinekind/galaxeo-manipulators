@@ -36,7 +36,8 @@ extra when its module is missing.
   PEAK USB-CAN FD adapter (USB `0c72:0012`).
 - **One sender on the bus.** While the panel drives an `a1x` arm, do not run `ARM_APP`,
   `so101_bridge.py`, `jog_a1x.py`, `teleop2.py` or a transmitting ROS 2 driver. Two streams on
-  `0x050` interleave and the arm follows neither.
+  `0x050` interleave and the arm follows neither. The backend sees a `0x050` / `0x051` / FF frame
+  it did not send and reports a fault for 0.5 s after the last one, so the twin STOPs.
 
 | system | link | Port field in the panel |
 |---|---|---|

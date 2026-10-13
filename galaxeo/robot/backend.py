@@ -36,6 +36,8 @@ Safety rules (docs/SAFETY.md, docs/PROTOCOL.md):
   0x023 heartbeat. The FF 1 -> 5 -> 6 enable only on request (`enable`), with p_des = the
   measurement before, between and after each code.
 * `disconnect` ends the stream and closes the link; it never releases the motors.
+* One sender on the link: a 0x050 / 0x051 / FF frame this backend did not send is a fault in
+  `faults()` for `FOREIGN_WINDOW_S`, and the twin STOPs.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ import os
 import threading
 import time
 import types
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import MISSING, dataclass, fields
 from typing import Any, Protocol, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -84,6 +87,15 @@ GRIP_REOPEN_PDES = 0.3
 GRIP_LIVE_FRAMES = 4
 #: Margin on the time of a full gripper stroke [s] (`gripper_travel_s`).
 GRIP_TRAVEL_MARGIN_S = 0.2
+#: How long `faults()` reports another sender after its last command frame [s].
+FOREIGN_WINDOW_S = 0.5
+#: The last payloads remembered per CAN id: the adapter's echo is not another sender.
+ECHO_KEEP = 16
+#: An echo arrives within this time of the send or not at all [s]; a later copy is another sender
+#: (e.g. a second backend holding the same pose with the same gains).
+ECHO_WINDOW_S = 0.05
+#: The fault while another sender is seen. No joint name: the twin takes it for an arm fault and STOPs.
+FOREIGN_FAULT = "inny nadawca na laczu CAN (ramki rozkazu spoza blizniaka)"
 
 _Settings = TypeVar("_Settings")
 
@@ -265,6 +277,34 @@ class BackendInfo:
     simulated: bool
 
 
+@dataclass(frozen=True)
+class GripperState:
+    """Read-only snapshot of the gripper as the backend drives and measures it (`gripper_state()`).
+
+    Openings in app units: 0 = closed, 100 = open.
+    """
+
+    commanded: float | None        # last command the backend let through; None before the first
+    target: float | None           # where the stream goes (differs from `commanded` once frozen)
+    streamed: float | None         # opening really sent last; the best guess of the jaw without a measurement
+    position: float | None         # measured opening; None while the backend does not measure it
+    frozen: bool                   # contact while closing: the target stands where the stream was
+    effort: float | None           # raw A1X scale; None without fresh feedback
+    t: float                       # backend clock when the reading arrived (the queue drain)
+    age_s: float | None            # backend clock now minus `t`; None before any reading
+    rate: float                    # stream speed [units/s]
+    force_threshold: float         # effort above rest at which a closing jaw stops
+    measured: bool                 # whether `position` is a measurement
+
+
+@dataclass(frozen=True)
+class _Sent:
+    """A payload this backend sent, for telling its echo from another sender."""
+
+    data: bytes
+    t: float                       # backend clock at the send
+
+
 def create(ctx: BackendContext) -> A1XArm:
     """Entry point of the `a1x` backend plugin (`lerobot_mp.backends`)."""
     return A1XArm(ctx)
@@ -334,6 +374,10 @@ class A1XArm:
         self._link_silent = False
         self._stale: list[str] = []
         self.tx_frames = 0
+        self._sent: dict[int, deque[_Sent]] = {}
+        self._foreign = 0
+        self._foreign_t = -math.inf
+        self._gripper_state_failed = False
 
     def _forget_grip_rest(self) -> None:
         self._g_rest_eff = []
@@ -478,6 +522,9 @@ class A1XArm:
             f = self._bus.recv(0.0)
             if f is None:
                 return got
+            if f.can_id in (P.CMD_ID, P.GRIP_ID, P.FF_ID):
+                self._check_sender(f.can_id, bytes(f.data), now)
+                continue
             if f.can_id != P.FB_ID or len(f.data) != P.FB_LEN:
                 continue
             data = bytes(f.data)
@@ -571,8 +618,33 @@ class A1XArm:
         return self._g_rest is not None and abs(self._fb.eff[6]) > self._g_rest + self.acfg.gripper_force
 
     def _send(self, can_id: int, data: bytes, fd: bool = True) -> None:
+        self._sent.setdefault(can_id, deque(maxlen=ECHO_KEEP)).append(_Sent(data=bytes(data), t=self._clock()))
         self._bus.send(can_id, data, fd=fd)
         self.tx_frames += 1
+
+    def _check_sender(self, can_id: int, data: bytes, now: float) -> None:
+        """A command frame on the link: our own echo, or another sender (counted, a fault for a while)."""
+        if self._own_payload(can_id, data, now):
+            return
+
+        if now - self._foreign_t >= FOREIGN_WINDOW_S:
+            logger.warning("A1X: ramka 0x%03X spoza blizniaka - inny nadawca na laczu CAN", can_id)
+        self._foreign += 1
+        self._foreign_t = now
+
+    def _own_payload(self, can_id: int, data: bytes, now: float) -> bool:
+        """Whether `data` is the echo of a fresh frame of ours on `can_id`; one send explains one echo."""
+        sent = self._sent.get(can_id, ())
+        for i, mine in enumerate(sent):
+            if now - mine.t > ECHO_WINDOW_S:
+                continue
+            # XCAN pads FD frames with zeros to an allowed length (0x050: 60 -> 64, 0x051: 10 -> 12).
+            padded = (len(data) > len(mine.data) and data.startswith(mine.data)
+                      and not any(data[len(mine.data):]))
+            if data == mine.data or padded:
+                del sent[i]
+                return True
+        return False
 
     def _watch_deaf(self, now: float) -> None:
         """Command far from the measurement while the joint stands for `deaf_s` = arm deaf to 0x050 or blocked."""
@@ -710,6 +782,49 @@ class A1XArm:
                 return None
             return {name: math.degrees(fb.vel[i]) for i, name in enumerate(self.arm)}
 
+    def gripper_state(self) -> GripperState | None:
+        """Command, stream, freeze and effort of the jaw, read under the lock; openings 0..100.
+
+        Changes nothing and sends nothing. None without a connection and on any error (logged
+        once): a grasp loop asks every tick and must not crash on it.
+        """
+        try:
+            with self._lock:
+                if not self._connected:
+                    return None
+
+                a = self.acfg
+                span = a.gripper_open_pdes - a.gripper_closed_pdes
+
+                def app(p: float | None) -> float | None:
+                    return None if p is None else (p - a.gripper_closed_pdes) * 100.0 / span
+
+                fb = self._fresh_fb()
+                measured = self.gripper_measured()
+                return GripperState(
+                    commanded=self._g_cmd,
+                    target=app(self._g_target),
+                    streamed=app(self._g_stream),
+                    position=self._grip_app() if measured else None,
+                    frozen=self._g_frozen,
+                    effort=None if fb is None else float(fb.eff[6]),
+                    t=self._fb_t,
+                    age_s=None if self._fb is None else self._clock() - self._fb_t,
+                    rate=a.gripper_rate_pdes_s * 100.0 / abs(span),
+                    force_threshold=a.gripper_force,
+                    measured=measured,
+                )
+        except Exception:
+            if not self._gripper_state_failed:
+                self._gripper_state_failed = True
+                logger.exception("A1X: nie udalo sie odczytac stanu chwytaka")
+            return None
+
+    def foreign_frames(self) -> int:
+        """Command frames (0x050, 0x051, FF) of another sender received since connecting."""
+        with self._lock:
+            return self._foreign
+
     def goal_positions(self) -> dict[str, float]:
         """Latest targets [app units]; `{}` before the first command (p_des cannot be read back)."""
         with self._lock:
@@ -734,6 +849,8 @@ class A1XArm:
                 state = str(getattr(self._bus, "state", "ok") or "ok")
                 if state in ("bus-off", "error-passive"):
                     out.append(f"magistrala CAN: {state}")
+                if now - self._foreign_t < FOREIGN_WINDOW_S:
+                    out.append(FOREIGN_FAULT)
                 return out
         except Exception as exc:               # pragma: no cover - called every control cycle, must not crash it
             logger.exception("Nie udalo sie sprawdzic stanu A1X")
