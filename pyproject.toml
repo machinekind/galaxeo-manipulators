@@ -17,6 +17,10 @@ xcan = ["pyusb>=1.2"]
 pcan = ["python-can>=4"]
 # galaxeo.arm: the installed arm (model, IK, collisions, reach box, guarded moves).
 arm = ["numpy>=1.24", "mujoco>=3.2"]
+# galaxeo.grasp: the wrist-camera grasp student, a strategy for the twin. OpenCV is the contrib
+# wheel on purpose: the strategy is installed into the twin's environment, which uses
+# opencv-contrib-python, and two OpenCV wheels overwrite each other's cv2/.
+grasp = ["numpy>=1.24", "torch>=2.7,<2.12", "opencv-contrib-python>=4.8"]
 # PyYAML: the tests read galaxeo/robot/a1x/robot.yaml (the twin reads it at run time).
 test = ["pytest>=7", "PyYAML>=6"]
 
@@ -29,7 +33,7 @@ a1x = "galaxeo.robot.backend:create"
 
 [tool.setuptools]
 # Only the package; the rest of the repo (ROS 2 workspace, sim, scripts) is not installed.
-packages = ["galaxeo", "galaxeo.arm", "galaxeo.robot"]
+packages = ["galaxeo", "galaxeo.arm", "galaxeo.robot", "galaxeo.grasp"]
 
 [tool.setuptools.package-data]
 "galaxeo.arm" = ["assets/*.xml", "assets/*.json", "assets/meshes/*.STL"]

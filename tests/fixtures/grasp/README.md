@@ -1,35 +1,39 @@
 # Grasp student fixtures
 
-Recorded from the training environment (`galaxeo-manipulators`, `sim/grasp`) by
-`scripts/record_grasp_fixtures.py`. The tests of `lerobot_mp.twin.grasp` and of the warm IK step
-compare the twin against these files. No test runs the training code.
+Recorded from the training environment (this repository, branch `grasp-rl`, `sim/grasp`) by
+`scripts/record_grasp_fixtures.py` of the digital twin (`digital_twin_training`, branch
+`grasp-student`). The tests of `galaxeo.grasp` and of the warm IK step in `galaxeo.arm` compare
+against these files. No test runs the training code.
 
 ## Re-recording
 
-The training repository is read only: its code is imported, nothing is written into it and git
-is never run there. Run from a scratch directory, with the training repository's own environment:
+The training checkout (`<galaxeo>`, a checkout of branch `grasp-rl`) is read only: its code is
+imported, nothing is written into it and git is never run there. Run from a scratch directory,
+with the training checkout's own environment, then copy the files into this directory:
 
 ```
 mkdir -p <scratch>/fixtures_out && cd <scratch>/fixtures_out && PYTHONDONTWRITEBYTECODE=1 \
   <galaxeo>/sim/.venv-lerobot/bin/python <twin>/scripts/record_grasp_fixtures.py \
   --galaxeo <galaxeo> --out <scratch>/fixtures_out \
   --seed 50000 --shard-episodes 2 --shard-ticks 40 --book 1000 --proj 300 --fk 300 --hover 200 --ik 200
-cp <scratch>/fixtures_out/*.npz <scratch>/fixtures_out/*.json <twin>/tests/fixtures/grasp/
+cp <scratch>/fixtures_out/*.npz <scratch>/fixtures_out/*.json tests/fixtures/grasp/
 ```
 
-`--galaxeo` defaults to `$GALAXEO_REPO`. The recorder refuses to run from, or write into, the
-training repository. It always gives the environment the published model's camera,
-`wrist_size=(160, 120)` and `wrist_jitter=(3.0, 0.7, 0.3)`; training's defaults (128x96 or
-320x240, 10 mm) do not describe it. It takes about 15 s. A test that finds a key missing fails
-with "re-record the fixtures (docs/GRASP.md)".
+`<twin>` is a checkout of `digital_twin_training` at branch `grasp-student`. `--galaxeo` defaults
+to `$GALAXEO_REPO`. The recorder refuses to run from, or write into, the training checkout. It
+always gives the environment the published model's camera, `wrist_size=(160, 120)` and
+`wrist_jitter=(3.0, 0.7, 0.3)`; training's defaults (128x96 or 320x240, 10 mm) do not describe
+it. It takes about 15 s. A test that finds a key missing fails with "re-record the fixtures
+(tests/fixtures/grasp/README.md)". `GRASP_FIXTURES=<dir>` points the tests at another
+recording, for example a fresh one before it is copied here.
 
 ## The substep lag and the `*_fk` fields
 
 After `mj_step`, MuJoCo's positions (`site_xpos`, `xpos`, `xmat`, the rendered image,
 `believed_uv`, the TCP inside training's own `obs`) belong to the state BEFORE the last 2 ms
-substep, while `q = d.qpos` belongs to the state after it. The twin computes every pose by forward
-kinematics from `q`, so it cannot reproduce those recorded values exactly. The recorder therefore
-also stores what training's own model gives AT `q` (a scratch `MjData`, `mj_kinematics`, no step):
+substep, while `q = d.qpos` belongs to the state after it. `galaxeo.arm`, like the twin, computes
+every pose by forward kinematics from `q`, so it cannot reproduce those recorded values exactly.
+The recorder therefore also stores what training's own model gives AT `q` (a scratch `MjData`, `mj_kinematics`, no step):
 `tcp_fk`, `tcp_R_fk`, `gl_pos_fk`, `gl_R_fk`, and from them `uv_fk` (the body of
 `GraspEnv.believed_uv`) and `obs_fk` (`GraspEnv.student_obs` with `tcp_fk` in place of the lagging
 TCP: only indices 7..9 differ from `obs`). Before storing them the recorder checks that its copies
