@@ -33,6 +33,9 @@ a1x = "galaxeo.robot:ROBOT_DIR"
 [project.entry-points."lerobot_mp.backends"]
 a1x = "galaxeo.robot.backend:create"
 
+[project.entry-points."lerobot_mp.strategies"]
+grasp = "galaxeo.grasp.strategy:Grasp"
+
 [tool.setuptools]
 # Only the package; the rest of the repo (ROS 2 workspace, sim, scripts) is not installed.
 packages = ["galaxeo", "galaxeo.arm", "galaxeo.robot", "galaxeo.grasp"]

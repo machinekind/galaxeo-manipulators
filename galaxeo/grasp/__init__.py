@@ -14,9 +14,12 @@ command   command bookkeeping, a verbatim port of the training environment's ste
 net       the network: ResNet18 rebuilt in plain torch, without torchvision
 policy    the checkpoint (sha256 before unpickling, weights only) and `act` at batch 1
 camera    the wrist camera's geometry: camera frame to policy frame, base-frame points to pixels
-observer  the 19-vector the policy reads (to come)
-hover     the hover pose above the believed grasp (to come)
-strategy  the twin strategy: settings, start, act, stop (to come)
+observer  the 19-vector the policy reads, from the joints paired with the frame
+hover     the hover above the believed grasp, and the staged joint plan to it
+dumps     ticks.jsonl, summary.json and the model-input dumps of one run
+strategy  the twin strategy `Grasp`: settings, start (the refusals), act (the phases), stop
+
+The twin finds `Grasp` through the `lerobot_mp.strategies` entry point `grasp`.
 
 Nothing is imported here, so `contract`, `rig` and `command` import without torch or OpenCV.
 """
