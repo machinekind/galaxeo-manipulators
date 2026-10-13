@@ -16,12 +16,15 @@ import numpy as np
 import pytest
 
 pytest.importorskip("mujoco")
+yaml = pytest.importorskip("yaml")
 
 import grasp_bench as gb  # noqa: E402
 from galaxeo import protocol as P  # noqa: E402
 from galaxeo.arm import Kinematics  # noqa: E402
-from galaxeo.grasp.contract import HOVER, TIP_CLEAR, TOUCH_EXPECTED_Z, TOUCH_TOLERANCE  # noqa: E402
+from galaxeo.grasp.contract import TIP_CLEAR, TOUCH_EXPECTED_Z, TOUCH_TOLERANCE  # noqa: E402
+from galaxeo.grasp.hover import joint_box, solve_hover  # noqa: E402
 from galaxeo.grasp.rig import Rig  # noqa: E402
+from galaxeo.robot import ROBOT_DIR  # noqa: E402
 from grasp_bench_fakes import (  # noqa: E402
     BenchBus,
     ScriptedKeys,
@@ -35,12 +38,12 @@ from grasp_bench_fakes import (  # noqa: E402
 KIN = Kinematics()
 FLOOR = 0.036                                  # TCP z where the fake's fingertips stop
 START_Z = 0.07
-START = gb.solve_pose(KIN, [0.0, 0.33, START_Z], 0.0)
+START = gb.start_pose(KIN, 0.0, 0.33, START_Z, 0.0)
 #: From START_Z to the floor in 1 mm steps below 6 cm, two more steps on it (the height rule), then
 #: two steps back down after the 2 mm backoff, and store.
 TO_THE_FLOOR = ["d 5", "d 5"] + ["d 1"] * 26
 STEP_DOWN_AND_STORE = ["d 1", "d 1", "ok"]
-HOVER_POSE = gb.solve_pose(KIN, [0.0, 0.33, 0.034 + TIP_CLEAR + HOVER], 0.0)
+HOVER_POSE = gb.hover_over(KIN, [0.0, 0.33, 0.034 + TIP_CLEAR], 0.0)
 POLICY = TimedPolicy(Timing(first_ms=20.0, median_ms=10.0, p95_ms=12.0))
 
 
@@ -509,10 +512,11 @@ def test_the_camera_reads_frames_through_opencv(tmp_path):
     assert frame.image.shape == (gb.FRAME_SMALL[1], gb.FRAME_SMALL[0])
 
 
-def test_a_yaw_past_joint_6_is_turned_half_a_turn():
-    pose = gb.solve_pose(KIN, [0.0, 0.33, 0.12], 0.0)
+def test_the_bench_hovers_where_the_strategy_does():
+    limits = yaml.safe_load((ROBOT_DIR / "robot.yaml").read_text(encoding="utf-8"))["limits"]
+    strategy = solve_hover(KIN, [0.0, 0.33, 0.04], 0.0, joint_box(KIN, limits))
 
-    assert abs(abs(pose.yaw) - np.pi) < 1e-9
+    np.testing.assert_allclose(gb.hover_over(KIN, [0.0, 0.33, 0.04], 0.0).q, strategy.q)
 
 
 def test_a_stroke_of_the_whole_range_in_a_second_is_a_one_second_stroke():

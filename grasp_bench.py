@@ -51,9 +51,10 @@ from pathlib import Path
 from typing import Any, Literal, TextIO
 
 import numpy as np
+import yaml
 
 from galaxeo import protocol as P
-from galaxeo.arm import JOINTS, Arm, BusTransport, Kinematics, MoveResult, Reading, SimTransport
+from galaxeo.arm import JOINTS, Arm, Box, BusTransport, Kinematics, MoveResult, Reading, SimTransport
 from galaxeo.arm.guard import ImpactGuard
 from galaxeo.bus import default_iface, open_bus
 from galaxeo.grasp.contract import (
@@ -64,9 +65,7 @@ from galaxeo.grasp.contract import (
     GAP_CLOSED,
     GAP_PER_UNIT,
     HOVER,
-    HOVER_J5_MAX_DEG,
     HOVER_J5_MEASURED_MAX_DEG,
-    HOVER_J6_MARGIN_DEG,
     IK_MAX_JUMP_DEG,
     LATENCY_MAX_S,
     OBJECT_HEIGHT_DEFAULT,
@@ -85,14 +84,13 @@ from galaxeo.grasp.contract import (
     TIP_CLEAR,
     TOUCH_EXPECTED_Z,
     TOUCH_TOLERANCE,
-    TRAIN_HOVER_Z,
-    TRAIN_J1_DEG,
-    TRAIN_RADIUS,
     grasp_R,
     wrap,
     yaw_of,
 )
+from galaxeo.grasp.hover import Hover, HoverError, JointBox, joint_box, solve_hover, stage_plan
 from galaxeo.grasp.rig import MODES, OBJECT_HEIGHT_RANGE, Rig, RigError
+from galaxeo.robot import ROBOT_DIR
 from galaxeo.robot.backend import GRIP_START_DELTA, A1XArm, A1XConfig, GripperState
 
 logger = logging.getLogger("grasp_bench")
@@ -844,85 +842,47 @@ def listen_for_other_senders(station: Station) -> None:
 
 
 # ====================================================================== poses and moves
-@dataclass(frozen=True)
-class Pose:
-    """A top-down tool pose and the arm joints that hold it."""
-
-    p: np.ndarray                     # TCP, base frame [m]
-    yaw: float                        # closing axis about +z [rad]: the asked yaw or the asked yaw + pi
-    q: np.ndarray                     # arm joints [rad]
-    j6_margin_deg: float
+def robot_limits() -> dict[str, tuple[float, float]]:
+    """The A1X's joint limits [deg] from its robot folder, the limits the twin hands the strategy."""
+    data = yaml.safe_load((ROBOT_DIR / "robot.yaml").read_text(encoding="utf-8"))
+    return {name: (float(lo_hi[0]), float(lo_hi[1])) for name, lo_hi in data["limits"].items() if name in JOINTS}
 
 
-@dataclass(frozen=True)
-class _Candidate:
-    yaw: float
-    q: np.ndarray
-    failed: list[str]
-    j6_margin_deg: float
+def bench_box(kin: Kinematics) -> JointBox:
+    return joint_box(kin, robot_limits())
 
 
-def _candidate(kin: Kinematics, p: np.ndarray, yaw: float) -> _Candidate:
-    R = grasp_R(yaw)
-    # The full IK from home keeps J5 at zero, as in every training hover; the warm step then meets
-    # training's tolerances (1 mm, 5 mrad), so the policy starts from joints it knows.
-    rough = kin.ik(p, R, seed=kin.home)
-    step = kin.ik_step(p, R, rough.q)
-
-    failed: list[str] = []
-    if not step.converged:
-        failed.append(f"pozycja {step.pos_err * 1000:.2f} mm, obrot {step.rot_err * 1000:.2f} mrad")
-    j5 = math.degrees(step.q[4])
-    if abs(j5) > HOVER_J5_MAX_DEG:
-        failed.append(f"J5 {j5:.2f} st.")
-    j6 = math.degrees(step.q[5])
-    margin = min(j6 - math.degrees(kin.lo[5]), math.degrees(kin.hi[5]) - j6)
-    if margin < HOVER_J6_MARGIN_DEG:
-        failed.append(f"zapas J6 {margin:.1f} st.")
-    return _Candidate(yaw=float(yaw), q=step.q.copy(), failed=failed, j6_margin_deg=float(margin))
+def hover_over(kin: Kinematics, believed: Sequence[float], yaw: float) -> Hover:
+    """The strategy's hover over `believed`: the same solver, the same limits."""
+    try:
+        return solve_hover(kin, believed, yaw, bench_box(kin))
+    except HoverError as exc:
+        raise Refusal("ik", exc.detail) from exc
 
 
-def solve_pose(kin: Kinematics, p: Sequence[float], yaw: float) -> Pose:
-    """The tool pointing down at `p` with the closing axis at `yaw` or `yaw + pi` (the pinch is
-    symmetric, the joints are not: J6 differs by 180 deg); the one with more room on J6 wins."""
-    point = np.asarray(p, float).reshape(3)
-    if not (np.all(np.isfinite(point)) and math.isfinite(yaw)):
-        raise Refusal("ik", f"nieskonczone: punkt {point.tolist()}, obrot {yaw}")
-    candidates = [_candidate(kin, point, wrap(float(yaw))), _candidate(kin, point, wrap(float(yaw) + math.pi))]
-    valid = [c for c in candidates if not c.failed]
-    if not valid:
-        raise Refusal("ik", "; ".join(f"obrot {math.degrees(c.yaw):.0f} st.: {', '.join(c.failed)}"
-                                      for c in candidates))
-    best = max(valid, key=lambda c: c.j6_margin_deg)
-    return Pose(p=point.copy(), yaw=best.yaw, q=best.q, j6_margin_deg=best.j6_margin_deg)
+def start_pose(kin: Kinematics, x: float, y: float, z: float, yaw: float) -> Hover:
+    """The tool pointing down with its TCP at (x, y, z): the hover over the point HOVER below."""
+    return hover_over(kin, [x, y, z - HOVER], yaw)
 
 
-def training_envelope(pose: Pose) -> list[str]:
-    """Which checks of the training envelope a hover fails, in Polish; empty when inside."""
-    out: list[str] = []
-    j1 = math.degrees(pose.q[0])
-    if not TRAIN_J1_DEG[0] <= j1 <= TRAIN_J1_DEG[1]:
-        out.append(f"J1 {j1:.1f} st. poza {TRAIN_J1_DEG[0]:g}..{TRAIN_J1_DEG[1]:g}")
-    radius = math.hypot(pose.p[0], pose.p[1])
-    if not TRAIN_RADIUS[0] <= radius <= TRAIN_RADIUS[1]:
-        out.append(f"promien {radius:.2f} m poza {TRAIN_RADIUS[0]:g}..{TRAIN_RADIUS[1]:g}")
-    z = float(pose.p[2])
-    if not TRAIN_HOVER_Z[0] <= z <= TRAIN_HOVER_Z[1]:
-        out.append(f"wysokosc zawisu {z:.3f} m poza {TRAIN_HOVER_Z[0]:g}..{TRAIN_HOVER_Z[1]:g}")
-    return out
+def object_box(xy: Sequence[float], yaw: float, height: float) -> Box:
+    """The object as the strategy sees it: a cube on the table, turned by the grasp yaw."""
+    half = height / 2.0
+    return Box(center=(float(xy[0]), float(xy[1]), half), half=(half, half, half), name="obiekt", yaw=float(yaw))
 
 
 @dataclass(frozen=True)
 class Route:
-    """The moves to a pose: 5 mm steps straight up when the tool is low near it, then one
-    collision-checked joint-space line cut into segments of at most SEGMENT_DEG."""
+    """The moves to a hover: 5 mm steps straight up when the tool is low near it, then the
+    strategy's staged plan, each stage cut into segments of at most SEGMENT_DEG."""
 
     waypoints: list[np.ndarray]
     rise: int                         # how many waypoints are steps straight up
-    travel_deg: float                 # the largest joint travel of the line
+    stages: int
+    travel_deg: float                 # the largest joint travel of one stage
 
 
-def rise_steps(kin: Kinematics, q0: np.ndarray, pose: Pose, clear_z: float) -> list[np.ndarray]:
+def rise_steps(kin: Kinematics, q0: np.ndarray, pose: Hover, clear_z: float) -> list[np.ndarray]:
     """Joints of 5 mm steps straight up to the pose's height, when the tool points down, low and near it.
 
     The tool keeps its measured orientation: squaring a few degrees of tilt in the first step needs more
@@ -965,26 +925,54 @@ def clear_height(rig: Rig) -> float:
     return touch + (OBJECT_HEIGHT_DEFAULT if height is None else height) + RETREAT_CLEAR
 
 
-def plan_route(station: Station, pose: Pose, clear_z: float) -> Route:
+def segments(start: np.ndarray, goal: np.ndarray) -> list[np.ndarray]:
+    """The straight joint-space move cut so that no joint travels more than SEGMENT_DEG in one move."""
+    travel = math.degrees(float(np.max(np.abs(goal - start))))
+    n = max(1, math.ceil(travel / SEGMENT_DEG))
+    return [start + (k / n) * (goal - start) for k in range(1, n + 1)]
+
+
+def taught_object(rig: Rig) -> Box:
+    """The object at the rig's taught point; only asked once the point is taught."""
+    believed = rig.believed()
+    yaw = rig.grasp_yaw()
+    height = rig.object_height()
+    return object_box(believed[:2], yaw, OBJECT_HEIGHT_DEFAULT if height is None else height)
+
+
+def plan_route(station: Station, pose: Hover, clear_z: float, obstacles: Sequence[Box] = ()) -> Route:
+    """Straight up when low, then the strategy's staged plan to `pose`, checked with the jaw fully open
+    (its opening is not known before the first jaw phase)."""
     reading = station.settled_reading()
     if reading is None:
         raise Ended("stale feedback", "brak swiezych ramek 0x052")
     rise = rise_steps(station.arm.kin, reading.q, pose, clear_z)
     start = rise[-1] if rise else reading.q.copy()
 
-    why = station.arm.collision.path_clear(start, pose.q)
-    if why is not None:
-        raise Refusal("collision", f"{why}; ustaw ramie blizej punktu (panel blizniaka albo jog_a1x.py)")
+    opening = float(station.arm.kin.ix.finger_open)
 
-    travel = math.degrees(float(np.max(np.abs(pose.q - start))))
-    n = max(1, math.ceil(travel / SEGMENT_DEG))
-    segments = [start + (k / n) * (pose.q - start) for k in range(1, n + 1)]
-    return Route(waypoints=[*rise, *segments], rise=len(rise), travel_deg=travel)
+    def clear(a: np.ndarray, b: np.ndarray) -> str | None:
+        return station.arm.collision.path_clear(a, b, tuple(obstacles), opening=opening)
+
+    plan = stage_plan(start, pose.q, clear)
+    if plan.collision is not None:
+        raise Refusal("collision", f"{plan.collision}; ustaw ramie blizej punktu (panel blizniaka albo jog_a1x.py)")
+    stages = list(plan.poses) or [pose.q.copy()]
+
+    waypoints = list(rise)
+    previous = start
+    travel = 0.0
+    for goal in stages:
+        travel = max(travel, math.degrees(float(np.max(np.abs(goal - previous)))))
+        waypoints += segments(previous, goal)
+        previous = goal
+    return Route(waypoints=waypoints, rise=len(rise), stages=len(stages), travel_deg=travel)
 
 
 def describe(route: Route) -> str:
     rise = f"{route.rise} krokow w gore, potem " if route.rise else ""
-    return f"{rise}{len(route.waypoints) - route.rise} ruchow, najwiekszy staw {route.travel_deg:.0f} st."
+    moves = len(route.waypoints) - route.rise
+    return f"{rise}etapow {route.stages}, ruchow {moves}, najwiekszy staw {route.travel_deg:.0f} st."
 
 
 def stopped_by(result: MoveResult) -> bool:
@@ -999,7 +987,7 @@ def ended_by(result: MoveResult) -> Ended:
     return Ended(result.state, detail)
 
 
-def arrival_misses(station: Station, pose: Pose) -> list[str]:
+def arrival_misses(station: Station, pose: Hover) -> list[str]:
     r = station.reading()
     if r is None:
         return ["brak swiezych probek"]
@@ -1012,7 +1000,7 @@ def arrival_misses(station: Station, pose: Pose) -> list[str]:
     return misses
 
 
-def measure_sag(station: Station, pose: Pose) -> float:
+def measure_sag(station: Station, pose: Hover) -> float:
     """Commanded minus measured TCP z at the pose, averaged [m]."""
     values: list[float] = []
     end = station.now() + SAG_AVERAGE_S
@@ -1027,7 +1015,7 @@ def measure_sag(station: Station, pose: Pose) -> float:
     return float(np.mean(values)) if values else 0.0
 
 
-def follow(station: Station, route: Route, pose: Pose) -> float:
+def follow(station: Station, route: Route, pose: Hover) -> float:
     """Drives the route at 20 deg/s and checks the arrival; returns the sag at the pose."""
     for q in route.waypoints:
         result = station.move(q, PREPOSITION_SPEED_DEG_S, lag_deg=MOVE_LAG_DEG)
@@ -1522,7 +1510,7 @@ def _clip(v: float, limit: float) -> float:
 class Jog:
     """Small Cartesian steps of a top-down tool, by ik_step, each a guarded move of galaxeo.arm."""
 
-    def __init__(self, station: Station, pose: Pose, sag: float) -> None:
+    def __init__(self, station: Station, pose: Hover, sag: float) -> None:
         self.station = station
         self.kin = station.arm.kin
         self.p = pose.p.copy()                       # commanded TCP, base frame
@@ -1831,13 +1819,12 @@ def explain_point(rig: Rig, kin: Kinematics) -> None:
             print(f"UWAGA: dotyk stolu {far * 1000:.0f} mm od punktu (najwyzej {TABLE_TOUCH_FAR * 1000:.0f}) - "
                   f"strategia odmowi (table touch far).", flush=True)
     try:
-        hover = solve_pose(kin, believed + np.array([0.0, 0.0, HOVER]), yaw)
+        hover = hover_over(kin, believed, yaw)
     except Refusal as exc:
         print(f"Zawis nad punktem nie do osiagniecia: {exc.detail}", flush=True)
         return
-    outside = training_envelope(hover)
-    if outside:
-        print("Poza obszarem treningu: " + "; ".join(outside), flush=True)
+    if hover.outside_training:
+        print("Poza obszarem treningu - strategia odmowi: " + "; ".join(hover.outside_training), flush=True)
     else:
         print("Zawis w obszarze treningu.", flush=True)
 
@@ -1974,7 +1961,7 @@ def teach_object_height(a: argparse.Namespace) -> float:
     return height
 
 
-def announce_start(what: str, pose: Pose, route: Route, object_height: float) -> None:
+def announce_start(what: str, pose: Hover, route: Route, object_height: float) -> None:
     print(f"Start: TCP ({pose.p[0] * 1000:.0f}, {pose.p[1] * 1000:.0f}, {pose.p[2] * 1000:.0f}) mm, narzedzie w dol, "
           f"obrot {math.degrees(pose.yaw):.0f} st.; {describe(route)}", flush=True)
     if what == "table":
@@ -1984,7 +1971,7 @@ def announce_start(what: str, pose: Pose, route: Route, object_height: float) ->
               flush=True)
 
 
-def start_jog(station: Station, route: Route, pose: Pose) -> Jog:
+def start_jog(station: Station, route: Route, pose: Hover) -> Jog:
     sag = follow(station, route, pose)
     with station.jaw.phase():
         # At the start pose, never earlier: open jaws sweep wider on the way.
@@ -2008,9 +1995,12 @@ def bench_teach(a: argparse.Namespace, deps: Deps) -> int:
     station = deps.open_station(a, a1x_settings(a.config))
     try:
         station.wait_feedback(FEEDBACK_WAIT_S)
-        pose = solve_pose(station.arm.kin, [xy[0], xy[1], a.start_z], math.radians(a.yaw_deg))
+        yaw = math.radians(a.yaw_deg)
+        pose = start_pose(station.arm.kin, xy[0], xy[1], a.start_z, yaw)
         listen_for_other_senders(station)
-        route = plan_route(station, pose, clear_height(rig))
+        # The cube is on the spot when the point is taught, not yet when the table is.
+        obstacles = [object_box(xy, yaw, object_height)] if what == "point" else []
+        route = plan_route(station, pose, clear_height(rig), obstacles)
         announce_start(what, pose, route, object_height)
         confirm_motion(station, keys, "Enter = ramie jedzie nad punkt startowy (20 st./s); Ctrl-C = koniec. ")
 
@@ -2313,7 +2303,7 @@ def check_camera(camera: Camera, station: Station) -> None:
                                      f"{RAW_W}x{RAW_H}")
 
 
-def step_joint_6(station: Station, camera: Camera, pose: Pose, rig: Rig) -> LatencyRun:
+def step_joint_6(station: Station, camera: Camera, pose: Hover, rig: Rig) -> LatencyRun:
     """The latency steps in one jaw phase: the backend drives the arm, as under the strategy."""
     link = station.jaw
     with link.phase():
@@ -2342,7 +2332,7 @@ def bench_latency(a: argparse.Namespace, deps: Deps) -> int:
     camera: Camera | None = None
     try:
         station.wait_feedback(FEEDBACK_WAIT_S)
-        pose = solve_pose(station.arm.kin, setup.believed + np.array([0.0, 0.0, HOVER]), setup.yaw)
+        pose = hover_over(station.arm.kin, setup.believed, setup.yaw)
         listen_for_other_senders(station)
         try:
             camera = deps.open_camera(setup.source, station.now)
@@ -2350,7 +2340,7 @@ def bench_latency(a: argparse.Namespace, deps: Deps) -> int:
             raise Ended("camera", str(exc)) from exc
         check_camera(camera, station)
         infer_s = inference_p95_s(setup.policy)
-        route = plan_route(station, pose, clear_height(setup.rig))
+        route = plan_route(station, pose, clear_height(setup.rig), [taught_object(setup.rig)])
         confirm_motion(station, keys, f"Enter = ramie jedzie nad punkt chwytu ({describe(route)}, 20 st./s), potem "
                                       f"{LATENCY_STEPS} krokow J6 o {LATENCY_STEP_DEG:g} st.; Ctrl-C = koniec. ")
 

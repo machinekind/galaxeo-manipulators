@@ -21,8 +21,9 @@ arm = ["numpy>=1.24", "mujoco>=3.2"]
 # wheel on purpose: the strategy is installed into the twin's environment, which uses
 # opencv-contrib-python, and two OpenCV wheels overwrite each other's cv2/.
 # numpy 2: the command bookkeeping's float32 yaw sum follows numpy 2 promotion, as training did,
-# and the checkpoint's safe-load list names numpy._core.
-grasp = ["numpy>=2", "torch>=2.7,<2.12", "opencv-contrib-python>=4.8"]
+# and the checkpoint's safe-load list names numpy._core. PyYAML: grasp_bench.py reads the joint
+# limits from galaxeo/robot/a1x/robot.yaml, as the twin does, so its hover is the strategy's.
+grasp = ["numpy>=2", "torch>=2.7,<2.12", "opencv-contrib-python>=4.8", "PyYAML>=6"]
 # PyYAML: the tests read galaxeo/robot/a1x/robot.yaml (the twin reads it at run time).
 test = ["pytest>=7", "PyYAML>=6"]
 
