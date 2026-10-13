@@ -48,6 +48,7 @@ from galaxeo.grasp.contract import (  # noqa: E402
 )
 from galaxeo.grasp.hover import Hover, joint_box, solve_hover  # noqa: E402
 from galaxeo.grasp.policy import GraspStudentPolicy  # noqa: E402
+from galaxeo.grasp.camera import HAND_BODY, WristCamera  # noqa: E402
 from galaxeo.grasp.strategy import Grasp, GraspRefused, GraspSettings, JointHistory, Move, Phase  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
@@ -181,6 +182,14 @@ class Tick:
     move: Move
     phase: Phase
     calls: int                      # policy calls so far, this tick's included
+
+
+@dataclass(frozen=True)
+class Seen:
+    """Ticks of a run and the inputs the policy was given."""
+
+    ticks: list[Tick]
+    calls: list[Call]
 
 
 def cube(xy: tuple[float, float] = CUBE_XY, yaw: float = CUBE_YAW, z: float = 0.015) -> ObjectPose:
@@ -502,6 +511,32 @@ def test_an_object_without_room_on_j6_has_no_hover(use_policy, hover):
     assert "brak zawisu" in message
 
 
+def test_on_a_real_arm_an_object_seen_too_long_ago_is_refused(use_policy, hover, tmp_path):
+    message = refusal(use_policy(ScriptedPolicy(segments((1, STILL)))), at_hover(hover),
+                      run=RunInfo(simulated=False), image=RAW_IMAGE, rig_json=str(complete_rig(tmp_path / "rig.json")),
+                      objects={"cube": dataclasses.replace(cube(), age_s=S.OBJECT_AGE_MAX_S + 1.0)})
+    assert "widziany" in message
+
+
+def test_on_a_real_arm_an_object_away_from_the_table_touch_is_refused(use_policy, hover, tmp_path):
+    message = refusal(use_policy(ScriptedPolicy(segments((1, STILL)))), at_hover(hover),
+                      run=RunInfo(simulated=False), image=RAW_IMAGE, rig_json=str(complete_rig(tmp_path / "rig.json")),
+                      objects={"cube": cube(xy=(CUBE_XY[0], CUBE_XY[1] - 0.11))})
+    assert "od miejsca dotyku stolu" in message
+
+
+def test_on_a_simulated_arm_an_old_observation_is_still_believed(use_policy, hover):
+    strategy = start(use_policy(ScriptedPolicy(segments((1, STILL)))), at_hover(hover),
+                     objects={"cube": dataclasses.replace(cube(), age_s=10.0)})
+    assert strategy.phase is Phase.PLAN
+
+
+def test_a_hover_that_collides_with_the_jaw_fully_open_is_refused(use_policy, hover, monkeypatch):
+    monkeypatch.setattr(CollisionChecker, "config_clear", lambda self, *a, **kw: "kolizja: test")
+    message = refusal(use_policy(ScriptedPolicy(segments((1, STILL)))), at_hover(hover))
+    assert "zawis koliduje" in message
+
+
 # ================================================================== where the grasp is believed
 
 def first_command(tmp_path: Path, use_policy, arm: FakeArm, **kw: Any) -> list[float]:
@@ -522,6 +557,29 @@ def test_an_observed_object_wins_over_the_taught_point(use_policy, hover, tmp_pa
     rig = sim_rig(tmp_path / "rig.json", xy=(0.02, 0.32))
     p = first_command(tmp_path, use_policy, at_hover(hover), rig_json=str(rig))
     assert p[:2] == pytest.approx(list(CUBE_XY), abs=1e-12)
+
+
+@pytest.fixture
+def second_run(use_policy, hover) -> Ran:
+    """A run that ended at once on an old frame, then a second `start` on the same object."""
+    policy = use_policy(ScriptedPolicy(segments((40, STILL))))
+    arm = at_hover(hover)
+    strategy = start(policy, arm)
+    drive(strategy, arm, policy, seconds=5.0, frame_age=0.6)
+
+    fresh = at_hover(hover)
+    strategy.start(RunInfo(), observe(fresh, 0.0, 0))
+    obs = observe(fresh, 0.0, 0)
+    move = strategy.act(obs)
+    return Ran(strategy=strategy, ticks=[Tick(obs=obs, move=move, phase=strategy.phase, calls=len(policy.calls))])
+
+
+def test_a_second_start_answers_its_first_tick_as_a_new_run(second_run):
+    assert second_run.ticks[0].move.done is False
+
+
+def test_a_second_start_forgets_the_first_runs_ending(second_run):
+    assert second_run.strategy.ending is None
 
 
 # ================================================================== a run from home
@@ -552,10 +610,24 @@ def test_a_run_from_home_goes_through_the_phases_in_order(from_home):
     assert seen == [Phase.RAMPS, Phase.JAW, Phase.ARRIVE, Phase.SAG, Phase.EPISODE, Phase.DONE]
 
 
-def test_the_ramps_move_no_joint_faster_than_the_smoothstep_peak_of_the_preposition_speed(from_home):
+def test_the_ramps_move_no_joint_faster_than_the_preposition_speed(from_home):
     targets = [t.move.target for t in phase_ticks(from_home["ticks"], Phase.RAMPS)]
     fastest = max(abs(b[j] - a[j]) for a, b in zip(targets, targets[1:]) for j in ARM) / DT
-    assert fastest <= 1.5 * S.PREPOSITION_SPEED_DEG_S + 1e-6
+    assert fastest <= S.PREPOSITION_SPEED_DEG_S + 1e-6
+
+
+def test_a_runner_stalled_for_a_second_finds_the_ramp_at_most_two_periods_further(use_policy):
+    policy = use_policy(ScriptedPolicy(segments((1, STILL))))
+    arm = FakeArm(measured=dict(HOME))
+    strategy = start(policy, arm)
+
+    def times(k: int) -> float:
+        return k * DT if k < 100 else k * DT + 1.0
+
+    ticks = drive(strategy, arm, policy, seconds=3.0, times=times)
+    before = ticks[99].move.target
+    after = ticks[100].move.target
+    assert max(abs(after[j] - before[j]) for j in ARM) <= S.PREPOSITION_SPEED_DEG_S * 2.0 / Grasp.hz + 1e-6
 
 
 def test_the_jaw_keeps_its_command_during_the_ramps(from_home):
@@ -599,9 +671,9 @@ def test_the_tick_cap_is_not_a_known_success(from_home):
     assert from_home["ticks"][-1].move.success is None
 
 
-def test_an_ending_holds_the_arm_where_it_measures(from_home):
-    last = from_home["ticks"][-1]
-    assert {j: last.move.target[j] for j in ARM} == {j: last.obs.joints[j] for j in ARM}
+def test_the_tick_cap_keeps_the_last_episode_target(from_home):
+    sent = [t.move.target for t in phase_ticks(from_home["ticks"], Phase.EPISODE) if t.move.target]
+    assert from_home["ticks"][-1].move.target == sent[-1]
 
 
 def test_after_the_tick_cap_the_jaw_keeps_its_closed_command(from_home):
@@ -647,6 +719,42 @@ def blocked_base(use_policy) -> Ran:
     arm = FakeArm(measured=dict(HOME), blocked=frozenset({"arm_joint1"}))
     strategy = start(policy, arm)
     return Ran(strategy=strategy, ticks=drive(strategy, arm, policy, seconds=40.0))
+
+
+def solver_below(monkeypatch: pytest.MonkeyPatch, z_max: float) -> None:
+    """The warm IK step refuses every target above `z_max` [m]."""
+    real = Kinematics.ik_step
+
+    def capped(self, position, rotation, seed, **kw):
+        step = real(self, position, rotation, seed, **kw)
+        if float(position[2]) > z_max:
+            return dataclasses.replace(step, converged=False)
+        return step
+
+    monkeypatch.setattr(Kinematics, "ik_step", capped)
+
+
+def run_from_low(use_policy, hover: Hover, kin: Kinematics) -> Ran:
+    """The tool 5 cm under the hover, pointing down."""
+    low = kin.ik_step(hover.p - np.array([0.0, 0.0, 0.05]), kin.fk(hover.q)[:3, :3], hover.q, iters=200)
+    arm = FakeArm(measured={**{j: math.degrees(float(v)) for j, v in zip(ARM, low.q)}, "gripper": 100.0})
+    policy = use_policy(ScriptedPolicy(segments((1, STILL))))
+    strategy = start(policy, arm)
+    return Ran(strategy=strategy, ticks=drive(strategy, arm, policy, seconds=10.0))
+
+
+def test_a_straight_up_step_refused_near_the_object_ends_the_run_ik(use_policy, hover, kin, monkeypatch):
+    # The retreat stops at TCP z 0.06 m, under touch + object + RETREAT_CLEAR (0.079 m).
+    solver_below(monkeypatch, 0.062)
+    assert run_from_low(use_policy, hover, kin).strategy.ending.code == "ik"
+
+
+def test_a_straight_up_step_refused_well_above_the_object_hands_over_to_the_staged_plan(use_policy, hover, kin,
+                                                                                         monkeypatch):
+    # The retreat stops at TCP z 0.08 m, over touch + object + RETREAT_CLEAR: the stages take the arm on.
+    solver_below(monkeypatch, 0.082)
+    ran = run_from_low(use_policy, hover, kin)
+    assert Phase.SAG in {t.phase for t in ran.ticks}
 
 
 def test_a_blocked_joint_during_the_ramps_ends_impact_lag(blocked_base):
@@ -713,20 +821,37 @@ def test_the_history_keeps_two_seconds():
     assert history.nearest(0.0).t == (299 - 128) / 64
 
 
-def test_the_vector_is_built_from_the_joints_at_the_frames_exposure(use_policy, hover):
+@pytest.fixture
+def late_frames(use_policy, hover) -> Seen:
+    """A descending arm seen through frames exposed 30 ms before each tick."""
     policy = use_policy(ScriptedPolicy(segments((40, DOWN))))
     arm = at_hover(hover)
     strategy = start(policy, arm)
     ticks = drive(strategy, arm, policy, seconds=3.0, frame_age=0.03)
-    by_time = {round(t.obs.t, 6): t.obs.joints for t in ticks}
+    return Seen(ticks=ticks, calls=list(policy.calls))
+
+
+def normalised(joints: Mapping[str, float]) -> np.ndarray:
     lo = np.asarray(S.JOINT_LO)
     hi = np.asarray(S.JOINT_HI)
-    errors = []
-    for tick, call in zip(policy_ticks(ticks), policy.calls):
-        joints = by_time[round(tick.obs.t - 0.03, 6)]
-        want = 2.0 * (np.radians([joints[j] for j in ARM]) - lo) / (hi - lo) - 1.0
-        errors.append(float(np.max(np.abs(call.obs[:6] - want))))
+    return 2.0 * (np.radians([joints[j] for j in ARM]) - lo) / (hi - lo) - 1.0
+
+
+def test_the_vector_is_built_from_the_newest_joints_as_in_pr_25(late_frames):
+    errors = [float(np.max(np.abs(call.obs[:6] - normalised(tick.obs.joints))))
+              for tick, call in zip(policy_ticks(late_frames.ticks), late_frames.calls)]
     assert max(errors) <= 1e-6
+
+
+def test_the_believed_pixel_is_projected_from_the_joints_at_the_frames_exposure(late_frames, kin):
+    by_time = {round(t.obs.t, 6): t.obs.joints for t in late_frames.ticks}
+    camera = WristCamera()
+    errors = []
+    for tick, call in zip(policy_ticks(late_frames.ticks), late_frames.calls):
+        joints = by_time[round(tick.obs.t - 0.03, 6)]
+        hand = kin.link_pose(np.radians([joints[j] for j in ARM]), HAND_BODY)
+        errors.append(float(np.max(np.abs(call.uv - camera.believed_uv(hand, BELIEVED)))))
+    assert max(errors) <= 1e-4
 
 
 def test_a_frame_with_no_joint_sample_near_its_exposure_is_skipped(use_policy, hover, tmp_path):
@@ -839,16 +964,45 @@ def slow_supervisor(use_policy, hover) -> Ran:
                         seconds=5.0)
 
 
-def test_a_supervisor_far_behind_the_command_ends_with_lag(slow_supervisor):
-    assert slow_supervisor.strategy.ending.code == "lag"
+def test_a_supervisor_slower_than_the_policy_ends_the_episode(slow_supervisor):
+    assert slow_supervisor.strategy.ending.code == "rate limited"
 
 
-def test_lag_ends_the_episode_after_ten_skips(slow_supervisor):
-    assert slow_supervisor.strategy.summary["skipped"] == 10
+def test_the_rate_limit_ending_names_the_speed_limit(slow_supervisor):
+    assert "limit predkosci" in slow_supervisor.ticks[-1].move.note
 
 
-def test_a_target_the_supervisor_has_not_reached_by_the_next_tick_counts_as_rate_limited(slow_supervisor):
-    assert slow_supervisor.strategy.summary["rate_limited"] >= 1
+def test_the_rate_limit_ends_after_ten_rate_limited_ticks_in_a_row(slow_supervisor):
+    assert slow_supervisor.strategy.summary["rate_limited"] == S.RATE_LIMITED_END
+
+
+def test_a_rate_limit_ending_holds_the_measured_pose(slow_supervisor):
+    last = slow_supervisor.ticks[-1]
+    assert last.move.target == dict(last.obs.joints)
+
+
+@pytest.fixture
+def lagging_joint(use_policy, hover) -> Ran:
+    """From the first policy tick J1 is reported 8.5 to 10.5 degrees behind, jittering: never
+    still, so the impact guard stays quiet while the lag rule sees it behind."""
+    policy = use_policy(ScriptedPolicy(segments((40, STILL))))
+    arm = at_hover(hover)
+    strategy = start(policy, arm)
+
+    def jitter(k: int, t: float) -> dict[str, Any]:
+        if policy.calls:
+            arm.offset["arm_joint1"] = -9.5 + (1.0 if k % 2 else -1.0)
+        return {}
+
+    return Ran(strategy=strategy, ticks=drive(strategy, arm, policy, seconds=5.0, each=jitter))
+
+
+def test_a_joint_behind_its_command_ends_with_lag(lagging_joint):
+    assert lagging_joint.strategy.ending.code == "lag"
+
+
+def test_lag_ends_the_episode_after_ten_skips(lagging_joint):
+    assert lagging_joint.strategy.summary["skipped"] == 10
 
 
 # ================================================================== the bookkeeping
@@ -915,6 +1069,26 @@ def test_the_command_integrates_from_itself_not_from_the_measured_pose(use_polic
     assert got == [p.tolist() for p in expected[1:]]
 
 
+@pytest.fixture
+def training_steps(use_policy, hover) -> dict[str, np.ndarray]:
+    """Training's 200 recorded IK calls through the strategy's own acceptance, without the collision question."""
+    strategy = start(use_policy(ScriptedPolicy(segments((1, STILL)))), at_hover(hover))
+    z = npz("ik.npz", "q0", "pos", "R", "q", "ok")
+    taken = [strategy._accept(z["pos"][i], z["R"][i], z["q0"][i], collision=False) for i in range(len(z["ok"]))]
+    return {**z, "accepted": np.array([a.q is not None for a in taken]),
+            "q_strategy": np.stack([a.step.q for a in taken])}
+
+
+def test_the_strategy_takes_every_ik_step_training_took_unless_it_jumps_more_than_6_degrees(training_steps):
+    jump = np.degrees(np.max(np.abs(training_steps["q"] - training_steps["q0"]), axis=1))
+    assert np.array_equal(training_steps["accepted"], training_steps["ok"] & (jump <= S.IK_MAX_JUMP_DEG))
+
+
+def test_the_ik_steps_the_strategy_takes_land_on_trainings_joints(training_steps):
+    taken = training_steps["accepted"]
+    assert np.abs(training_steps["q_strategy"][taken] - training_steps["q"][taken]).max() <= 1e-12
+
+
 # ================================================================== the measured floor and the table
 
 @pytest.fixture
@@ -972,20 +1146,13 @@ def test_shadow_never_reports_a_success(shadow_run):
     assert shadow_run["strategy"].ending.success is None
 
 
-@dataclass(frozen=True)
-class Closed:
-    """Policy ticks of a run that closes the jaw on its fourth tick, with what the policy read."""
-
-    ticks: list[Tick]
-    calls: list[Call]
-
-
-def close_on_tick_3(use_policy, hover: Hover, *, shadow: bool) -> Closed:
+def close_on_tick_3(use_policy, hover: Hover, *, shadow: bool) -> Seen:
+    """The policy ticks of a run that closes the jaw on its fourth policy tick."""
     policy = use_policy(ScriptedPolicy(segments((3, STILL), (40, CLOSE))))
     arm = at_hover(hover)
     strategy = start(policy, arm, shadow=shadow)
     ticks = drive(strategy, arm, policy, seconds=2.0)
-    return Closed(ticks=policy_ticks(ticks), calls=list(policy.calls))
+    return Seen(ticks=policy_ticks(ticks), calls=list(policy.calls))
 
 
 def read_gap(call: Call) -> float:
@@ -1049,6 +1216,12 @@ def test_a_success_holds_the_jaw_closed(lifted_object):
     assert lifted_object.ticks[-1].move.target["gripper"] == 0.0
 
 
+def test_a_success_holds_the_lift_commanded_not_the_pose_measured_behind_it(lifted_object):
+    # The measurement trails the command: holding it would step back with the object in the jaw.
+    last = lifted_object.ticks[-1]
+    assert {j: last.move.target[j] for j in ARM} != {j: last.obs.joints[j] for j in ARM}
+
+
 @pytest.fixture
 def lifted_blind(use_policy, hover, tmp_path) -> Ran:
     """The taught point and no observed object: the strategy cannot see what it holds."""
@@ -1100,6 +1273,7 @@ def test_the_summary_names_the_ending(dumped):
 class Replayed:
     calls: list[Call]
     recorded: dict[str, np.ndarray]           # this episode's rows of shard.npz
+    summary: dict[str, Any]
 
 
 class RecordedPolicy(ScriptedPolicy):
@@ -1110,7 +1284,7 @@ class RecordedPolicy(ScriptedPolicy):
 
 
 SHARD_KEYS = ("img", "q", "gap", "act", "obs", "obs_fk", "uv", "uv_fk", "believed_pos", "believed_yaw", "episode",
-              "g_cmd", "prev_action")
+              "g_cmd", "prev_action", "yaw_cmd")
 JAW_ENTRY = 12
 ATTEMPTS_ENTRY = 18
 
@@ -1140,17 +1314,20 @@ def replay(episode: int, tmp_path: Path) -> Replayed:
         replaying = False
         while len(policy.calls) < len(rec["act"]) and k < 3000:
             i = len(policy.calls)
-            # From the sag on, the arm is training's: its measured joints, its frames.
+            # From the sag on, the arm is training's: its measured joints, its frames. The supervisor
+            # keeps up with every target, as training's arm was commanded without a rate limit.
             replaying = replaying or strategy.phase in (Phase.SAG, Phase.EPISODE)
             if replaying:
-                arm = FakeArm(measured=recorded_joints(i))
+                arm = FakeArm(measured=recorded_joints(i), command=dict(arm.target), target=dict(arm.target))
             obs = observe(arm, k * DT, k, frame_age=0.0, image=rec["img"][min(i, len(rec["img"]) - 1)], objects=seen)
             move = strategy.act(obs)
             assert not move.done, move.note
-            arm.follow(move, DT)
+            arm.target.update(move.target)
+            if not replaying:
+                arm.follow(move, DT)
             k += 1
         strategy.stop("test")
-    return Replayed(calls=policy.calls, recorded=rec)
+    return Replayed(calls=policy.calls, recorded=rec, summary=dict(strategy.summary or {}))
 
 
 @pytest.fixture(scope="module", params=[50000, 50001], ids=["episode 50000", "episode 50001"])
@@ -1170,6 +1347,21 @@ def forced_close(rec: dict[str, np.ndarray]) -> np.ndarray:
 
 def test_every_recorded_tick_reaches_the_policy(replayed):
     assert len(replayed.calls) == len(replayed.recorded["act"])
+
+
+def test_training_took_every_ik_step_of_the_episode(replayed):
+    # A refused step keeps the yaw although the action turns it.
+    rec = replayed.recorded
+    still = np.isclose(rec["yaw_cmd"][1:], rec["yaw_cmd"][:-1], atol=1e-9) & (np.abs(rec["prev_action"][1:, 3]) > 1e-3)
+    assert not still.any()
+
+
+def test_the_replay_refuses_no_ik_step(replayed):
+    assert replayed.summary["ik_refused"] == 0
+
+
+def test_the_replay_refuses_no_step_for_a_collision(replayed):
+    assert replayed.summary["collision_refused"] == 0
 
 
 def test_training_recorded_the_episode_with_a_forced_early_close(replayed):

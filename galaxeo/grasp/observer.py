@@ -2,11 +2,15 @@
 
     [joints normalised to -1..1 (6), gap * 10, (believed - TCP) * 10 (3), command tail (9)]
 
-The joints are the ones paired with the camera frame, in radians. They are normalised with the
-MJCF ranges training used (`JOINT_LO` / `JOINT_HI`), never with the app limits, and the vector
-is returned raw: the checkpoint's statistics are applied only inside the policy. The TCP is
-forward kinematics of the same joints in the base frame; training's positions are world
-coordinates, but the vector holds only a difference, so the frames agree.
+The strategy gives the NEWEST measured joints, in radians, as PR 25 did; only the believed pixel
+uses the joints paired with the frame's exposure. Training drew both from one instant, so with a
+camera latency the two choices differ by the arm's motion over that latency; parity with PR 25,
+the design that grasped 46 of 50 cubes in the twin's simulation, decided.
+
+The joints are normalised with the MJCF ranges training used (`JOINT_LO` / `JOINT_HI`), never
+with the app limits, and the vector is returned raw: the checkpoint's statistics are applied only
+inside the policy. The TCP is forward kinematics of the same joints in the base frame; training's
+positions are world coordinates, but the vector holds only a difference, so the frames agree.
 
 One observer per thread: it drives its `Kinematics`, which mutates its `MjData`.
 """
@@ -57,7 +61,7 @@ class GraspObserver:
         return self.kin.fk(_joints(q))[:3, 3].copy()
 
     def build(self, q: np.ndarray, gap: float, cmd: GraspCommand) -> np.ndarray:
-        """(19,) float32, not normalised. `q` the paired joints [rad], `gap` the fingertip gap [m]."""
+        """(19,) float32, not normalised. `q` the measured joints [rad], `gap` the fingertip gap [m]."""
         joints = _joints(q)
         normalised = 2.0 * (joints - _LO) / (_HI - _LO) - 1.0
         offset = (np.asarray(cmd.state.believed_pos, float) - self.tcp(joints)) * 10.0

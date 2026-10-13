@@ -232,6 +232,10 @@ class Rig:
         """Measured TCP z with the fingertips touching the table (m, base frame)."""
         return self._num("table", "touch_tcp_z")
 
+    def table_tcp(self) -> np.ndarray | None:
+        """(3,) the TCP where the table touch was taught (m, base frame)."""
+        return self._tcp("table")
+
     def believed(self) -> np.ndarray | None:
         """(3,) the believed grasp: taught xy, z = touch_tcp_z + TIP_CLEAR (training's tip clearance)."""
         tcp = self._tcp("grasp")

@@ -14,7 +14,7 @@ command   command bookkeeping, a verbatim port of the training environment's ste
 net       the network: ResNet18 rebuilt in plain torch, without torchvision
 policy    the checkpoint (sha256 before unpickling, weights only) and `act` at batch 1
 camera    the wrist camera's geometry: camera frame to policy frame, base-frame points to pixels
-observer  the 19-vector the policy reads, from the joints paired with the frame
+observer  the 19-vector the policy reads, from the newest measured joints
 hover     the hover above the believed grasp, and the staged joint plan to it
 dumps     ticks.jsonl, summary.json and the model-input dumps of one run
 strategy  the twin strategy `Grasp`: settings, start (the refusals), act (the phases), stop

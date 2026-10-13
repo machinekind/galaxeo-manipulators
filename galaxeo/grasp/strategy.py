@@ -19,8 +19,9 @@ One run is one episode, in phases inside `act`:
   episode   the policy on a 50 ms schedule by `obs.t`; the ticks between send nothing
   done      the arm holds where it measures
 
-The episode tick is training's step: the 19-vector and the believed pixel from the joints paired
-with the frame, the policy, one bookkeeping step, one warm IK step accepted only when it
+The episode tick is training's step: the 19-vector from the newest joints and the believed pixel
+from the joints paired with the frame, as in PR 25, the policy, one bookkeeping step, one warm IK
+step accepted only when it
 converged, jumped at most IK_MAX_JUMP_DEG and is clear of the table and the object. A refused
 step keeps the commanded TCP, yaw and joints and commits the rest; the command never
 integrates from the measured pose. The supervisor rate-limits each target to `max_vel`.
@@ -30,9 +31,8 @@ A1X measures its jaw, the simulated arm reports the scene's finger slide. In sha
 stays open, the floor stays above the object and nothing is a success; the gap there comes from
 a virtual jaw that follows the policy's own command (`_VirtualJaw`).
 
-Every ending answers `done=True` with the measured arm pose as the target. After an ending
-that may hold the object (success, lifted, tick or time cap) the jaw keeps its command; after
-any other the jaw also stops where it measures.
+Every ending answers `done=True`. An ending that may hold the object (success, lifted, tick or
+time cap) keeps the last episode target, jaw included; any other holds where the arm measures.
 
 Units: the observation and the targets in degrees and the gripper 0..100, `galaxeo.arm` and the
 19-vector in radians.
@@ -103,6 +103,7 @@ from .contract import (
     SHADOW_CLEAR,
     SHADOW_FLOOR_ABOVE_BELIEVED,
     STREAM_UNITS_S,
+    TABLE_TOUCH_FAR,
     TABLE_END_BELOW,
     TABLE_END_TICKS,
     TICK_S,
@@ -123,32 +124,53 @@ logger = logging.getLogger(__name__)
 
 ARM = JOINTS
 GRIPPER = "gripper"
+JOINTS_AND_GRIPPER = (*ARM, GRIPPER)
 
 #: Loading the checkpoint sets torch's intra-op threads, which is process-wide: inside the twin
 #: every other torch user gets the same 2 threads.
 TORCH_THREADS = 2
 
-HISTORY_S = 2.0                        # joint history kept for pairing frames with joints
+#: Longer than any frame age that does not end the episode at once (`FRAME_END_S`).
+HISTORY_S = 2.0
+#: The policy's grid is a sum of 0.05 s steps: a tick on a grid point must not round to just before it.
 SCHEDULE_TOL_S = 1e-6
-SPEED_WINDOW_S = 0.05                  # joint speed over at least this much history
-FRAME_END_S = 0.5                      # a frame older than this ends the episode at once
-SKIPS_END = 5                          # soft skips in a row that end an episode ...
-SKIPS_END_LAG = 10                     # ... or, when the last one is `lag`, this many (0.5 s)
+#: The twin measures at 50 Hz, so two 100 Hz ticks in a row can carry the same joints.
+SPEED_WINDOW_S = 0.05
+FRAME_END_S = 0.5
+#: Soft skips in a row that end an episode; lag gets twice as long, as in PR 25: an arm behind its
+#: command catches up by itself, a camera or pairing gap does not.
+SKIPS_END = 5
+SKIPS_END_LAG = 10
 RATE_LIMITED_DEG = 0.5
-MAX_SECONDS = 12.0                     # time cap of an episode, next to the tick cap
+#: Rate-limited policy ticks in a row that end an episode, as long as the lag streak (0.5 s). At
+#: 90 deg/s a target (at most IK_MAX_JUMP_DEG away) is reached within 67 ms; only a yaw at the
+#: policy's full 5 degrees a tick runs 10 deg/s over the limit, and the largest misalignment
+#: training drew (45 deg) takes 9 such ticks. Ten in a row is a speed limit below the policy's.
+RATE_LIMITED_END = 10
+#: Next to the tick cap, which counts skipped ticks: 120 ticks take 6 s on time, and a run whose
+#: ticks keep coming late still ends.
+MAX_SECONDS = 12.0
 # The measured-side floor starts at the command floor's own margin: at full lateral speed the
 # tool dips for 3 to 4 ticks while the raised floor brings the command back.
 MEASURED_FLOOR_START = FLOOR_MARGIN
-GRIP_STAGE = 99.0                      # the jaw's first opening command: the A1X backend ignores a
-GRIP_OPEN = 100.0                      # first command within 0.5 of the reported opening
+#: The jaw opens with 99 first: the A1X backend ignores a first command within 0.5 of the
+#: reported opening, and a jaw reported open would never get its stream.
+GRIP_STAGE = 99.0
+GRIP_OPEN = 100.0
 GRIP_FIRST_S = 0.1
 GRIP_WAIT_S = 2.0
 SAG_AVERAGE_S = 0.3
 RAMP_MIN_S = 0.5
-GUARD_LAG_S = 0.15                     # the impact guard's lag rule: how long a joint may trail ...
-PREPOSITION_LAG_DEG = 4.0              # ... by more than this during pre-positioning
-EPISODE_LAG_DEG = 3.0                  # ... and during the episode
+#: PR 25's lag rule: tighter in the episode, whose steps are small, than on the ramps.
+GUARD_LAG_S = 0.15
+PREPOSITION_LAG_DEG = 4.0
+EPISODE_LAG_DEG = 3.0
 TIME_MARGIN_S = 5.0
+#: On a real arm, an observed object older than this is not believed. The twin's cube perception
+#: reports at camera rate, well under 0.1 s; a pose a second old is the last sighting of a cube the
+#: cameras lost, and since then a hand or the previous episode may have moved it further than the
+#: 1.5 cm hover noise the policy was trained to absorb.
+OBJECT_AGE_MAX_S = 1.0
 #: Endings after which the object may be in the jaw: the jaw keeps its command.
 KEEP_GRIP = ("success", "lifted", "tick cap", "time cap")
 
@@ -261,13 +283,18 @@ class JointHistory:
 
 @dataclass
 class _Ramp:
-    """Smoothstep from `start` to `goal` [rad] over `duration`, from the first tick that asks."""
+    """Smoothstep from `start` to `goal` [rad] over `duration`, from the first tick that asks.
+
+    It advances by the time between ticks, at most two periods a tick: a runner that stalls for a
+    second must not find the ramp a second further along and jump there.
+    """
 
     start: np.ndarray
     goal: np.ndarray
     grip: float
     duration: float
-    t0: float | None = None
+    elapsed: float = 0.0
+    last_t: float | None = None
 
 
 @dataclass(frozen=True)
@@ -322,7 +349,6 @@ class _Episode:
     floor_z0: float
     next_policy_t: float
     target: dict[str, float]           # the last target sent
-    grip: float                        # the jaw command in that target
     policy_ticks: int = 0
     skipped: int = 0
     streak: int = 0
@@ -341,6 +367,7 @@ class _Episode:
     pending: TickRecord | None = None
     pending_target: dict[str, float] | None = None
     jaw: _VirtualJaw | None = None     # shadow only
+    rate_streak: int = 0
 
 
 def smoothstep(x: float) -> float:
@@ -360,10 +387,15 @@ def _units(value: float) -> float:
     return min(max(float(value), 0.0), 100.0)
 
 
+def _ramp_duration(largest_deg: float) -> float:
+    """The smoothstep's peak speed is 1.5 times its mean: the peak stays at PREPOSITION_SPEED_DEG_S."""
+    return max(RAMP_MIN_S, 1.5 * largest_deg / PREPOSITION_SPEED_DEG_S)
+
+
 def _time_limit_s() -> float:
     """Pre-positioning at its slowest, the episode and a margin: the twin's backstop, read before `start`."""
     span = dict(zip(ARM, np.degrees(np.asarray(JOINT_HI) - np.asarray(JOINT_LO)), strict=True))
-    stages = sum(max(RAMP_MIN_S, max(span[j] for j in stage) / PREPOSITION_SPEED_DEG_S) for stage in STAGES)
+    stages = sum(_ramp_duration(max(span[j] for j in stage)) for stage in STAGES)
     retreat = math.ceil(TRAIN_HOVER_Z[1] / RETREAT_STEP) * RAMP_MIN_S
     hover = GRIP_FIRST_S + GRIP_WAIT_S + ARRIVE_TIMEOUT_S + SAG_AVERAGE_S
     return retreat + stages + hover + MAX_SECONDS + TIME_MARGIN_S
@@ -402,6 +434,13 @@ class Grasp:
 
         self.config = settings
         self.time_limit_s = _time_limit_s()
+        self._dumps: Dumps | None = None
+        self._reset()
+
+    def _reset(self) -> None:
+        """Everything one run changes: a second `start` on the same object begins from nothing."""
+        if self._dumps is not None:
+            self._dumps.close(self.summary)
         self.phase = Phase.PLAN
         self.ending: Ending | None = None
         #: The episode's numbers once it ended (also in summary.json).
@@ -417,12 +456,13 @@ class Grasp:
         self._sag = 0.0
         self._episode: _Episode | None = None
         self._done: Move | None = None
-        self._dumps: Dumps | None = None
+        self._dumps = None
 
     # ================================================================== start
 
     def start(self, run: RunInfo, obs: Observation) -> None:
         """Refuses (`GraspRefused`, Polish) before anything moves; else sets the run up."""
+        self._reset()
         self._check_robot(run)
         self._simulated = bool(run.simulated)
 
@@ -522,6 +562,12 @@ class Grasp:
             raise GraspRefused("chwyt: plik stanowiska nie ma dotyku stolu (table.touch_tcp_z)")
         return touch
 
+    def _check_hover_clear(self) -> None:
+        """The hover at the opening every episode step is judged at; this also compiles the scene now."""
+        collision = self._checker.config_clear(self._hover.q, self._obstacles, opening=self._finger_open)
+        if collision is not None:
+            raise GraspRefused(f"chwyt: zawis koliduje przy otwartej szczece ({collision})")
+
     def _height(self) -> float:
         height = self._rig.object_height()
         return OBJECT_HEIGHT_DEFAULT if height is None else height
@@ -533,6 +579,8 @@ class Grasp:
         if seen is not None:
             position = np.asarray(seen.position, float).reshape(3)
             rotation = np.asarray(seen.rotation, float).reshape(3, 3)
+            if not self._simulated:
+                self._check_observed(name, float(seen.age_s), position)
             # The closing axis across the object's x faces, as training drew the grasp yaw.
             return _Believed(point=np.array([position[0], position[1], self._touch + TIP_CLEAR]),
                              yaw=math.atan2(rotation[1, 0], rotation[0, 0]),
@@ -544,6 +592,20 @@ class Grasp:
             raise GraspRefused(f"chwyt: nie wiadomo, gdzie chwytac - w obserwacji nie ma obiektu {name!r}, "
                                "a plik stanowiska nie ma punktu chwytu (grasp.tcp, grasp.yaw)")
         return _Believed(point=point, yaw=float(yaw), source="punkt chwytu z pliku stanowiska", object_z=None)
+
+    def _check_observed(self, name: str, age_s: float, position: np.ndarray) -> None:
+        """On a real arm an observed object replaces the taught point only when it is fresh and stands
+        where the table's height was measured: the believed grasp sits at the taught touch height."""
+        if age_s > OBJECT_AGE_MAX_S:
+            raise GraspRefused(f"chwyt: obiekt {name!r} widziany {age_s:.1f} s temu (limit {OBJECT_AGE_MAX_S:.0f} s) "
+                               "- mogl sie od tego czasu przesunac")
+
+        table = self._rig.table_tcp()
+        far = math.inf if table is None else math.hypot(position[0] - table[0], position[1] - table[1])
+        if far > TABLE_TOUCH_FAR:
+            raise GraspRefused(f"chwyt: obiekt {name!r} stoi {far * 100:.0f} cm od miejsca dotyku stolu (limit "
+                               f"{TABLE_TOUCH_FAR * 100:.0f} cm) - wysokosc stolu zmierzono tam, przy obiekcie moze "
+                               "byc inna")
 
     def _solve_hover(self) -> Hover:
         try:
@@ -561,14 +623,15 @@ class Grasp:
         axis-aligned box around a turned cube sticks out 6 mm at 45 deg, enough to refuse every step
         of a jaw closed slightly off-centre."""
         half = self._object_height / 2.0
-        x, y = self._believed.point[:2]
-        return Box(center=(float(x), float(y), half), half=(half, half, half), name="obiekt", yaw=self._believed.yaw)
+        point = self._believed.point
+        return Box(center=(float(point[0]), float(point[1]), half), half=(half, half, half), name="obiekt",
+                   yaw=self._believed.yaw)
 
     def _prepare(self) -> None:
         self._checker = CollisionChecker()
-        self._checker.config_clear(self._hover.q, self._obstacles)       # compiles the scene now, not on a tick
-        self._observer = GraspObserver(self._kin)
         self._finger_open = float(self._kin.ix.finger_open)
+        self._check_hover_clear()
+        self._observer = GraspObserver(self._kin)
         self._camera_s = self._rig.camera_latency_s()
         self._hover_deg = _arm_deg(self._hover.q)
         self._guard = ImpactGuard(ARM, lag_deg=PREPOSITION_LAG_DEG, lag_s=GUARD_LAG_S)
@@ -662,8 +725,7 @@ class Grasp:
         pose = start
         for goal in [*retreat, *stages]:
             largest = float(np.max(np.abs(np.degrees(goal - pose))))
-            self._ramps.append(_Ramp(start=pose, goal=goal, grip=keep,
-                                     duration=max(RAMP_MIN_S, largest / PREPOSITION_SPEED_DEG_S)))
+            self._ramps.append(_Ramp(start=pose, goal=goal, grip=keep, duration=_ramp_duration(largest)))
             pose = goal
 
         self._ramp_total = len(self._ramps)
@@ -727,11 +789,11 @@ class Grasp:
             self._enter(Phase.JAW, obs)
         return move
 
-    @staticmethod
-    def _ramp_point(ramp: _Ramp, t: float) -> _RampPoint:
-        if ramp.t0 is None:
-            ramp.t0 = t
-        s = smoothstep((t - ramp.t0) / ramp.duration)
+    def _ramp_point(self, ramp: _Ramp, t: float) -> _RampPoint:
+        if ramp.last_t is not None:
+            ramp.elapsed += min(max(t - ramp.last_t, 0.0), 2.0 / self.hz)
+        ramp.last_t = t
+        s = smoothstep(ramp.elapsed / ramp.duration)
         return _RampPoint(q=ramp.start + s * (ramp.goal - ramp.start), finished=s >= 1.0)
 
     def _open_jaw(self, obs: Observation) -> Move:
@@ -808,11 +870,9 @@ class Grasp:
         self.phase = Phase.EPISODE
         floor = self._floor_of(self._sag)
         cmd = GraspCommand(self._hover.p, self._hover.yaw, self._hover.q, floor_z=floor)
-        grip = GRIP_OPEN
         jaw = _VirtualJaw(opening=GRIP_OPEN, t=obs.t) if self.config.shadow else None
         self._episode = _Episode(cmd=cmd, sag_used=self._sag, sag_est=self._sag, t0=obs.t, floor_z0=floor,
-                                 next_policy_t=obs.t, target={**self._hover_deg, GRIPPER: grip}, grip=grip,
-                                 jaw=jaw)
+                                 next_policy_t=obs.t, target={**self._hover_deg, GRIPPER: GRIP_OPEN}, jaw=jaw)
         self._guard = ImpactGuard(ARM, lag_deg=EPISODE_LAG_DEG, lag_s=GUARD_LAG_S)
         logger.info("grasp episode: floor %.1f mm, sag %.1f mm", floor * 1000.0, self._sag * 1000.0)
 
@@ -840,6 +900,10 @@ class Grasp:
     def _tick(self, ep: _Episode, obs: Observation) -> Move:
         self._judge(ep, obs)
         self._emit(ep)
+        if ep.rate_streak >= RATE_LIMITED_END:
+            raise _Ended(Ending("rate limited", f"nadzorca nie nadaza za polityka przez {ep.rate_streak} tikow z "
+                                                f"rzedu - limit predkosci ramienia ponizej {ARM_SPEED_DEG_S:.0f} st./s "
+                                                "(ograniczenie predkosci w panelu, velocity_scale)"))
         if ep.cmd.state.ticks + ep.skipped >= MAX_TICKS:
             raise _Ended(Ending("tick cap", f"limit {MAX_TICKS} tikow"))
         if obs.t - ep.t0 > MAX_SECONDS:
@@ -906,13 +970,13 @@ class Grasp:
 
         gap = GAP_CLOSED + GAP_PER_UNIT * self._jaw_opening(ep, obs)
         rec.gap = gap
-        q_pair = _arm_rad(paired.joints)
-        vector = self._observer.build(q_pair, gap, ep.cmd)
+        # The newest joints, as in PR 25 (see `observer`); only the pixel below is paired.
+        vector = self._observer.build(q_now, gap, ep.cmd)
         if not np.all(np.isfinite(vector)):
             raise _Ended(Ending("non-finite", f"nieskonczona obserwacja {vector.tolist()}"))
 
         # The believed pixel from the joints at the exposure time, not the newest ones.
-        hand = self._kin.link_pose(q_pair, HAND_BODY)
+        hand = self._kin.link_pose(_arm_rad(paired.joints), HAND_BODY)
         uv = self._camera.believed_uv(hand, self._hover.believed)
         rec.uv = uv.tolist()
 
@@ -1003,7 +1067,6 @@ class Grasp:
         if not all(math.isfinite(v) for v in target.values()):
             raise _Ended(Ending("non-finite", f"nieskonczony cel {target}"))
         ep.target = target
-        ep.grip = grip
         return target
 
     def _check_success(self, ep: _Episode, obs: Observation, tcp: np.ndarray) -> None:
@@ -1131,6 +1194,7 @@ class Grasp:
         diffs = [abs(float(target[j]) - float(obs.command[j])) for j in ARM if j in target and j in obs.command]
         rec.rate_limited = bool(diffs) and max(diffs) > RATE_LIMITED_DEG
         ep.rate_limited += int(rec.rate_limited)
+        ep.rate_streak = ep.rate_streak + 1 if rec.rate_limited else 0
 
     def _emit(self, ep: _Episode) -> None:
         if ep.pending is not None and self._dumps is not None:
@@ -1141,12 +1205,14 @@ class Grasp:
     # ================================================================== endings
 
     def _finish(self, obs: Observation, ending: Ending) -> Move:
-        """Every ending: the arm holds where it measures; the jaw keeps its command when it may hold the object."""
+        """An ending that may hold the object keeps the last episode target: the measurement trails the
+        command, and holding it would step back with the object in the jaw. Every other ending holds
+        where the arm measures, jaw included: a joint pressed against something stops pushing."""
         ep = self._episode
-        target = {j: float(obs.joints[j]) for j in ARM}
-        target[GRIPPER] = float(obs.joints[GRIPPER])
         if ep is not None and ending.code in KEEP_GRIP:
-            target[GRIPPER] = ep.grip
+            target = dict(ep.target)
+        else:
+            target = {j: float(obs.joints[j]) for j in JOINTS_AND_GRIPPER}
 
         if ep is not None:
             self._judge(ep, obs)
