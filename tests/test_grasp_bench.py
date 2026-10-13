@@ -17,11 +17,14 @@ import pytest
 
 pytest.importorskip("mujoco")
 yaml = pytest.importorskip("yaml")
+cv2 = pytest.importorskip("cv2")
 
 import grasp_bench as gb  # noqa: E402
 from galaxeo import protocol as P  # noqa: E402
 from galaxeo.arm import Kinematics  # noqa: E402
 from galaxeo.grasp.contract import TIP_CLEAR, TOUCH_EXPECTED_Z, TOUCH_TOLERANCE  # noqa: E402
+from galaxeo.grasp.camera import HAND_BODY, wrist_intrinsics  # noqa: E402
+from galaxeo.grasp.camera import WristCamera as GeometryCamera  # noqa: E402
 from galaxeo.grasp.hover import joint_box, solve_hover  # noqa: E402
 from galaxeo.grasp.rig import Rig  # noqa: E402
 from galaxeo.robot import ROBOT_DIR  # noqa: E402
@@ -492,9 +495,78 @@ def test_a_config_without_an_a1x_section_changes_nothing(tmp_path):
     assert gb.a1x_settings(str(config)) == {}
 
 
+# ====================================================================== dot capture
+@pytest.fixture
+def dot_run(tmp_path):
+    bus = BenchBus(start_deg=np.degrees(HOVER_POSE.q))
+    path = tmp_path / "rig.json"
+    taught_rig(path)
+    out = tmp_path / "dot" / "dot.png"
+    code = gb.main(real("dot", path, "--out", str(out), "--camera", "0"),
+                   deps(bus, ScriptedKeys(), camera=WristCamera(bus)))
+    return code, out, bus, path
+
+
+def test_the_dot_capture_ends_cleanly(dot_run):
+    assert dot_run[0] == 0
+
+
+def test_the_dot_image_is_the_model_input_four_times_enlarged(dot_run):
+    assert cv2.imread(str(dot_run[1])).shape == (480, 640, 3)
+
+
+def test_the_dot_image_marks_the_believed_grasp_where_it_projects(dot_run):
+    bus = dot_run[2]
+    rig = Rig.load(dot_run[3])
+    hand = KIN.link_pose(np.array(bus.q[:6]), HAND_BODY)
+    u, v = GeometryCamera(wrist_intrinsics(rig)).believed_uv(hand, rig.believed())
+    pixel = cv2.imread(str(dot_run[1]))[round((v + 0.5) * 4 - 0.5), round((u + 0.5) * 4 - 0.5)]
+
+    assert int(pixel[1]) - max(int(pixel[0]), int(pixel[2])) > 200      # the cross's green, antialiased
+
+
+def test_the_dot_capture_records_nothing(dot_run):
+    assert "dot_error_px" not in Rig.load(dot_run[3]).wrist
+
+
+def test_the_dot_capture_needs_an_output_file(tmp_path):
+    path = tmp_path / "rig.json"
+    taught_rig(path)
+
+    code = gb.main(real("dot", path, "--camera", "0"), gb.Deps(open_station=no_station))
+
+    assert code == 2
+
+
+def test_the_dot_capture_moves_the_arm_only_with_i_know(tmp_path):
+    path = tmp_path / "rig.json"
+    taught_rig(path)
+
+    code = gb.main(["dot", "--iface", "fake", "--rig", str(path), "--out", str(tmp_path / "dot.png")],
+                   gb.Deps(open_station=no_station))
+
+    assert code == 2
+
+
+def test_the_dot_capture_on_the_simulated_arm_is_refused(tmp_path):
+    path = tmp_path / "rig.json"
+    taught_rig(path)
+
+    code = gb.main(["dot", "--sim", "--rig", str(path), "--out", str(tmp_path / "dot.png")],
+                   gb.Deps(open_station=no_station))
+
+    assert code == 2
+
+
+def test_the_dot_capture_needs_the_taught_point(tmp_path):
+    code = gb.main(real("dot", tmp_path / "rig.json", "--out", str(tmp_path / "dot.png"), "--camera", "0"),
+                   gb.Deps(open_station=no_station))
+
+    assert code == 2
+
+
 # ====================================================================== the pieces
 def test_the_camera_reads_frames_through_opencv(tmp_path):
-    cv2 = pytest.importorskip("cv2")
     video = tmp_path / "wrist.avi"
     writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 48))
     for k in range(10):

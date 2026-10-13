@@ -81,6 +81,7 @@ from galaxeo.grasp.contract import (
     SAG_MAX,
     TABLE_TOUCH_FAR,
     TEACH_MAX_AGE_S,
+    TIP_AHEAD,
     TIP_CLEAR,
     TOUCH_EXPECTED_Z,
     TOUCH_TOLERANCE,
@@ -176,6 +177,7 @@ LATENCY_MIN_GOOD = 3
 MAD_SIGMA_MIN = 0.01
 FIRST_FRAME_S = 3.0
 FRAME_WAIT_S = 0.02
+DOT_SETTLE_S = 0.3                    # the dot frame is exposed this long after the arm stands at the hover
 GUARD_LAG_S = 0.15
 FRAME_SMALL = (160, 90)               # the frame difference runs on a grey frame this size
 
@@ -2020,6 +2022,12 @@ class Frame:
     size: tuple[int, int]             # (width, height) as delivered
 
 
+@dataclass(frozen=True)
+class RawFrame:
+    image: np.ndarray                 # RGB uint8 as delivered
+    t: float                          # station clock on arrival
+
+
 class Camera:
     """The wrist camera through OpenCV, read on its own thread: `latest()` is the newest frame,
     stamped on arrival with the station clock."""
@@ -2038,6 +2046,7 @@ class Camera:
             raise RuntimeError(f"kamera {source} sie nie otworzyla (macOS: uruchom z Terminal.app)")
         self._lock = threading.Lock()
         self._latest: Frame | None = None
+        self._raw: np.ndarray | None = None          # BGR, the newest frame
         self._closed = threading.Event()
         self._thread = threading.Thread(target=self._run, name="chwyt-kamera", daemon=True)
         self._thread.start()
@@ -2056,10 +2065,20 @@ class Camera:
             small = cv2.resize(grey, FRAME_SMALL, interpolation=cv2.INTER_AREA)
             with self._lock:
                 self._latest = Frame(image=small, t=t, seq=seq, size=(int(frame.shape[1]), int(frame.shape[0])))
+                self._raw = frame
 
     def latest(self) -> Frame | None:
         with self._lock:
             return self._latest
+
+    def raw(self) -> RawFrame | None:
+        """The newest frame in full, RGB."""
+        with self._lock:
+            frame = self._raw
+            latest = self._latest
+        if frame is None or latest is None:
+            return None
+        return RawFrame(image=self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2RGB), t=latest.t)
 
     def close(self) -> None:
         self._closed.set()
@@ -2356,13 +2375,9 @@ def bench_latency(a: argparse.Namespace, deps: Deps) -> int:
 
 
 # ====================================================================== dot and show
-def bench_dot(a: argparse.Namespace, deps: Deps) -> int:
-    """Records `wrist.dot_error_px`, the dot error the operator read from the strategy's dumps."""
+def record_dot(a: argparse.Namespace) -> int:
+    """Records `wrist.dot_error_px`, the dot error the operator read from a dot image or a strategy dump."""
     path = require_rig(a)
-    if a.error_px is None:
-        raise Refusal("error px", "Podaj --error-px V: odleglosc [px w obrazie 160x120] miedzy malym kwadratem "
-                                  "(gdzie model kamery widzi srodek gornej sciany kostki) a prawdziwym srodkiem "
-                                  f"gornej sciany na zrzucie strategii (dump_dir), najwiecej {DOT_MAX_PX:g} px")
     value = float(a.error_px)
     if not (math.isfinite(value) and value >= 0.0):
         raise Refusal("error px", f"--error-px {value}: oczekiwano liczby >= 0")
@@ -2375,6 +2390,151 @@ def bench_dot(a: argparse.Namespace, deps: Deps) -> int:
         print(f"Blad kropki {value:g} px - PONAD {DOT_MAX_PX:g} px (dot off): potrzebna ponowna kalibracja kamery "
               f"na nadgarstku; wyjatek tylko przez overrides.dot. Zapisano do {rig.path}.", flush=True)
     return 0
+
+
+@dataclass(frozen=True)
+class DotSetup:
+    """What the dot capture needs, checked before anything is opened."""
+
+    out: Path
+    rig_path: Path
+    rig: Rig
+    believed: np.ndarray
+    yaw: float
+    top_z: float                      # the object's top face [m, base frame]
+    source: str
+    wrist: Any                        # galaxeo.grasp.camera.WristCamera with the rig's K and dist
+
+
+@dataclass(frozen=True)
+class Shot:
+    image: np.ndarray                 # the raw wrist frame, RGB
+    q: np.ndarray                     # the arm joints it was taken at [rad]
+
+
+def dot_setup(a: argparse.Namespace) -> DotSetup:
+    from galaxeo.grasp.camera import CameraError, WristCamera, wrist_intrinsics
+
+    if a.sim:
+        raise Refusal("sim", "symulowane ramie nie ma kamery na nadgarstku: kropke sprawdza sie na prawdziwym ramieniu")
+    require_consent(a)
+    path = require_rig(a)
+    if not a.out:
+        raise Refusal("out", "--out PLIK.png: gdzie zapisac obraz do odczytu bledu kropki")
+    rig = load_rig(str(path))
+    believed = rig.believed()
+    yaw = rig.grasp_yaw()
+    if believed is None or yaw is None:
+        raise Refusal("grasp point not taught", "najpierw grasp_bench.py table i point")
+    source = a.camera or rig.wrist_source()
+    if not source:
+        raise Refusal("wrist camera not set", "--camera ZRODLO albo wrist.source w pliku --rig")
+    try:
+        wrist = WristCamera(wrist_intrinsics(rig))
+    except CameraError as exc:
+        raise Refusal("camera calibration", str(exc)) from exc
+    height = rig.object_height()
+    top_z = rig.touch_tcp_z() - TIP_AHEAD + (OBJECT_HEIGHT_DEFAULT if height is None else height)
+    return DotSetup(out=Path(a.out).expanduser(), rig_path=path, rig=rig, believed=believed, yaw=float(yaw),
+                    top_z=top_z, source=str(source), wrist=wrist)
+
+
+def still_shot(station: Station, camera: Camera) -> Shot:
+    """A raw frame exposed after the arm stood still at the hover, with the joints it stands at."""
+    ready = station.now() + DOT_SETTLE_S
+    end = ready + FIRST_FRAME_S
+    while True:
+        if station.stopped.is_set():
+            raise Ended("stop", "ramie trzyma zmierzona poze")
+        frame = camera.raw()
+        if frame is not None and frame.t >= ready:
+            break
+        if station.now() >= end:
+            raise Ended("wrist camera silent", f"brak klatki przez {FIRST_FRAME_S:.0f} s")
+        station.wait(FRAME_WAIT_S)
+    reading = station.settled_reading()
+    if reading is None:
+        raise Ended("stale feedback", "brak swiezego pomiaru ramienia przy zdjeciu")
+    return Shot(image=frame.image, q=reading.q.copy())
+
+
+@dataclass(frozen=True)
+class DotImage:
+    path: Path
+    uv: np.ndarray                    # the believed grasp's pixel in the 160x120 frame
+    cube_top: np.ndarray              # the projected centre of the object's top face
+
+
+def write_dot(setup: DotSetup, hover: Hover, shot: Shot, kin: Kinematics) -> DotImage:
+    """The strategy's dump drawing on one frame: the believed pixel and the projected cube top."""
+    import cv2
+
+    from galaxeo.grasp.camera import HAND_BODY, CameraError, draw_dump
+
+    try:
+        image = setup.wrist.policy_image(shot.image)
+    except CameraError as exc:
+        raise Ended("camera", str(exc)) from exc
+    hand = kin.link_pose(shot.q, HAND_BODY)
+    uv = setup.wrist.believed_uv(hand, hover.believed)
+    top = setup.wrist.cube_top_uv(hand, setup.believed[:2], setup.top_z)
+    drawn = draw_dump(image, uv, extra={"cube top": top})
+
+    setup.out.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(setup.out), cv2.cvtColor(drawn, cv2.COLOR_RGB2BGR)):
+        raise Ended("dot image", f"nie zapisano {setup.out}")
+    return DotImage(path=setup.out, uv=uv, cube_top=top)
+
+
+def explain_dot(dot: DotImage, rig_path: Path) -> None:
+    print(f"Zapisano {dot.path}: wejscie modelu powiekszone 4 razy, jak w zrzutach strategii.", flush=True)
+    print(f"Maly kwadrat (cube top, ({dot.cube_top[0]:.1f}, {dot.cube_top[1]:.1f}) px) to srodek gornej sciany "
+          f"kostki wedlug modelu kamery. Krzyz z kolkiem {DOT_MAX_PX:g} px to chwyt, w ktory wierzy polityka "
+          f"(({dot.uv[0]:.1f}, {dot.uv[1]:.1f}) px, ok. 1 cm nad gorna sciana: obok kwadratu nawet przy idealnej "
+          f"kamerze).", flush=True)
+    print(f"Zmierz odleglosc kwadratu od prawdziwego srodka gornej sciany w pikselach obrazu 160x120 (piksele PNG "
+          f"podzielone przez 4) i zapisz: grasp_bench.py dot --rig {rig_path} --error-px <blad>", flush=True)
+
+
+def capture_dot(a: argparse.Namespace, deps: Deps) -> int:
+    """One real wrist frame at the hover of the taught point, drawn as the strategy's dumps are."""
+    setup = dot_setup(a)
+    keys = deps.keys()
+    keys.start()
+    station = deps.open_station(a, a1x_settings(a.config))
+    camera: Camera | None = None
+    try:
+        station.wait_feedback(FEEDBACK_WAIT_S)
+        hover = hover_over(station.arm.kin, setup.believed, setup.yaw)
+        listen_for_other_senders(station)
+        try:
+            camera = deps.open_camera(setup.source, station.now)
+        except RuntimeError as exc:
+            raise Ended("camera", str(exc)) from exc
+        check_camera(camera, station)
+        route = plan_route(station, hover, clear_height(setup.rig), [taught_object(setup.rig)])
+        confirm_motion(station, keys, f"Enter = ramie jedzie nad punkt chwytu ({describe(route)}, 20 st./s) i robi "
+                                      f"jedno zdjecie; Ctrl-C = koniec. ")
+
+        with operated(station, keys):
+            follow(station, route, hover)
+            with station.jaw.phase():
+                # The jaw as the strategy has it at the hover: open.
+                station.jaw.grip(GRIP_OPEN, station.stopped)
+            shot = still_shot(station, camera)
+        explain_dot(write_dot(setup, hover, shot, station.arm.kin), setup.rig_path)
+        return 0
+    finally:
+        if camera is not None:
+            camera.close()
+        station.close()
+
+
+def bench_dot(a: argparse.Namespace, deps: Deps) -> int:
+    """--error-px records the dot error; without it, the image to read it from is captured."""
+    if a.error_px is not None:
+        return record_dot(a)
+    return capture_dot(a, deps)
 
 
 def bench_show(a: argparse.Namespace, deps: Deps) -> int:
@@ -2473,8 +2633,13 @@ def parser() -> argparse.ArgumentParser:
                                                   "(domyslnie wrist.source z pliku --rig)")
     p.set_defaults(run=bench_latency)
 
-    p = sub.add_parser("dot", parents=[rig], help="zapisz blad kropki odczytany ze zrzutu strategii")
-    p.add_argument("--error-px", type=float, default=None, help="blad kropki [px w obrazie 160x120]")
+    p = sub.add_parser("dot", parents=[arm, rig],
+                       help="obraz do odczytu bledu kropki nad punktem chwytu (--out), albo zapis bledu (--error-px)")
+    p.add_argument("--out", default=None, help="plik PNG obrazu z kropka (bez --error-px)")
+    p.add_argument("--camera", default=None, help="kamera na nadgarstku: numer OpenCV albo sciezka urzadzenia "
+                                                  "(domyslnie wrist.source z pliku --rig)")
+    p.add_argument("--error-px", type=float, default=None,
+                   help="zapisz zmierzony blad kropki [px w obrazie 160x120] do pliku --rig")
     p.set_defaults(run=bench_dot)
 
     p = sub.add_parser("show", parents=[rig], help="plik --rig i czego brakuje strategii")

@@ -189,12 +189,13 @@ def bench_station(bus: BenchBus, settings: dict) -> gb.Station:
 @dataclass
 class WristCamera:
     """Frames every `period` on the bus clock, each showing joint 6 as it was `delay` before the frame
-    arrived: a stripe pattern shifted with the angle."""
+    arrived: a stripe pattern shifted with the angle. The raw frame is plain grey at `size`."""
 
     bus: BenchBus
     delay: float = 0.06
     period: float = 1.0 / 30.0
     size: tuple[int, int] = (1920, 1080)
+    grey: int = 128
     closed: bool = False
 
     def latest(self) -> gb.Frame | None:
@@ -206,6 +207,13 @@ class WristCamera:
         y = np.arange(gb.FRAME_SMALL[1])[:, None]
         image = 128.0 + 60.0 * np.sin(x / 6.0 + y / 9.0 + 40.0 * self.bus.j6_at(exposed))
         return gb.Frame(image=image.astype(np.uint8), t=exposed + self.delay, seq=k, size=self.size)
+
+    def raw(self) -> gb.RawFrame | None:
+        frame = self.latest()
+        if frame is None:
+            return None
+        image = np.full((self.size[1], self.size[0], 3), self.grey, np.uint8)
+        return gb.RawFrame(image=image, t=frame.t)
 
     def close(self) -> None:
         self.closed = True
