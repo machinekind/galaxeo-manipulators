@@ -34,6 +34,7 @@ from grasp_bench_fakes import (  # noqa: E402
     TimedPolicy,
     Timing,
     WristCamera,
+    bench_station,
     deps,
     jaw_pdes,
 )
@@ -563,6 +564,120 @@ def test_the_dot_capture_needs_the_taught_point(tmp_path):
                    gb.Deps(open_station=no_station))
 
     assert code == 2
+
+
+# ====================================================================== review fixes
+@pytest.mark.parametrize("tool", ["gripper", "table"])
+def test_a_config_that_enables_the_motors_on_connect_is_refused_before_the_link_opens(tool, tmp_path):
+    config = tmp_path / "local.yaml"
+    config.write_text("a1x:\n  enable_on_connect: true\n", encoding="utf-8")
+
+    code = gb.main(real(tool, None, "--config", str(config)), gb.Deps(open_station=no_station, keys=ScriptedKeys))
+
+    assert code == 2
+
+
+def test_ctrl_c_mid_step_holds_the_measured_pose_not_the_stream(tmp_path):
+    # The arm follows at 30 deg/s while the backend's stream slews at 90: the stream runs ahead.
+    bus = BenchBus(start_deg=np.degrees(HOVER_POSE.q), rate=np.radians(30.0))
+    base_j6 = float(np.degrees(HOVER_POSE.q[5]))
+    fired: list[bool] = []
+
+    def ctrl_c() -> None:
+        if not fired and np.degrees(bus.q[5]) - base_j6 > 0.5:
+            fired.append(True)
+            raise KeyboardInterrupt
+
+    bus.on_tick = ctrl_c
+    path = tmp_path / "rig.json"
+    taught_rig(path)
+    code = gb.main(real("latency", path, "--student", "x.pt", "--camera", "0"),
+                   deps(bus, ScriptedKeys(), camera=WristCamera(bus), policy=POLICY))
+    last = bus.frames(P.CMD_ID)[-1]
+
+    assert code == 1
+    assert np.degrees(struct.unpack_from(">h", last, 50)[0] / P.POS_SCALE) - base_j6 < 1.0
+
+
+def test_after_a_stop_the_jaw_gets_no_command():
+    bus = bench_bus()
+    station = bench_station(bus, {})
+    station.wait_feedback(1.0)
+    station.stopped.set()
+
+    with pytest.raises(gb.Ended), station.jaw.phase():
+        station.jaw.grip(gb.GRIP_OPEN, station.stopped)
+
+    assert bus.frames(P.GRIP_ID) == []
+
+
+def test_after_a_stop_the_simulated_jaw_gets_no_command():
+    jaw = gb.SimJaw(lambda: 0.0, lambda secs: None)
+    stopped = threading.Event()
+    stopped.set()
+
+    with pytest.raises(gb.Ended):
+        jaw.grip(gb.GRIP_OPEN, stopped)
+
+    assert jaw.gripper_state().commanded is None
+
+
+def test_asking_for_the_opening_the_jaw_has_returns_at_once(caplog):
+    bus = bench_bus()
+
+    gb.main(real("point", None, "--start-z", str(START_Z)), deps(bus, ScriptedKeys(lines=["g 100", "q"])))
+
+    assert "did not reach" not in caplog.text
+
+
+def test_the_last_arm_frames_echo_is_no_other_sender():
+    bus = bench_bus(echo=True)
+    station = bench_station(bus, {})
+    station.wait_feedback(1.0)
+    station.arm.set_armed(True)
+    station.move(START.q, 20.0)
+
+    with station.jaw.phase():
+        station.jaw.wait(0.05)
+        foreign = station.jaw.foreign_frames()
+
+    assert foreign == 0
+
+
+def corrupt(path: Path) -> None:
+    path.write_text('{"version": 2}', encoding="utf-8")
+
+
+@pytest.fixture
+def unreadable_rig_at_ok(tmp_path, capsys):
+    bus = bench_bus()
+    path = tmp_path / "rig.json"
+    path.write_text('{"version": 1}', encoding="utf-8")
+    keys = ScriptedKeys(lines=["d 5", "ok"], on_line=lambda line: corrupt(path) if line == "ok" else None)
+    code = gb.main(real("point", path, "--start-z", str(START_Z)), deps(bus, keys))
+    return code, capsys.readouterr().err
+
+
+def test_a_rig_file_broken_while_teaching_ends_the_tool(unreadable_rig_at_ok):
+    assert unreadable_rig_at_ok[0] == 1
+
+
+def test_a_rig_file_broken_while_teaching_keeps_the_taught_point_on_screen(unreadable_rig_at_ok):
+    assert 'grasp = {"tcp"' in unreadable_rig_at_ok[1]
+
+
+def test_a_rig_file_broken_during_the_jaw_tool_keeps_the_stroke_on_screen(tmp_path, capsys):
+    bus = bench_bus()
+    path = tmp_path / "rig.json"
+    path.write_text('{"version": 1}', encoding="utf-8")
+
+    def cube_and_break() -> None:
+        bus.cube_pdes = jaw_pdes(30.0)
+        corrupt(path)
+
+    gb.main(real("gripper", path), deps(bus, ScriptedKeys(on_proceed=cube_and_break)))
+
+    assert "stroke_close_s_effort" in capsys.readouterr().err
 
 
 # ====================================================================== the pieces

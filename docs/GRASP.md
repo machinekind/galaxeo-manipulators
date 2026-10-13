@@ -95,7 +95,9 @@ Before anything moves:
   is low near the target, then the strategy's staged plan (elbow, wrist, shoulder and base), every
   stage collision-checked; `collision` means: bring the arm closer first (panel or `jog_a1x.py`).
 - **Same config as the twin.** `--config configs/local.yaml` reads the twin's `a1x:` section, so the
-  jaw runs as it will under the strategy.
+  jaw runs as it will under the strategy. A section with `enable_on_connect: true` is refused: the
+  bench connects the backend for every jaw phase, the first one before your Enter, and FF 5 of the
+  enable sequence briefly releases the motors. Enable the arm from the panel and set it false.
 - **Rehearse on the simulated arm.** `--sim` instead of `--iface` runs `gripper`, `table` and `point`
   on galaxeo.arm's MuJoCo model; `latency` and the dot capture need the real camera.
 
@@ -219,9 +221,10 @@ whose joint ranges are not training's; a real arm without `rig_json`; a rig file
 or misses what the mode needs (the `show` list); a checkpoint that is missing, has another sha256 or
 another schema; no frame from `camera`, or one that is not RGB uint8, not 160x120 on a simulated arm
 or not 1920x1080 on a real one; a wrist calibration that does not fit; no table touch; no believed
-grasp (no object and no taught point); on a real arm an object reported more than 1 s ago or further
-than 10 cm from the table touch point (the touch height was measured there); no hover, a hover
-outside the training envelope, or a hover where the open jaw hits the object box.
+grasp (no object and no taught point); on a real arm an object reported more than 1 s ago (by its
+`ObjectPose.age_s`, which the twin must stamp: it defaults to 0.0, so an unstamped pose always counts
+as fresh) or further than 10 cm from the table touch point (the touch height was measured there);
+no hover, a hover outside the training envelope, or a hover where the open jaw hits the object box.
 
 **A run**: straight up when the tool is low near the hover, the staged plan to the hover at no more than 20 deg/s
 (each stage collision-checked with the object box), the jaw opened there (99, then 100), until the

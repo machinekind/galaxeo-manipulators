@@ -49,7 +49,8 @@ class BenchBus:
     Joints move toward p_des at `rate`. With `floor_z` the arm stops where the TCP would go below it
     (a table under the fingertips) and joint 2 then reads `press_effort`. The jaw moves toward its
     p_des at `grip_rate` with `moving_effort` on group 7; with `cube_pdes` it stops there when closing
-    and reads `loaded_effort`.
+    and reads `loaded_effort`. `on_tick` runs after every tick, on the thread that sleeps. With `echo`
+    every command frame comes back on the queue one tick later, as the XCAN adapter echoes it.
     """
 
     start_deg: InitVar[Sequence[float]]
@@ -63,6 +64,8 @@ class BenchBus:
     moving_effort: float = 0.3
     loaded_effort: float = 5.0
     on_tick: Callable[[], None] | None = None
+    echo: bool = False
+    echoes: list[CanFrame] = field(default_factory=list)
     q: list[float] = field(init=False)
     v: list[float] = field(default_factory=lambda: [0.0] * 7)
     eff: list[float] = field(default_factory=lambda: [0.0] * 7)
@@ -97,6 +100,8 @@ class BenchBus:
     def send(self, can_id: int, data: bytes, *, fd: bool = True) -> None:
         data = bytes(data)
         self.tx.append(Sent(can_id=can_id, data=data, fd=fd))
+        if self.echo:
+            self.echoes.append(CanFrame(can_id, data))
         if can_id == P.CMD_ID:
             self.p_des = [struct.unpack_from(">h", data, j * 10)[0] / P.POS_SCALE for j in range(6)]
         elif can_id == P.GRIP_ID:
@@ -137,6 +142,8 @@ class BenchBus:
         self._move_arm()
         self._move_jaw()
         self.history.append(J6Sample(t=self.t, q6=self.q[5]))
+        self.rx.extend(self.echoes)
+        self.echoes.clear()
         self.rx.append(self._frame())
         if self.on_tick is not None:
             self.on_tick()
@@ -222,12 +229,14 @@ class WristCamera:
 @dataclass
 class ScriptedKeys:
     """`Keys` with scripted answers. A bare Enter once armed sets `stop`, as the real reader does.
-    `on_proceed` runs at the prompt that goes on (the operator puts the cube between the jaws)."""
+    `on_proceed` runs at the prompt that goes on (the operator puts the cube between the jaws), `on_line`
+    with every line handed out."""
 
     lines: list[str] = field(default_factory=list)
     confirms: bool = True
     proceeds: bool = True
     on_proceed: Callable[[], None] | None = None
+    on_line: Callable[[str], None] | None = None
     interactive: bool = False
     armed: bool = False
     stop: threading.Event = field(default_factory=threading.Event)
@@ -260,6 +269,8 @@ class ScriptedKeys:
             if not self.lines:
                 return None
             text = self.lines.pop(0)
+        if self.on_line is not None:
+            self.on_line(text)
         if text == "" and self.armed:
             self.stop.set()
         return text

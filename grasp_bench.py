@@ -90,7 +90,7 @@ from galaxeo.grasp.contract import (
     yaw_of,
 )
 from galaxeo.grasp.hover import Hover, HoverError, JointBox, joint_box, solve_hover, stage_plan
-from galaxeo.grasp.rig import MODES, OBJECT_HEIGHT_RANGE, Rig, RigError
+from galaxeo.grasp.rig import MODES, OBJECT_HEIGHT_RANGE, Rig, RigError, plain
 from galaxeo.robot import ROBOT_DIR
 from galaxeo.robot.backend import GRIP_START_DELTA, A1XArm, A1XConfig, GripperState
 
@@ -109,6 +109,7 @@ FEEDBACK_WAIT_S = 1.0
 FEEDBACK_PERIOD_S = 0.01              # two 0x052 frames
 FOREIGN_LISTEN_S = 0.3
 JAW_TICK_S = 0.005                    # one exchange tick of the backend, when the caller runs them
+HOLD_STREAM_S = 0.05                  # a hold streamed this long before a phase ends: the stream slews to it
 STOP_POLL_S = 0.05
 
 # ---- moves
@@ -422,6 +423,12 @@ def _stream_on_target(gs: GripperState | None) -> bool:
     return gs is not None and gs.streamed is not None and gs.target is not None and abs(gs.streamed - gs.target) < 1e-6
 
 
+def refuse_after_stop(stopped: threading.Event) -> None:
+    """A jaw command after a STOP would move the jaw the operator just stopped."""
+    if stopped.is_set():
+        raise Ended("stop", "po STOP szczeki nie dostaja rozkazu")
+
+
 def until_streamed(jaw: BackendLink | SimJaw, opening: float, stopped: threading.Event) -> None:
     """Waits until the jaw stream stands on its target (`opening`, or where a contact froze it), at most
     GRIP_WAIT_S: a phase that ends earlier leaves the jaw where the stream was."""
@@ -438,23 +445,30 @@ class BackendLink:
     """The `a1x` backend on the bench's link, connected only for a jaw phase (see the module docstring)."""
 
     def __init__(self, backend: A1XArm, *, clock: Callable[[], float], sleep: Callable[[float], None],
-                 threaded: bool) -> None:
+                 threaded: bool, drain: Callable[[], object]) -> None:
         self.backend = backend
         self.clock = clock
         self._sleep = sleep
         self.threaded = threaded
+        #: Empties the link before the backend connects (the BusTransport's settled reading).
+        self._drain = drain
         #: Where the jaw stream stood when the last phase ended; the next phase starts the backend from it.
         self.opening: float | None = None
         self._active = threading.Event()
         self._drives_arm = False
+        self._held = False
 
     @contextmanager
     def phase(self) -> Iterator[BackendLink]:
+        # The backend forgets what it sent when it connects: an echo of the BusTransport's last 0x050
+        # still queued would count as another sender.
+        self._drain()
         try:
             self.backend.connect()
         except (RuntimeError, OSError) as exc:
             raise Ended("link", str(exc)) from exc
         self._drives_arm = False
+        self._held = False
         self._active.set()
         try:
             if self.opening is not None:
@@ -462,7 +476,14 @@ class BackendLink:
                 # drop a close from a wrong guess, or the stream would start from the wrong end.
                 self.backend.assume_gripper(self.opening)
             yield self
+        except BaseException:
+            # Ctrl-C or an ending unwinding the phase: once disconnected, the arm would stay on the
+            # last streamed p_des, mid-slew, and a STOP after it could no longer reach the backend.
+            self.hold()
+            raise
         finally:
+            if self._held:
+                self.wait(HOLD_STREAM_S)
             self._active.clear()
             gs = self.backend.gripper_state()
             if gs is not None and gs.streamed is not None:
@@ -500,6 +521,7 @@ class BackendLink:
         """
         if self.opening is None and opening != GRIP_OPEN:
             raise ValueError("the first jaw command of a run opens the jaw")
+        refuse_after_stop(stopped)
         if self._gate_drops(opening):
             if self.opening is not None:
                 return
@@ -507,6 +529,7 @@ class BackendLink:
             until = self.clock() + GRIP_NUDGE_S
             while self.clock() < until and not stopped.is_set():
                 self.wait(JOG_POLL_S)
+            refuse_after_stop(stopped)
         self.command(opening)
         until_streamed(self, opening, stopped)
         self._until_jaw_there(opening, stopped)
@@ -522,8 +545,10 @@ class BackendLink:
             self.wait(JOG_POLL_S)
 
     def _gate_drops(self, opening: float) -> bool:
+        """Whether the backend's first-command gate would drop `opening`: no stream in this connection
+        yet, and `opening` within GRIP_START_DELTA of the opening it reports (assumed or measured)."""
         gs = self.backend.gripper_state()
-        if gs is None or gs.commanded is not None:
+        if gs is None or gs.target is not None:
             return False
         return abs(opening - self.backend.read_joints()[GRIPPER]) <= GRIP_START_DELTA
 
@@ -567,6 +592,7 @@ class BackendLink:
                 targets[GRIPPER] = gs.streamed
             if targets:
                 self.backend.send_joints(targets)
+                self._held = True
         except RuntimeError:
             logger.exception("holding through the backend failed")
 
@@ -603,6 +629,7 @@ class SimJaw:
             self._streamed = float(opening)
 
     def grip(self, opening: float, stopped: threading.Event) -> None:
+        refuse_after_stop(stopped)
         self.command(opening)
         until_streamed(self, opening, stopped)
 
@@ -631,6 +658,14 @@ class SimJaw:
         step = self.rate * dt
         self._streamed += max(-step, min(step, self._commanded - self._streamed))
         self.opening = self._streamed
+
+
+@dataclass
+class MoveOutcome:
+    """What a move's worker thread hands back."""
+
+    result: MoveResult | None = None
+    error: Exception | None = None
 
 
 @dataclass
@@ -676,13 +711,13 @@ class Station:
              lag_deg: float | None = None) -> MoveResult:
         """One guarded move on its own thread, so that Ctrl-C here reaches `Arm.stop` and the move holds
         the measured pose instead of leaving its last ramp command on the arm."""
-        box: dict[str, Any] = {}
+        outcome = MoveOutcome()
 
         def run() -> None:
             try:
-                box["result"] = self.arm.move(q, speed, profile=profile, lag_deg=lag_deg)
+                outcome.result = self.arm.move(q, speed, profile=profile, lag_deg=lag_deg)
             except Exception as exc:
-                box["error"] = exc
+                outcome.error = exc
 
         worker = threading.Thread(target=run, name="chwyt-ruch", daemon=True)
         worker.start()
@@ -693,9 +728,9 @@ class Station:
             self.arm.stop("stop")
             worker.join(5.0)
             raise
-        if "error" in box:
-            raise box["error"]
-        return box["result"]
+        if outcome.error is not None:
+            raise outcome.error
+        return outcome.result
 
     def hold_measured(self) -> np.ndarray | None:
         """One p_des frame at the measured pose, between moves: a joint pressed into the table stops
@@ -724,7 +759,13 @@ def real_station(bus: Any, settings: Mapping[str, Any], *, port: str | None = No
     backend = A1XArm(bench_context(port, settings), bus=BorrowedBus(bus), clock=clock, sleep=sleep,
                      threaded=threaded)
     transport = BusTransport(bus, tx=True, clock=clock, sleep=sleep, kp=backend.acfg.kp, kd=backend.acfg.kd)
-    link = BackendLink(backend, clock=clock, sleep=sleep, threaded=threaded)
+
+    def drain() -> None:
+        transport.read()
+        sleep(FEEDBACK_PERIOD_S)
+        transport.read()
+
+    link = BackendLink(backend, clock=clock, sleep=sleep, threaded=threaded, drain=drain)
     return Station(arm=Arm(transport), jaw=link, simulated=False, bus=bus)
 
 
@@ -764,6 +805,11 @@ def a1x_settings(path: str | None) -> dict[str, Any]:
         return {}
     if not isinstance(section, dict):
         raise Refusal("config", f"{path}: sekcja a1x musi byc mapowaniem")
+    # The bench connects the backend for every jaw phase, the first one before the operator's Enter,
+    # and FF 5 of the enable sequence briefly releases the motors of an arm without brakes.
+    if section.get("enable_on_connect") is True:
+        raise Refusal("enable on connect", "a1x.enable_on_connect wlacza silniki przy kazdym polaczeniu (FF 5 na "
+                                           "chwile je puszcza); wlacz ramie z panelu i ustaw enable_on_connect: false")
     return dict(section)
 
 
@@ -1071,6 +1117,26 @@ def update_rig(path: Path, section: str, values: Mapping[str, Any], *,
     return rig
 
 
+def save_note(path: Path, section: str, values: Mapping[str, Any]) -> Rig:
+    """`update_rig` for what the operator typed: nothing moved, so a file that does not read is a refusal."""
+    try:
+        return update_rig(path, section, values)
+    except RigError as exc:
+        raise Refusal("rig rejected", str(exc)) from exc
+
+
+def save_measured(path: Path, section: str, values: Mapping[str, Any], *,
+                  overrides: Mapping[str, str] | None = None) -> Rig:
+    """`update_rig` for values the arm has moved for: when the file no longer reads (edited meanwhile),
+    the values are printed before the tool ends, so the measurement is not lost."""
+    try:
+        return update_rig(path, section, values, overrides=overrides)
+    except RigError as exc:
+        print(f"Nie zapisano do {path}. {section} = {json.dumps(plain(dict(values)), ensure_ascii=False)}",
+              file=sys.stderr, flush=True)
+        raise Ended("rig not saved", str(exc)) from exc
+
+
 # ====================================================================== jaw
 @dataclass(frozen=True)
 class JawSample:
@@ -1333,7 +1399,7 @@ def record_gripper_notes(a: argparse.Namespace, gap: Mapping[str, float]) -> int
             merged[key] = mm
         values["gap_mm"] = merged
 
-    rig = update_rig(path, "gripper", values)
+    rig = save_note(path, "gripper", values)
     if a.set_freeze is not None:
         off = " (zamrozenie wylaczone)" if a.set_freeze >= FREEZE_DISABLED else ""
         print(f"Zapisano gripper.freeze_threshold = {a.set_freeze:g}{off}. Ta sama wartosc musi byc "
@@ -1433,7 +1499,7 @@ def report_jaw(rig: Rig, logs: JawLogs) -> int:
     elif rig.path is None:
         print(f"Bez --rig nic nie zapisano: {values}", flush=True)
     else:
-        saved = update_rig(Path(rig.path), "gripper", values)
+        saved = save_measured(Path(rig.path), "gripper", values)
         print(f"Zapisano gripper do {saved.path}: {values}", flush=True)
     return 0 if complete else 1
 
@@ -1770,7 +1836,7 @@ def store_table(path: Path, m: Measured, *, force: bool) -> bool:
             return False
         overrides = {"table": f"--force {now_iso()}: dotyk {diff * 1000:+.1f} mm od oczekiwanego"}
 
-    rig = update_rig(path, "table", {
+    rig = save_measured(path, "table", {
         "touch_tcp_z": round(touch, 6),
         "tcp": [round(float(v), 6) for v in m.p],
         "joints": m.joints,
@@ -1791,7 +1857,7 @@ def store_table(path: Path, m: Measured, *, force: bool) -> bool:
 def store_point(path: Path, m: Measured, *, object_height: float) -> Rig:
     """Writes `grasp`: the taught TCP and yaw, the object height, and zero joint offsets: the bench
     reads raw wire angles, the frame the wrist camera was calibrated in."""
-    rig = update_rig(path, "grasp", {
+    rig = save_measured(path, "grasp", {
         "tcp": [round(float(v), 6) for v in m.p],
         "yaw": round(float(m.yaw), 6),
         "joints": m.joints,
@@ -2338,7 +2404,7 @@ def save_latency(path: Path, run: LatencyRun, infer_s: float) -> None:
         raise Ended(run.ending, "pomiar przerwany")
     if len(run.good()) < LATENCY_MIN_GOOD:
         raise Ended("too few steps", f"udane {len(run.good())} z {LATENCY_STEPS} - nic nie zapisano")
-    saved = update_rig(path, "latency", latency_values(run, infer_s))
+    saved = save_measured(path, "latency", latency_values(run, infer_s))
     print(f"Zapisano latency do {saved.path}.", flush=True)
 
 
@@ -2383,7 +2449,7 @@ def record_dot(a: argparse.Namespace) -> int:
         raise Refusal("error px", f"--error-px {value}: oczekiwano liczby >= 0")
     load_rig(str(path))
 
-    rig = update_rig(path, "wrist", {"dot_error_px": value})
+    rig = save_note(path, "wrist", {"dot_error_px": value})
     if value <= DOT_MAX_PX:
         print(f"Blad kropki {value:g} px - w granicy {DOT_MAX_PX:g} px. Zapisano do {rig.path}.", flush=True)
     else:
