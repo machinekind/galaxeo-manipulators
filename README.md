@@ -208,14 +208,14 @@ the training contract, the per-rig file, the network and the camera geometry;
 it never imports the twin.
 
 ```bash
-pip install -e ".[grasp]"        # + numpy 2, torch, opencv-contrib-python
+pip install -e ".[grasp]"        # + numpy 2, torch, opencv-contrib-python, PyYAML
 python3 grasp_model.py fetch ~/models/student.pt
 python3 grasp_bench.py show --rig rig.json
 ```
 
-`grasp_bench.py` moves the arm through `galaxeo.arm` and the jaw through the
-`a1x` backend, one owner of the CAN link at a time; `--sim` rehearses on the
-MuJoCo model. Runbook, limits and open issues:
+`grasp_bench.py` moves the arm through `galaxeo.arm` to the strategy's hover
+and the jaw through the `a1x` backend, one owner of the CAN link at a time;
+`--sim` rehearses on the MuJoCo model. Runbook, limits and open issues:
 [docs/GRASP.md](docs/GRASP.md).
 
 ### The container — `docker/`
