@@ -136,13 +136,11 @@ driver keeps its own copy, pinned byte for byte by `tests/test_protocol.py`
 What does not change whichever app drives the arm: the A1X model, its reach,
 its collisions and a safe way to move it. Any app imports it.
 
-Who uses it today: the digital twin's Spectacles driver, which turns a pinch
-in the glasses into `plan` and `move` calls. Its page is
-[digital_twin_training/docs/SPECS.md](https://github.com/machinekind/digital_twin_training/blob/specs-galaxeo-arm/docs/SPECS.md);
-the two-machine runbook (glasses on one machine, arm and cameras on another)
-is [docs/RIG.md](https://github.com/machinekind/digital_twin_training/blob/specs-galaxeo-arm/docs/RIG.md)
-there; the glasses side (Lens, relay, marker registration) is
-[specs-lens](https://github.com/machinekind/specs-lens/tree/reach-project#readme).
+Three scripts here use it: `move_to_point_a1x.py` plans a tool point and
+runs the guarded move; `jog_a1x.py` checks each jog against the reach box and
+the collision model; `calib_wrist.py` moves the wrist camera through its
+calibration poses. Anything else that wants the arm at a point, with the
+checks done, calls the same `plan` and `move`.
 
 ```bash
 pip install -e ".[arm]"          # + numpy, mujoco
