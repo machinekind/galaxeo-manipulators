@@ -120,7 +120,9 @@ b.send(protocol.CMD_ID, protocol.encode_arm(fb.pos[:6], kp=20.0, kd=1.0))
 * `galaxeo.bus` - `open_bus(iface)`: raw SocketCAN (stdlib), the XCAN dongle
   (macOS), python-can. Frames go out with their true length (10 bytes on
   `0x051`); the 1-byte `0x053` goes as classic CAN with `fd=False`.
-* `python -m galaxeo.xcan_usb` - read-only check of the XCAN dongle.
+* `python -m galaxeo.xcan_usb` - read-only check of the XCAN dongle;
+  `--grip-test` streams `0x051` to open and close the gripper and reports
+  whether it reacted.
 
 `jog_a1x.py` and `so101_bridge.py` import it from the repo root; the ROS 2
 driver keeps its own copy, pinned byte for byte by `tests/test_protocol.py`
