@@ -123,6 +123,9 @@ b.send(protocol.CMD_ID, protocol.encode_arm(fb.pos[:6], kp=20.0, kd=1.0))
 * `galaxeo.bus` - `open_bus(iface)`: raw SocketCAN (stdlib), the XCAN dongle
   (macOS), python-can. Frames go out with their true length (10 bytes on
   `0x051`); the 1-byte `0x053` goes as classic CAN with `fd=False`.
+* `galaxeo.a1x` - the A1X as a driven arm: connect, stream `p_des` from the
+  measured pose, limits, link loss, enable, the gripper with its contact
+  stop. Standard library only.
 * `python -m galaxeo.xcan_usb` - read-only check of the XCAN dongle;
   `--grip-test` streams `0x051` to open and close the gripper and reports
   whether it reacted.

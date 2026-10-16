@@ -20,7 +20,7 @@ Read [docs/SAFETY.md](../../docs/SAFETY.md) before the first power-on.
 | `a1x/demo.json` | the example workspace: a 1.2 x 0.8 m table and two simulated cameras |
 | `a1x/README.md` | the model: its source, the post-processing rules and the checks |
 | `__init__.py` | `ROBOT_DIR`, the path of the robot folder |
-| `backend.py` | backend `a1x`: the twin's commands as CAN-FD frames, through `galaxeo.protocol` and `galaxeo.bus` |
+| `backend.py` | backend `a1x`: an adapter from the twin's backend contract onto the driver `galaxeo.a1x` (joint names, degrees, gripper 0..100) |
 
 `create(ctx)` in `backend.py` builds an `A1XArm` from the twin's `BackendContext`, which it reads by duck typing.
 
@@ -106,7 +106,9 @@ Measure yours:
 4. Put the J3 value third, for example `joint_offsets_deg: [0.0, 0.0, 1.49, 0.0, 0.0, 0.0]`.
    Leave the rest at 0 unless you have a sure reference. J3 then reads about 0.
 
-## What the backend does
+## What the driver does
+
+The driver is `galaxeo/a1x.py` (class `A1X`, in radians and `p_des`), usable without the twin. The backend passes the twin's calls to it.
 
 - Nothing goes on the bus until the first `send_joints()`, so `connect()` never drives home.
 - `connect()` fails when no `0x052` arrives within 3 s, or when the telemetry is frozen.

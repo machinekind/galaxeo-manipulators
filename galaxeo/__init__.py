@@ -6,6 +6,7 @@ protocol - CAN ids, field scales, encoders and the feedback decoder (stdlib, pur
 bus      - transports behind one recv/send/close interface: SocketCAN (stdlib),
            the XCAN dongle on macOS (extra "xcan"), python-can (extra "pcan").
 xcan_usb - the userspace libusb driver behind the XCAN transport.
+a1x      - the A1X as a driven arm: the p_des stream, limits, link loss, enable, gripper.
 
 Importing any of them needs only the standard library.
 
