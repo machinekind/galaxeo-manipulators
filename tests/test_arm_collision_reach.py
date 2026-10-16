@@ -12,6 +12,7 @@ pytest.importorskip("mujoco")
 
 from galaxeo.arm import Box, CollisionChecker, Kinematics, ReachBox, Sphere  # noqa: E402
 from galaxeo.arm import reach as R  # noqa: E402
+from galaxeo.arm.model import finger_qpos  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -60,6 +61,23 @@ def test_caller_obstacles_boxes_and_spheres(kin, checker):
     assert checker.config_clear(q) is None
 
 
+def wall_beside_the_tool(kin, yaw):
+    """A thin wall 10 cm beside the tool, 30 cm long along x before it is turned by `yaw`."""
+    q = solve(kin, [0.35, 0.0, 0.10])
+    tip = kin.fk(q)[:3, 3]
+    return q, Box((float(tip[0]), float(tip[1]) + 0.10, float(tip[2])), (0.15, 0.005, 0.05), "wall", yaw=yaw)
+
+
+def test_an_unturned_box_beside_the_tool_is_clear(kin, checker):
+    q, wall = wall_beside_the_tool(kin, 0.0)
+    assert checker.config_clear(q, [wall]) is None
+
+
+def test_a_box_turned_by_its_yaw_runs_where_the_turned_box_does(kin, checker):
+    q, wall = wall_beside_the_tool(kin, np.pi / 2)
+    assert "wall" in (checker.config_clear(q, [wall]) or "")
+
+
 def test_path_is_checked_not_only_the_goal(kin, checker):
     a = solve(kin, [0.30, -0.20, 0.10])
     b = solve(kin, [0.30, 0.20, 0.10])
@@ -69,6 +87,56 @@ def test_path_is_checked_not_only_the_goal(kin, checker):
     assert checker.config_clear(a, [post]) is None and checker.config_clear(b, [post]) is None
     why = checker.path_clear(a, b, [post])
     assert why is not None and "post" in why and "of the way" in why
+
+
+# ---- the jaw opening --------------------------------------------------------------------------
+# A top-down pose on the arm's left.
+HOVER = np.radians([90.0, 120.0, -77.0, 47.0, 0.0, 0.0])
+
+
+def beside_the_jaws(kin, side):
+    """A cup outside the jaws at the home opening (finger plate at 44 mm) but on the plate of a fully open finger."""
+    T = kin.fk(HOVER)
+    return Sphere(tuple(T[:3, 3] + side * 0.062 * T[:3, 1]), 0.004, "cup")
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0], ids=["finger1", "finger2"])
+def test_a_wide_open_finger_hits_what_the_home_opening_misses(kin, checker, side):
+    cup = [beside_the_jaws(kin, side)]
+
+    why = checker.config_clear(HOVER, cup, opening=0.05)
+
+    assert checker.config_clear(HOVER, cup) is None
+    assert checker.config_clear(HOVER, cup, opening=0.0) is None
+    assert why is not None
+    assert "cup" in why
+    assert "gripper_finger_link" in why
+
+
+def test_path_clear_checks_every_sample_at_the_given_opening(kin, checker):
+    cup = [beside_the_jaws(kin, 1.0)]
+    start = HOVER.copy()
+    start[5] -= 0.6                                                # the jaws turn into the cup about the approach axis
+
+    why = checker.path_clear(start, HOVER, cup, opening=0.05)
+
+    assert checker.path_clear(start, HOVER, cup) is None
+    assert checker.config_clear(start, cup, opening=0.05) is None
+    assert why is not None
+    assert "cup" in why
+    assert "of the way" in why
+
+
+def test_an_opening_outside_the_finger_range_is_refused(checker):
+    with pytest.raises(ValueError, match="finger opening"):
+        checker.config_clear(HOVER, opening=0.06)
+
+
+def test_an_opening_is_the_slide_of_finger_1_and_finger_2_mirrors_it(kin):
+    assert kin.ix.finger_open == 0.05
+    assert np.array_equal(finger_qpos(kin.ix, None), kin.ix.finger_home)
+    assert np.array_equal(finger_qpos(kin.ix, 0.02), [0.02, -0.02])
+    assert np.array_equal(finger_qpos(kin.ix, 0.05), [0.05, -0.05])
 
 
 # ---- reach ----------------------------------------------------------------------------------
