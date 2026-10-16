@@ -20,7 +20,9 @@ from a1x_fakes import (CLOSED, GRIP_SLEW, LSB, LSB_DEG, OPEN, OPEN_LOOP, START_D
                        gripper_pdes, ticking_sleep)
 
 from galaxeo import protocol as P
-from galaxeo.robot.backend import A1XArm, A1XConfig, BackendInfo, create
+from galaxeo.a1x import FOREIGN_FAULT
+from galaxeo.bus import Frame
+from galaxeo.robot.backend import A1XArm, A1XConfig, BackendInfo, GripperState, create
 
 REPO = Path(__file__).resolve().parents[1]
 ARM = tuple(f"arm_joint{i}" for i in range(1, 7))
@@ -416,6 +418,108 @@ def test_efforts_and_velocities_come_from_fresh_feedback_for_the_six_arm_joints(
     rig.run(0.2)                                                               # > stale_ms
     assert rig.arm.efforts() is None
     assert rig.arm.velocities() is None
+
+
+def test_gripper_state_is_none_before_connect_and_after_disconnect():
+    rig = make_rig()
+    before = rig.arm.gripper_state()
+
+    rig.bus.tick(n=60)
+    rig.arm.connect()
+    during = rig.arm.gripper_state()
+
+    rig.arm.disconnect()
+    after = rig.arm.gripper_state()
+
+    assert before is None
+    assert isinstance(during, GripperState)
+    assert after is None
+
+
+def test_gripper_state_gives_openings_0_to_100_and_the_twins_own_command():
+    rig = connected()
+    rig.arm.send_joints({"gripper": 0.0})                                      # equals the reported opening
+    rig.run(0.1)
+    held = rig.arm.gripper_state()
+
+    rig.arm.send_joints({"gripper": 60.0})
+    rig.run(0.2)
+    gs = rig.arm.gripper_state()
+
+    assert held.commanded is None
+    assert gs.commanded == 60.0                                                # exactly, not via p_des
+    assert gs.target == pytest.approx(60.0, abs=1e-9)
+    assert gs.streamed == pytest.approx(60.0, abs=1e-9)                       # a guessed opening: no ramp
+    assert gs.measured is True
+    assert gs.position == rig.arm.read_joints()["gripper"]
+    assert gs.rate == pytest.approx(2.0 * 100.0 / (CLOSED - OPEN), rel=1e-12)
+    assert gs.force_threshold == rig.arm.gripper_force
+
+
+def test_a_frozen_gripper_state_keeps_the_twins_command():
+    rig = connected()
+    rig.arm.send_joints({"gripper": 100.0})
+    rig.run(0.1)
+    rig.arm.send_joints({"gripper": 0.0})
+    rig.run(0.4)
+
+    rig.bus.grip_effort = 2.0
+    rig.run(0.05)
+    gs = rig.arm.gripper_state()
+
+    assert gs.frozen is True
+    assert gs.commanded == 0.0
+    assert gs.target == gs.streamed
+    assert 0.0 < gs.streamed < 100.0
+
+
+def test_a_thousand_gripper_state_calls_change_no_field_and_send_no_frame():
+    rig = connected()
+    rig.arm.send_joints({"arm_joint1": 30.0, "gripper": 100.0})
+    rig.run(0.3)
+    rig.bus.tick(n=3)                                                          # queued frames stay queued
+
+    def snapshot() -> dict[str, str]:
+        return {k: repr(v) for obj in (rig.arm, rig.arm.a1x) for k, v in vars(obj).items()}
+
+    before = snapshot()
+    n_tx = len(rig.bus.tx)
+    n_rx = len(rig.bus.rx)
+
+    for _ in range(1000):
+        rig.arm.gripper_state()
+
+    assert snapshot() == before
+    assert len(rig.bus.tx) == n_tx
+    assert len(rig.bus.rx) == n_rx
+
+
+def test_gripper_state_never_raises_and_logs_the_error_once(monkeypatch, caplog):
+    rig = connected()
+
+    def broken() -> None:
+        raise RuntimeError("broken")
+
+    monkeypatch.setattr(rig.arm.a1x, "gripper_state", broken)
+    with caplog.at_level("ERROR", logger="galaxeo.robot.backend"):
+        first = rig.arm.gripper_state()
+        second = rig.arm.gripper_state()
+
+    assert first is None
+    assert second is None
+    assert len([r for r in caplog.records if "gripper state" in r.getMessage()]) == 1
+
+
+def test_another_sender_is_counted_and_is_a_fault_without_a_joint_so_the_twin_stops():
+    rig = connected()
+    rig.run(0.05)
+
+    rig.bus.rx.append(Frame(P.FF_ID, P.encode_ff(1)))
+    rig.run(STEP)
+
+    assert rig.arm.foreign_frames() == 1
+    assert rig.arm.faults() == [FOREIGN_FAULT]
+    assert fault_joint(FOREIGN_FAULT) is None
 
 
 def test_info_names_the_link_and_is_never_simulated():

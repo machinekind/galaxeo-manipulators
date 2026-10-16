@@ -43,6 +43,8 @@ Safety rules (docs/SAFETY.md, docs/PROTOCOL.md):
   heartbeat. The FF 1 -> 5 -> 6 enable only on request (`enable`), with p_des = the measurement
   before, between and after each code.
 * `disconnect` ends the stream and closes the link; it never releases the motors.
+* One sender on the link: a 0x050 / 0x051 / FF frame this driver did not send is a fault in `faults()`
+  for `FOREIGN_WINDOW_S`, and the caller stops. `foreign_frames()` counts them since `connect`.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ import os
 import threading
 import time
 import types
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import MISSING, dataclass, fields
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -91,6 +94,18 @@ GRIP_REOPEN_PDES = 0.3
 GRIP_LIVE_FRAMES = 4
 #: Margin on the time of a full gripper stroke [s] (`gripper_travel_s`).
 GRIP_TRAVEL_MARGIN_S = 0.2
+#: How long `faults()` reports another sender after its last command frame [s].
+FOREIGN_WINDOW_S = 0.5
+#: The last payloads remembered per CAN id: the CAN adapter's echo is not another sender.
+ECHO_KEEP = 16
+#: An echo arrives within this time of the send or not at all [s], counted to the exchange before
+#: the drain that finds it (frames carry no receive stamp, and it came in after that exchange): a
+#: CAN thread stalled by the GIL or a garbage collection drains late, and its own echo must not
+#: look like another sender. Several loop periods; a later copy is another sender (e.g. a second
+#: driver holding the same pose with the same gains), and so is a second copy of one send.
+ECHO_WINDOW_S = 0.25
+#: The fault while another sender is seen, on the whole arm (no joint): the caller stops.
+FOREIGN_FAULT = "another sender on the CAN link (command frames not ours)"
 
 _Settings = TypeVar("_Settings")
 
@@ -273,6 +288,34 @@ class Fault:
     text: str
 
 
+@dataclass(frozen=True)
+class GripperState:
+    """Read-only snapshot of the gripper as the driver drives and measures it (`A1X.gripper_state()`).
+
+    Positions in p_des [rad, more positive = tighter].
+    """
+
+    commanded: float | None        # last command the driver let through, or `assume_gripper`; None before the first
+    target: float | None           # where the stream goes (differs from `commanded` once frozen)
+    streamed: float | None         # p_des really sent last; the best guess of the jaw without a measurement
+    position: float | None         # measured position; None while the driver does not measure it
+    frozen: bool                   # contact while closing: the target stands where the stream was
+    effort: float | None           # group 7 effort, raw A1X scale; None without fresh feedback
+    t: float                       # driver clock when the reading arrived (the queue drain)
+    age_s: float | None            # driver clock now minus `t`; None before any reading
+    rate: float                    # stream speed [p_des/s] (`gripper_rate_pdes_s`)
+    force_threshold: float         # effort above rest at which a closing jaw stops
+    measured: bool                 # whether `position` is a measurement
+
+
+@dataclass(frozen=True)
+class _Sent:
+    """A payload this driver sent, for telling its echo from another sender."""
+
+    data: bytes
+    t: float                       # driver clock at the send
+
+
 class A1X:
     """Galaxea A1X: 6 arm joints + gripper over CAN-FD.
 
@@ -325,6 +368,10 @@ class A1X:
         self._bus_error: str = ""
         self._link_silent = False
         self.tx_frames = 0
+        self._sent: dict[int, deque[_Sent]] = {}
+        self._foreign = 0
+        self._foreign_t = -math.inf
+        self._gripper_state_failed = False
 
     def _forget_grip_rest(self) -> None:
         self._g_rest_eff = []
@@ -472,6 +519,9 @@ class A1X:
             f = self._bus.recv(0.0)
             if f is None:
                 return got
+            if f.can_id in (P.CMD_ID, P.GRIP_ID, P.FF_ID):
+                self._check_sender(f.can_id, bytes(f.data), now)
+                continue
             if f.can_id != P.FB_ID or len(f.data) != P.FB_LEN:
                 continue
             data = bytes(f.data)
@@ -565,8 +615,35 @@ class A1X:
         return self._g_rest is not None and abs(self._fb.eff[6]) > self._g_rest + self.cfg.gripper_force
 
     def _send(self, can_id: int, data: bytes, fd: bool = True) -> None:
+        self._sent.setdefault(can_id, deque(maxlen=ECHO_KEEP)).append(_Sent(data=bytes(data), t=self._clock()))
         self._bus.send(can_id, data, fd=fd)
         self.tx_frames += 1
+
+    def _check_sender(self, can_id: int, data: bytes, now: float) -> None:
+        """A command frame on the link: our own echo, or another sender (counted, a fault for a while)."""
+        received_after = now if self._last_io is None else min(self._last_io, now)
+        if self._own_payload(can_id, data, received_after):
+            return
+
+        if now - self._foreign_t >= FOREIGN_WINDOW_S:
+            logger.warning("A1X: frame 0x%03X not ours - another sender on the CAN link", can_id)
+        self._foreign += 1
+        self._foreign_t = now
+
+    def _own_payload(self, can_id: int, data: bytes, received_after: float) -> bool:
+        """Whether `data`, received after the time `received_after`, is the echo of a frame of ours on
+        `can_id` sent at most ECHO_WINDOW_S before; one send explains one echo."""
+        sent = self._sent.get(can_id, ())
+        for i, mine in enumerate(sent):
+            if received_after - mine.t > ECHO_WINDOW_S:
+                continue
+            # XCAN pads FD frames with zeros to an allowed length (0x050: 60 -> 64, 0x051: 10 -> 12).
+            padded = (len(data) > len(mine.data) and data.startswith(mine.data)
+                      and not any(data[len(mine.data):]))
+            if data == mine.data or padded:
+                del sent[i]
+                return True
+        return False
 
     def _watch_deaf(self, now: float) -> None:
         """Command far from the measurement while the joint stands for `deaf_s` = arm deaf to 0x050 or blocked."""
@@ -702,8 +779,46 @@ class A1X:
         """Gripper effort above rest that means contact (config `gripper_force`)."""
         return float(self.cfg.gripper_force)
 
+    def gripper_state(self) -> GripperState | None:
+        """Command, stream, freeze and effort of the jaw, read under the lock; positions in p_des.
+
+        Changes nothing and sends nothing. None without a connection and on any error (logged
+        once): a control loop asks every tick and must not crash on it.
+        """
+        try:
+            with self._lock:
+                if not self._connected:
+                    return None
+
+                fb = self._fresh_fb()
+                measured = self.gripper_measured()
+                return GripperState(
+                    commanded=self._g_cmd,
+                    target=self._g_target,
+                    streamed=self._g_stream,
+                    position=self._grip_reported() if measured else None,
+                    frozen=self._g_frozen,
+                    effort=None if fb is None else float(fb.eff[6]),
+                    t=self._fb_t,
+                    age_s=None if self._fb is None else self._clock() - self._fb_t,
+                    rate=float(self.cfg.gripper_rate_pdes_s),
+                    force_threshold=float(self.cfg.gripper_force),
+                    measured=measured,
+                )
+        except Exception:
+            if not self._gripper_state_failed:
+                self._gripper_state_failed = True
+                logger.exception("A1X: could not read the gripper state")
+            return None
+
+    def foreign_frames(self) -> int:
+        """Command frames (0x050, 0x051, FF) of another sender received since connecting."""
+        with self._lock:
+            return self._foreign
+
     def faults(self) -> list[Fault]:
-        """What is wrong now: a CAN error, a silent link, frozen telemetry, a deaf joint. Never raises."""
+        """What is wrong now: a CAN error, a silent link, frozen telemetry, a deaf joint, another sender.
+        Never raises."""
         try:
             with self._lock:
                 if not self._connected:
@@ -722,6 +837,8 @@ class A1X:
                 state = str(getattr(self._bus, "state", "ok") or "ok")
                 if state in ("bus-off", "error-passive"):
                     out.append(Fault(None, f"CAN bus: {state}"))
+                if now - self._foreign_t < FOREIGN_WINDOW_S:
+                    out.append(Fault(None, FOREIGN_FAULT))
                 return out
         except Exception as exc:               # pragma: no cover - called every control cycle, must not crash it
             logger.exception("Could not check the A1X state")

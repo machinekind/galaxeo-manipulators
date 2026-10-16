@@ -118,6 +118,8 @@ The driver is `galaxeo/a1x.py` (class `A1X`, in radians and `p_des`), usable wit
   It drops the arm and gripper targets and reports a fault in `faults()`, and the twin stops.
   When frames return, nothing moves until the next command, and that command starts from a fresh measurement.
 - It never sends FF 2, never `kp` 0 and never the `0x023` heartbeat. `disconnect()` ends the stream and releases nothing.
+- When the backend sees a `0x050`, `0x051` or FF frame it did not send, it reports a fault until 0.5 s after the last one, so the twin stops.
+  `foreign_frames()` counts these frames since `connect()`.
 - Its one action is `enable()`. It sends FF 1 → 5 → 6, only on request or with `enable_on_connect`.
   During the sequence it streams `p_des` equal to the measured pose. A freshly powered arm does not need it.
 
@@ -136,6 +138,8 @@ The driver is `galaxeo/a1x.py` (class `A1X`, in radians and `p_des`), usable wit
   After a smaller opening the jaws still press the object, and that pressure must not become the new rest.
 - While the jaw state is only a guess (`gripper_start` or `assume_gripper`), the first opening goes straight to the target.
   Closing always ramps, so a wrong guess never snaps the jaws shut.
+- `gripper_state()` reads the command, the stream, the freeze and the effort of the jaw, with openings in 0..100.
+  It changes nothing and sends nothing.
 
 ## Units
 
