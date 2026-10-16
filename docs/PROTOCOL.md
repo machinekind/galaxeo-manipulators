@@ -69,6 +69,11 @@ about 57 deg per p_des unit, or 0.99 rad per rad: the gripper joint's own
 angle in the same units as its command. It moves with the jaws, so it can
 serve as jaw feedback. Calibrate the mapping to jaw opening on your arm.
 
+The reading is valid only while `0x051` flows. At rest after power-on it
+shows an arbitrary value: −2.88 rad (−164.9 deg) with the jaws at about
+−1.49 rad. The closed stop is at about +0.039 rad and the open stop at about
+−1.992 rad. The full measurement is in [HARDWARE.md](HARDWARE.md#the-gripper).
+
 What an earlier note here got right: the vendor
 publishes 3.1–3.4 rad on `/hdas/feedback_gripper`, and that value does not
 appear anywhere in the 48-byte payload under any of the `/4700`, `/750`, `/600`

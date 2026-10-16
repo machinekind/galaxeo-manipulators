@@ -1,0 +1,107 @@
+# Galaxea A1X: six revolute joints and a slide gripper. `import_twin_model.py` at the root of the
+# galaxeo repository generates the MJCF from the vendor's URDF, see README.md.
+name: a1x
+title: Galaxea A1X
+mjcf: a1x.xml
+
+joints: [arm_joint1, arm_joint2, arm_joint3, arm_joint4, arm_joint5, arm_joint6, gripper]
+gripper: gripper
+tcp_site: tcp
+hand_body: gripper_link
+base_body: base_link
+# Site `tcp` as the galaxeo generator makes it: x is the approach, y the jaw closing axis.
+tcp_approach: [1.0, 0.0, 0.0]
+tcp_closing: [0.0, 1.0, 0.0]
+# Ordered so that going from the first tip to the second runs along `tcp_closing` (+y): jaw 1
+# moves along +y, jaw 2 along -y. The midpoint between them does not depend on the order.
+fingertips: [finger2_tip, finger1_tip]
+roll_joint: arm_joint6
+jaw_bodies: [gripper_finger_link1, gripper_finger_link2]
+
+# The model's `home` keyframe (1.0 / -1.6 / 0.6 rad) with the gripper closed (0), like the
+# station's home ("Set home = here" stores gripper 0) and like an A1X without gripper feedback
+# reports (`a1x.gripper_start`).
+home:
+  arm_joint1: 0.0
+  arm_joint2: 57.3
+  arm_joint3: -91.7
+  arm_joint4: 34.4
+  arm_joint5: 0.0
+  arm_joint6: 0.0
+  gripper: 0.0
+
+# URDF ranges minus 3-5 degrees of margin: a command never presses a joint into its stop. The
+# folded rest pose (J2 ~ -0.2, J3 ~ +1.5 degrees) lies outside them on purpose: the supervisor
+# leads a joint out of it with soft limits (`keep_outside`).
+limits:
+  arm_joint1: [-160.0, 160.0]
+  arm_joint2: [3.0, 177.0]
+  arm_joint3: [-187.0, -3.0]
+  arm_joint4: [-85.0, 85.0]
+  arm_joint5: [-85.0, 85.0]
+  arm_joint6: [-160.0, 160.0]
+  gripper: [0.0, 100.0]
+# 90 deg/s is the speed limiter of the bridge; the gripper as on the SO-101 (the same `grip_step`
+# in the RL tasks).
+max_vel:
+  arm_joint1: 90.0
+  arm_joint2: 90.0
+  arm_joint3: 90.0
+  arm_joint4: 90.0
+  arm_joint5: 90.0
+  arm_joint6: 90.0
+  gripper: 300.0
+
+# Jaw travel [m]: 0 = plates together (tips 3 mm apart), 0.05 = fully open.
+gripper_range_q: [0.0, 0.05]
+mirror_joints:
+  gripper_finger_joint2: [gripper, -1.0]
+
+# Upper arm and elbow forward, wrist down: 85 % of the poses put the TCP 0.20-0.55 m from the
+# axis and above the table top (median height 0.35 m). Wider ranges (J2 20..120, J3 -150..-30,
+# J4 +-60) gave 57 %, mostly with the card above the frame of the table cameras.
+wave_ranges:
+  arm_joint1: [-75.0, 75.0]
+  arm_joint2: [60.0, 130.0]
+  arm_joint3: [-130.0, -60.0]
+  arm_joint4: [0.0, 80.0]
+  arm_joint5: [-45.0, 45.0]
+
+# Metres: 20 mm of travel is 43 mm between the tips, more than the 42 mm diagonal of the cube.
+jaw: {still: 0.001, margin: 0.003, creep: 0.002, open: 0.020}
+desk:
+  goal_radius: [0.25, 0.50]
+  goal_height: [0.03, 0.25]
+  cube_radius: [0.28, 0.45]
+  cube_bearing: [-0.7, 0.7]
+  wave_radius: [0.20, 0.55]
+  search_centre: [0.35, 0.0, 0.08]
+  search_dist: [0.6, 1.2]
+  camera_dist: [0.7, 1.1]
+  camera_centre: [0.35, 0.0, 0.08]
+  map_centre: [0.36, 0.0]
+  map_side: 0.9
+
+# From the folded rest (J2 ~0, J3 ~0) a single ramp of all joints turned the wrist into the
+# shoulder column. First the elbow unfolds the forearm upward, then the wrist, then shoulder and
+# base - an order checked in the twin (path_clear); the wrist before the elbow hits the shoulder
+# column (arm_link1) with the gripper after 7 % of the way.
+home_stages:
+  - [arm_joint3]
+  - [arm_joint4, arm_joint5, arm_joint6]
+  - [arm_joint2, arm_joint1]
+  - [gripper]
+
+joint_labels:
+  arm_joint1: [J1 Base, J1 - base rotation]
+  arm_joint2: [J2 Shoulder, J2 - shoulder]
+  arm_joint3: [J3 Elbow, J3 - elbow]
+  arm_joint4: [J4 Wrist up, J4 - wrist up/down]
+  arm_joint5: [J5 Wrist side, J5 - wrist sideways]
+  arm_joint6: [J6 Rotation, J6 - gripper rotation]
+  gripper: [Gripper, Gripper]
+
+connections:
+  - {label: "Galaxea A1X over xcan (macOS)", backend: a1x, port: xcan, platform: Darwin}
+  - {label: "Galaxea A1X over can0 (Linux)", backend: a1x, port: can0, platform: Linux}
+  - {label: "Galaxea A1X over PCAN (Windows)", backend: a1x, port: PCAN_USBBUS1, platform: Windows}

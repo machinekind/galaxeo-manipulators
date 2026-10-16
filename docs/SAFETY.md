@@ -73,3 +73,32 @@ ip -det -s link show can0
 
 Termination matters: the CAN box has switches **R1/R2, both in the top
 position**. The supply is **24 V**, not 48 V.
+
+## Driving the arm from the digital twin
+
+The twin's `a1x` backend follows the rules above. See
+[galaxeo/robot/README.md](../galaxeo/robot/README.md). What it adds:
+
+* **STOP holds the measured pose by streaming it.** It does not release the
+  motors.
+* **The twin never sends FF 2 and never the `0x023` heartbeat.** No setting
+  drops torque on disconnect. *Disconnect* releases nothing.
+* **The enable button releases the motors for a fraction of a second.** It
+  sends FF 1 → 5 → 6 and streams the measured pose throughout (see
+  [Never enable without streaming a setpoint](#never-enable-without-streaming-a-setpoint)).
+  Press it only with the arm supported and the panel disarmed. Never press it
+  just in case.
+* **Link loss stops everything.** With no `0x052` for 150 ms, or with frozen
+  telemetry, the backend stops sending at once. It drops the arm and gripper
+  targets, and the twin stops. When frames return nothing moves until the
+  next command. That command starts from a fresh measurement.
+* **Limits and speed limits are the only protection** (see
+  [There is no compliance to fall back on](#there-is-no-compliance-to-fall-back-on)).
+  They are the twin's limits (URDF minus 3–5 deg), the URDF limits in the
+  backend (widened to the pose at *Connect*), the supervisor, and the
+  backend's 90 deg/s. A collision is caught only by two lag checks: 25 deg
+  for 0.5 s in the supervisor, and 3 deg for 1 s on a standing joint in the
+  backend.
+* **Fold the arm before you cut power.** Move J2 to 3 deg, J3 to −3 deg and
+  the rest to 0 with the sliders, then support the arm (see
+  [The arm has no brakes](#the-arm-has-no-brakes)).

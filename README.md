@@ -49,6 +49,7 @@ no LeRobot needed).
 | [**PROTOCOL.md**](docs/PROTOCOL.md) | the CAN-FD protocol, every field, and how it was recovered |
 | [**HARDWARE.md**](docs/HARDWARE.md) | wiring, bus timings, joint limits, telling two adapters apart |
 | [**VENDOR_SDK.md**](docs/VENDOR_SDK.md) | which Galaxea SDK is which, and where the useful one lives |
+| [galaxeo/robot/README.md](galaxeo/robot/README.md) | the A1X as a plugin for machinekind's digital twin |
 | [docs/notes/](docs/notes/) | working notes, kept for provenance |
 
 ## What's in here
@@ -87,6 +88,8 @@ XCAN dongle through `xcan_usb.py`.
 | `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package--galaxeo) |
 | `galaxeo/arm/` | the installed arm: model, IK, collisions, reach box, guarded moves. See [Installed arm](#installed-arm--galaxeoarm) |
+| `galaxeo/robot/` | the A1X as a plugin for machinekind's digital twin: robot folder and `a1x` backend. See [galaxeo/robot/README.md](galaxeo/robot/README.md) |
+| `import_twin_model.py` | regenerates the twin's model `galaxeo/robot/a1x/a1x.xml` from the URDF |
 | `galaxeo/xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
 | `can_up.sh` | bring the arm's adapter up as `can0` at the right timings |
@@ -120,6 +123,9 @@ b.send(protocol.CMD_ID, protocol.encode_arm(fb.pos[:6], kp=20.0, kd=1.0))
 * `galaxeo.bus` - `open_bus(iface)`: raw SocketCAN (stdlib), the XCAN dongle
   (macOS), python-can. Frames go out with their true length (10 bytes on
   `0x051`); the 1-byte `0x053` goes as classic CAN with `fd=False`.
+* `galaxeo.a1x` - the A1X as a driven arm: connect, stream `p_des` from the
+  measured pose, limits, link loss, enable, the gripper with its contact
+  stop. Standard library only.
 * `python -m galaxeo.xcan_usb` - read-only check of the XCAN dongle;
   `--grip-test` streams `0x051` to open and close the gripper and reports
   whether it reacted.
@@ -133,13 +139,11 @@ driver keeps its own copy, pinned byte for byte by `tests/test_protocol.py`
 What does not change whichever app drives the arm: the A1X model, its reach,
 its collisions and a safe way to move it. Any app imports it.
 
-Who uses it today: the digital twin's Spectacles driver, which turns a pinch
-in the glasses into `plan` and `move` calls. Its page is
-[digital_twin_training/docs/SPECS.md](https://github.com/machinekind/digital_twin_training/blob/specs-galaxeo-arm/docs/SPECS.md);
-the two-machine runbook (glasses on one machine, arm and cameras on another)
-is [docs/RIG.md](https://github.com/machinekind/digital_twin_training/blob/specs-galaxeo-arm/docs/RIG.md)
-there; the glasses side (Lens, relay, marker registration) is
-[specs-lens](https://github.com/machinekind/specs-lens/tree/reach-project#readme).
+Three scripts here use it: `move_to_point_a1x.py` plans a tool point and
+runs the guarded move; `jog_a1x.py` checks each jog against the reach box and
+the collision model; `calib_wrist.py` moves the wrist camera through its
+calibration poses. Anything else that wants the arm at a point, with the
+checks done, calls the same `plan` and `move`.
 
 ```bash
 pip install -e ".[arm]"          # + numpy, mujoco

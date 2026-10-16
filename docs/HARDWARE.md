@@ -93,6 +93,90 @@ Worth knowing, because it looks like a fault and isn't:
 * An arm that has been released (function frame 2) goes limp **and stops
   reporting** — the same payload repeats forever.
 
+## The gripper
+
+Measured 2026-09-27 on a real A1X over XCAN, with
+`python -m galaxeo.xcan_usb --grip-test`. It streams `0x051` at 200 Hz with
+kp 20 and kd 1, and holds each step for 3 s.
+
+| `p_des` [rad] | group 7 of `0x052` | peak \|effort\| | |
+| --- | --- | --- | --- |
+| −1.50 | −85.60 deg = −1.494 rad | 0.25 | free motion |
+| 0.00 | −0.40 deg = −0.007 rad | 0.21 | free motion |
+| −2.00 | −114.14 deg = −1.992 rad | 3.69 | on or just past the open stop |
+| +0.60 | +2.21 deg = +0.039 rad | 7.80 | **closed stop, 0.56 rad past it** |
+
+Group 7 is the jaw position in the units of `p_des`, but only while `0x051`
+flows (see [PROTOCOL.md](PROTOCOL.md#group-7-is-the-gripper-motor-angle-not-the-vendors-stroke-value)).
+In free motion the measurement equals the command.
+
+**Stops.** The closed stop is at about +0.039 rad (+2.2 deg). The open stop
+is at about −1.992 rad (−114 deg).
+
+**+0.6 overheated the gripper motor.** The gripper is position-controlled.
+At `p_des` +0.6 the jaws stop at +0.039, and the controller keeps pushing
+toward a target 0.56 rad further. At kp 20 that is a stall current. The
+\|effort\| was 7.8, against about 0.2 in free motion. It flowed for as long
+as "closed" was held. The twin's contact stop (`gripper_force`) does not always
+prevent this. A close that starts with the jaws already on the stop measures
+the stall current as rest. `--grip-test` has no contact stop at all.
+
+**Chosen endpoints.** Closed is +0.08, 0.04 rad past the stop. That is about
+7 % of the old error. The contact stop catches objects anyway. Open is −1.95,
+0.04 rad before the stop. At −2.0 the jaws leaned on the stop (effort 3.7).
+With −1.95 the measurement at gripper 100 reads about 98, on purpose. These
+are the defaults of the twin backend, see
+[galaxeo/robot/README.md](../galaxeo/robot/README.md).
+
+**Not checked yet.** Whether 0.04 rad of pressure closes the empty jaws
+fully, and whether −1.95 is clear of the open stop. One try on the table
+answers both. Close the jaws: group 7 should read about +0.039, with the
+effort near rest. Then open: group 7 should read about −1.95, with the effort
+near rest.
+
+### Measuring again
+
+Measure again on another arm, or after gripper service.
+
+The easiest way is `python -m galaxeo.xcan_usb --grip-test` (macOS, XCAN).
+It holds a few `p_des` steps for 3 s each and prints group 7 and the peak
+\|effort\| of each step. Close the twin's panel first. One process at a time
+holds the XCAN adapter.
+
+* The stops are where the position stops following `p_des` and the effort
+  rises. Put them into `gripper_fb_closed` and `gripper_fb_open`.
+* Set `gripper_closed_pdes` a few hundredths of a radian past the closed
+  stop, and `gripper_open_pdes` a few hundredths before the open stop.
+* **Do not stay far past a stop for long.** The stall current heats the
+  motor. Steps of 3 s are enough.
+
+On Linux with SocketCAN, this script reads group 7 and sends nothing. It
+prints the median of 50 `0x052` frames:
+
+```python
+from galaxeo import bus, protocol
+b = bus.open_bus("can0")          # macOS: "xcan", Windows: "PCAN_USBBUS1"
+try:
+    pos = []
+    while len(pos) < 50:          # 50 frames of 0x052 = 0.25 s
+        f = b.recv(0.1)
+        if f is not None and f.can_id == protocol.FB_ID and len(f.data) == protocol.FB_LEN:
+            pos.append(protocol.decode_feedback(bytes(f.data)).pos[6])
+    print(f"group 7: {sorted(pos)[25]:.4f} rad")
+finally:
+    b.close()
+```
+
+Something else must stream `0x051` meanwhile, for example the twin's panel.
+Empty the gripper, press ARM, set the gripper slider to 0 and wait for the
+jaws to stop. Run the script. Then do the same at 100.
+
+* Read only while `0x051` flows. At rest group 7 can be anything.
+* On Linux the script can read next to the panel. SocketCAN takes many
+  readers next to one sender.
+* On macOS the panel holds the adapter, and *Disconnect* stops the stream.
+  So the script cannot read reliably there. Use `--grip-test`.
+
 ## The wrist camera
 
 A 32 mm UVC board camera with a wide M12 lens on a printed strut behind the
@@ -157,3 +241,17 @@ One gotcha that costs an afternoon: `bus.sync_read("Present_Position")` returns
 **bare motor names**, while lerobot's `get_action()` returns `<name>.pos`.
 Mixing the two yields a silent 0.0 everywhere through `dict.get` defaults
 rather than an error.
+
+## Open measurements
+
+These facts are still to be measured on the arm.
+Most of them tune a key of the backend's `a1x:` section, see
+[galaxeo/robot/README.md](../galaxeo/robot/README.md#the-a1x-configuration-section).
+
+| What to measure | Why in doubt | How to check | Backend key |
+| --- | --- | --- | --- |
+| whether the gripper endpoints close the empty jaws with 0.04 rad of pressure and stay clear of the open stop | they come from the measured stops, but nobody tried them on the table | close empty: group 7 reads about +0.039, \|effort\| stays near rest and the jaws touch. Open: group 7 reads about −1.95, with the effort near rest | `gripper_closed_pdes`, `gripper_open_pdes` |
+| the unit of the gripper effort, and the contact threshold of 1.2 | the `/600` scale has no known unit. The threshold is empirical, and crushing was seen from about 6 | grip a 3 cm cube: the target must freeze on contact. Check that the gripper effort is not stuck at 0.00. That means a deaf gripper, and the backend does not detect it | `gripper_force` |
+| whether the arm keeps up with a 90 deg/s `p_des` stream at kp 20 | kp is ignored, but that was measured on small steps. Fast moves were not checked | drive large moves at full speed: the measurement follows the command, with no lag of 25 deg for 0.5 s | `kp`, `max_step_deg_s` |
+| the "deaf or blocked" threshold | it is 3 deg for 1 s on a standing joint. A joint resting on an obstacle trips it too | watch whether it fires during calm work | `deaf_err_deg`, `deaf_s` |
+| the J3 zero and the closed gripper zero | +1.49 deg comes from the arm this repo was developed against. The closed jaw stop is at +0.039 rad (2026-09-27), but nobody checked that the plates touch there | measure the joint zero as in [Joint zero](../galaxeo/robot/README.md#joint-zero-joint_offsets_deg). At gripper 0 the jaws must touch | `joint_offsets_deg`, `gripper_fb_closed` |

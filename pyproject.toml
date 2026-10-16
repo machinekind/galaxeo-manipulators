@@ -17,14 +17,24 @@ xcan = ["pyusb>=1.2"]
 pcan = ["python-can>=4"]
 # galaxeo.arm: the installed arm (model, IK, collisions, reach box, guarded moves).
 arm = ["numpy>=1.24", "mujoco>=3.2"]
-test = ["pytest>=7"]
+# PyYAML: the tests read galaxeo/robot/a1x/robot.yaml (the twin reads it at run time).
+test = ["pytest>=7", "PyYAML>=6"]
+
+# The digital twin (lerobot_mp) finds the A1X through these; galaxeo never imports the twin.
+[project.entry-points."lerobot_mp.robots"]
+a1x = "galaxeo.robot:ROBOT_DIR"
+
+[project.entry-points."lerobot_mp.backends"]
+a1x = "galaxeo.robot.backend:create"
 
 [tool.setuptools]
 # Only the package; the rest of the repo (ROS 2 workspace, sim, scripts) is not installed.
-packages = ["galaxeo", "galaxeo.arm"]
+packages = ["galaxeo", "galaxeo.arm", "galaxeo.robot"]
 
 [tool.setuptools.package-data]
 "galaxeo.arm" = ["assets/*.xml", "assets/*.json", "assets/meshes/*.STL"]
+# The twin's robot folder; its model takes the meshes from galaxeo.arm.
+"galaxeo.robot" = ["README.md", "a1x/robot.yaml", "a1x/a1x.xml", "a1x/demo.json", "a1x/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
