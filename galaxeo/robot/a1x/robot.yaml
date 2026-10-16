@@ -93,15 +93,15 @@ home_stages:
   - [gripper]
 
 joint_labels:
-  arm_joint1: [J1 Podstawa, J1 - obrot podstawy]
-  arm_joint2: [J2 Bark, J2 - bark]
-  arm_joint3: [J3 Lokiec, J3 - lokiec]
-  arm_joint4: [J4 Nadg. gora, J4 - nadgarstek gora/dol]
-  arm_joint5: [J5 Nadg. bok, J5 - nadgarstek na bok]
-  arm_joint6: [J6 Obrot, J6 - obrot chwytaka]
-  gripper: [Chwytak, Chwytak]
+  arm_joint1: [J1 Base, J1 - base rotation]
+  arm_joint2: [J2 Shoulder, J2 - shoulder]
+  arm_joint3: [J3 Elbow, J3 - elbow]
+  arm_joint4: [J4 Wrist up, J4 - wrist up/down]
+  arm_joint5: [J5 Wrist side, J5 - wrist sideways]
+  arm_joint6: [J6 Rotation, J6 - gripper rotation]
+  gripper: [Gripper, Gripper]
 
 connections:
-  - {label: "Galaxea A1X po xcan (macOS)", backend: a1x, port: xcan, platform: Darwin}
-  - {label: "Galaxea A1X po can0 (Linux)", backend: a1x, port: can0, platform: Linux}
-  - {label: "Galaxea A1X po PCAN (Windows)", backend: a1x, port: PCAN_USBBUS1, platform: Windows}
+  - {label: "Galaxea A1X over xcan (macOS)", backend: a1x, port: xcan, platform: Darwin}
+  - {label: "Galaxea A1X over can0 (Linux)", backend: a1x, port: can0, platform: Linux}
+  - {label: "Galaxea A1X over PCAN (Windows)", backend: a1x, port: PCAN_USBBUS1, platform: Windows}

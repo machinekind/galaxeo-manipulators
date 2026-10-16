@@ -102,7 +102,7 @@ Measure yours:
 
 1. Fold the arm onto its stops and power it.
 2. Set `joint_offsets_deg` to all zeros and connect. Send no command.
-3. Read J2 and J3, which rest on their stops. `connect()` logs them in the line `A1X na …: poza startowa …`.
+3. Read J2 and J3, which rest on their stops. `connect()` logs them in the line `A1X on …: start pose …`.
 4. Put the J3 value third, for example `joint_offsets_deg: [0.0, 0.0, 1.49, 0.0, 0.0, 0.0]`.
    Leave the rest at 0 unless you have a sure reference. J3 then reads about 0.
 

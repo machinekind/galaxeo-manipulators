@@ -94,7 +94,7 @@ def open_bus(iface: str) -> Any:
         return can.open_bus(iface)
     except ImportError as exc:
         extra = "xcan" if iface.lower().startswith("xcan") else "pcan"
-        raise ImportError(f'lacze {iface!r} potrzebuje dodatku: pip install "galaxeo[{extra}]" ({exc})') from exc
+        raise ImportError(f'link {iface!r} needs an extra: pip install "galaxeo[{extra}]" ({exc})') from exc
 
 
 def load_settings(cls: type[_Settings], raw: Any, section: str) -> _Settings:
@@ -105,17 +105,17 @@ def load_settings(cls: type[_Settings], raw: Any, section: str) -> _Settings:
     `tuple[float, ...]` (a list of numbers) and `float | None`.
     """
     if not isinstance(raw, Mapping):
-        raise TypeError(f"{section}: oczekiwano mapowania, dostalem {type(raw).__name__}")
+        raise TypeError(f"{section}: expected a mapping, got {type(raw).__name__}")
 
     declared = {f.name: f for f in fields(cls)}
     unknown = sorted(str(key) for key in raw if key not in declared)
     if unknown:
-        raise ValueError("nieznane klucze: " + ", ".join(f"{section}.{key}" for key in unknown))
+        raise ValueError("unknown keys: " + ", ".join(f"{section}.{key}" for key in unknown))
 
     missing = [name for name, f in declared.items()
                if name not in raw and f.default is MISSING and f.default_factory is MISSING]
     if missing:
-        raise ValueError("brak wymaganych kluczy: " + ", ".join(f"{section}.{name}" for name in missing))
+        raise ValueError("missing required keys: " + ", ".join(f"{section}.{name}" for name in missing))
 
     # `from __future__ import annotations` leaves the annotations as strings.
     hints = get_type_hints(cls)
@@ -135,31 +135,31 @@ def _setting(value: Any, hint: Any, where: str) -> Any:
     if hint is bool:
         if isinstance(value, bool):
             return value
-        raise TypeError(f"{where}: oczekiwano true albo false, dostalem {value!r}")
+        raise TypeError(f"{where}: expected true or false, got {value!r}")
 
     if hint is int:
         if isinstance(value, int) and not isinstance(value, bool):
             return value
-        raise TypeError(f"{where}: oczekiwano liczby calkowitej, dostalem {value!r}")
+        raise TypeError(f"{where}: expected an integer, got {value!r}")
 
     if hint is float:
         if _is_number(value):
             return float(value)
-        raise TypeError(f"{where}: oczekiwano liczby, dostalem {value!r}")
+        raise TypeError(f"{where}: expected a number, got {value!r}")
 
     if hint == tuple[float, ...]:
         if isinstance(value, (list, tuple)) and all(_is_number(v) for v in value):
             return tuple(float(v) for v in value)
-        raise TypeError(f"{where}: oczekiwano listy liczb, dostalem {value!r}")
+        raise TypeError(f"{where}: expected a list of numbers, got {value!r}")
 
     if _is_optional_float(hint):
         if value is None:
             return None
         if _is_number(value):
             return float(value)
-        raise TypeError(f"{where}: oczekiwano liczby albo null, dostalem {value!r}")
+        raise TypeError(f"{where}: expected a number or null, got {value!r}")
 
-    raise TypeError(f"{where}: typ pola {hint!r} nie jest obslugiwany")
+    raise TypeError(f"{where}: field type {hint!r} is not supported")
 
 
 @dataclass
@@ -224,17 +224,17 @@ class A1XConfig:
 
     def __post_init__(self) -> None:
         if self.kp <= 0 or self.gripper_kp <= 0:
-            raise ValueError("a1x.kp i a1x.gripper_kp musza byc > 0 - przy kp 0 ramie A1X przestaje "
-                             "sluchac rozkazow")
+            raise ValueError("a1x.kp and a1x.gripper_kp must be > 0 - at kp 0 the A1X arm stops "
+                             "obeying commands")
         if len(self.joint_offsets_deg) != 6:
-            raise ValueError("a1x.joint_offsets_deg: potrzeba 6 wartosci (arm_joint1..6)")
+            raise ValueError("a1x.joint_offsets_deg: 6 values needed (arm_joint1..6)")
         self.joint_offsets_deg = tuple(float(x) for x in self.joint_offsets_deg)
         if (self.gripper_fb_closed is None) != (self.gripper_fb_open is None):
-            raise ValueError("a1x.gripper_fb_closed i gripper_fb_open: podaj oba albo zadne")
+            raise ValueError("a1x.gripper_fb_closed and gripper_fb_open: set both or neither")
         if self.gripper_fb_closed is not None and abs(self.gripper_fb_open - self.gripper_fb_closed) < 1e-6:
-            raise ValueError("a1x.gripper_fb_closed i gripper_fb_open nie moga byc rowne")
+            raise ValueError("a1x.gripper_fb_closed and gripper_fb_open must not be equal")
         if self.stream_hz <= 0 or self.max_step_deg_s <= 0 or self.gripper_rate_pdes_s <= 0:
-            raise ValueError("a1x.stream_hz, max_step_deg_s i gripper_rate_pdes_s musza byc > 0")
+            raise ValueError("a1x.stream_hz, max_step_deg_s and gripper_rate_pdes_s must be > 0")
 
 
 class BackendContext(Protocol):
@@ -284,7 +284,7 @@ class A1XArm:
         self.gripper = ctx.gripper
         self.arm = tuple(n for n in ctx.joints if n != ctx.gripper)
         if len(self.arm) != P.N_JOINTS or ctx.gripper is None:
-            raise ValueError("backend a1x potrzebuje 6 stawow ramienia i chwytaka - stanowisko robot: a1x")
+            raise ValueError("the a1x backend needs 6 arm joints and a gripper - use a station with robot: a1x")
 
         #: Limits `send_joints` clamps to; the twin moves them through `set_joint_limits`.
         self.limits: dict[str, tuple[float, float]] = dict(ctx.limits)
@@ -304,7 +304,7 @@ class A1XArm:
 
     @property
     def info(self) -> BackendInfo:
-        return BackendInfo(name="Galaxea A1X (CAN)", description=f"lacze {self.iface or 'CAN'}", simulated=False)
+        return BackendInfo(name="Galaxea A1X (CAN)", description=f"link {self.iface or 'CAN'}", simulated=False)
 
     def _reset_state(self) -> None:
         self._fb = None                              # latest decoded 0x052 (galaxeo Feedback)
@@ -383,9 +383,9 @@ class A1XArm:
         self._connected = True
 
         g7 = self._fb.pos[6]
-        logger.info("A1X chwytak: grupa 7 w spoczynku %.3f rad (%.1f st.) - pomiar dopiero po pierwszej 0x051 "
-                    "(w spoczynku po wlaczeniu zasilania grupa 7 bywa dowolna)", g7, math.degrees(g7))
-        logger.info("A1X na %s: poza startowa %s", self.iface or "podanym laczu",
+        logger.info("A1X gripper: group 7 at rest %.3f rad (%.1f deg) - measured only after the first 0x051 "
+                    "(at rest after power-on group 7 reads an arbitrary value)", g7, math.degrees(g7))
+        logger.info("A1X on %s: start pose %s", self.iface or "the given link",
                     ", ".join(f"{n}={v:.1f}" for n, v in self.read_joints().items()))
 
         self._start_thread()
@@ -394,7 +394,7 @@ class A1XArm:
 
     def _await_feedback(self) -> None:
         """The first 0x052 frame within `connect_timeout_s`, then a moment of collecting for the frozen test."""
-        where = self.iface or "laczu"
+        where = self.iface or "the link"
         t0 = time.monotonic()
         while self._n_fb == 0:
             self._drain(self._clock())
@@ -402,8 +402,8 @@ class A1XArm:
                 break
             if time.monotonic() - t0 > self._connect_timeout:
                 raise RuntimeError(
-                    f"brak ramek 0x052 na {where} - lacze CAN stoi (Linux: ./can_up.sh albo "
-                    + can.IP_LINK_UP.format(iface=where) + ") albo ramie bez zasilania")
+                    f"no 0x052 frames on {where} - the CAN link is down (Linux: ./can_up.sh or "
+                    + can.IP_LINK_UP.format(iface=where) + ") or the arm has no power")
             time.sleep(0.002)
 
         # `_identical` counts REPEATS, so n frames give at most n - 1: the "frozen" verdict
@@ -415,7 +415,7 @@ class A1XArm:
             if not self._drain(self._clock()):
                 time.sleep(0.002)
         if self._identical > frozen:
-            raise RuntimeError("telemetria zamrozona - ramie zwolnione (FF 2), wylacz i wlacz zasilanie")
+            raise RuntimeError("telemetry frozen - arm released (FF 2), switch the power off and on")
 
     def _start_thread(self) -> None:
         if not self._threaded:
@@ -445,7 +445,7 @@ class A1XArm:
         try:
             bus.close()
         except Exception:                      # pragma: no cover - disconnecting must not crash the app
-            logger.exception("Blad przy zamykaniu lacza CAN")
+            logger.exception("Error while closing the CAN link")
 
     @property
     def is_connected(self) -> bool:
@@ -460,7 +460,7 @@ class A1XArm:
                 self._bus_error = ""
             except Exception as exc:           # adapter pulled, link down: an error for the twin, not a dead thread
                 if not self._bus_error:
-                    logger.error("A1X: blad lacza CAN: %s", exc)
+                    logger.error("A1X: CAN link error: %s", exc)
                 self._bus_error = str(exc)
                 self._stop.wait(0.1)
                 continue
@@ -584,8 +584,8 @@ class A1XArm:
             if err > a.deaf_err_deg and abs(math.degrees(fb.vel[i])) < STILL_DEG_S:
                 t0 = self._deaf_since.setdefault(i, now)
                 if now - t0 >= a.deaf_s and not worst:
-                    worst = (f"{name}: {err:.0f} st. od rozkazu przez {now - t0:.1f} s i stoi - ramie gluche na "
-                             f"0x050 (Wlacz silniki A1X, FF 1-5-6) albo zablokowane")
+                    worst = (f"{name}: {err:.0f} deg from the command for {now - t0:.1f} s and not moving - arm deaf "
+                             f"to 0x050 (enable the A1X motors, FF 1-5-6) or blocked")
             else:
                 self._deaf_since.pop(i, None)
         self._deaf = worst
@@ -594,7 +594,7 @@ class A1XArm:
         """Arm degrees (minus the zero offset) + gripper 0..100. On a silent link: the last values."""
         with self._lock:
             if self._fb is None:
-                raise RuntimeError("Ramie A1X nie jest polaczone")
+                raise RuntimeError("The A1X arm is not connected")
             now = self._clock()
             self._link_silent = self._stale_now(now) or self._frozen()
             self._stale = list(self.arm) if self._link_silent else []
@@ -612,7 +612,7 @@ class A1XArm:
         """
         with self._lock:
             if not self._connected:
-                raise RuntimeError("Ramie A1X nie jest polaczone")
+                raise RuntimeError("The A1X arm is not connected")
             if self._link_silent or self._pinned or self._fb is None:
                 return {}
             sent: dict[str, float] = {}
@@ -638,8 +638,8 @@ class A1XArm:
                 if self._g_target is not None or abs(v - reported) > GRIP_START_DELTA:
                     want = self._pdes(v)
                     if self._g_target is None:
-                        logger.info("A1X chwytak: pierwszy rozkaz %.0f (zglaszane %.0f%s) -> p_des %.2f", v, reported,
-                                    "" if self.gripper_measured() else ", bez pomiaru", want)
+                        logger.info("A1X gripper: first command %.0f (reported %.0f%s) -> p_des %.2f", v, reported,
+                                    "" if self.gripper_measured() else ", not measured", want)
                         # First command: the stream starts from the REPORTED opening, not from the target.
                         stream = self._pdes(reported)
                         if self._g_assumed or (self._g_cmd is None and not self.gripper_measured()):
@@ -723,21 +723,21 @@ class A1XArm:
                 out: list[str] = []
                 now = self._clock()
                 if self._bus_error:
-                    out.append(f"magistrala CAN: {self._bus_error}")
+                    out.append(f"CAN bus: {self._bus_error}")
                 if self._stale_now(now):
-                    out.append(f"brak odpowiedzi ramienia od {(now - self._fb_t) * 1000.0:.0f} ms")
+                    out.append(f"no response from the arm for {(now - self._fb_t) * 1000.0:.0f} ms")
                 elif self._frozen():
-                    out.append(f"telemetria zamrozona ({self._identical} identycznych ramek) - ramie zwolnione "
-                               f"(FF 2)? wylacz i wlacz zasilanie")
+                    out.append(f"telemetry frozen ({self._identical} identical frames) - arm released "
+                               f"(FF 2)? switch the power off and on")
                 elif self._deaf:
                     out.append(self._deaf)
                 state = str(getattr(self._bus, "state", "ok") or "ok")
                 if state in ("bus-off", "error-passive"):
-                    out.append(f"magistrala CAN: {state}")
+                    out.append(f"CAN bus: {state}")
                 return out
         except Exception as exc:               # pragma: no cover - called every control cycle, must not crash it
-            logger.exception("Nie udalo sie sprawdzic stanu A1X")
-            return [f"nie udalo sie sprawdzic stanu A1X: {exc}"]
+            logger.exception("Could not check the A1X state")
+            return [f"could not check the A1X state: {exc}"]
 
     def joint_limits(self) -> dict[str, tuple[float, float]]:
         """URDF limits [deg] widened to the start pose (J3 stands ~1.5 deg past its limit); no gripper."""
@@ -769,11 +769,11 @@ class A1XArm:
             if self.gripper_measured():
                 return False
             if self._g_target is not None:
-                logger.warning("A1X chwytak juz sterowany (p_des %.2f) - zalozenie %.0f odrzucone", self._g_target, v)
+                logger.warning("A1X gripper already driven (p_des %.2f) - assumption %.0f refused", self._g_target, v)
                 return False
             self._g_cmd = min(max(float(v), 0.0), 100.0)
             self._g_assumed = True
-            logger.info("A1X chwytak: zalozone rozwarcie %.0f (bez pomiaru)", self._g_cmd)
+            logger.info("A1X gripper: assumed opening %.0f (not measured)", self._g_cmd)
             return True
 
     def gripper_drivable(self) -> bool:
@@ -816,8 +816,8 @@ class A1XArm:
     def calibration_warnings(self) -> list[str]:
         a = self.acfg
         if a.gripper_fb_closed is None or a.gripper_fb_open is None:
-            return ["chwytak A1X: sprzezenie niezmierzone - panel pokazuje rozkaz, nie pomiar; "
-                    "zmierz a1x.gripper_fb_closed/open"]
+            return ["A1X gripper: feedback not measured - the panel shows the command, not a measurement; "
+                    "measure a1x.gripper_fb_closed/open"]
         return []
 
     def enable(self) -> str:
@@ -828,12 +828,12 @@ class A1XArm:
         """
         with self._lock:
             if not self._connected:
-                raise RuntimeError("Ramie A1X nie jest polaczone")
+                raise RuntimeError("The A1X arm is not connected")
             if self._fb is None or self._stale_now(self._clock()):
-                raise RuntimeError("A1X: brak swiezych ramek 0x052 - wlaczenie odrzucone")
+                raise RuntimeError("A1X: no fresh 0x052 frames - enable refused")
             if self._frozen():
-                raise RuntimeError("A1X: telemetria zamrozona (FF 2) - wylacz i wlacz zasilanie; FF 1-5-6 tego "
-                                   "nie naprawia")
+                raise RuntimeError("A1X: telemetry frozen (FF 2) - switch the power off and on; FF 1-5-6 does "
+                                   "not fix that")
             self._pinned = True
             self._p_target = self._measured_rad()
             self._p_stream = list(self._p_target)
@@ -842,7 +842,7 @@ class A1XArm:
                 self._wait(ENABLE_STEP_S)
                 with self._lock:
                     if self._stale_now(self._clock()):
-                        raise RuntimeError(f"A1X: lacze zamilklo w trakcie wlaczania (przed FF {code})")
+                        raise RuntimeError(f"A1X: the link went silent during enable (before FF {code})")
                     self._send(P.FF_ID, P.encode_ff(code), fd=False)
             self._wait(ENABLE_STEP_S)
         finally:
@@ -853,7 +853,7 @@ class A1XArm:
                 if not fresh:
                     self._p_stream = None
                 self._pinned = False
-        return "wyslano FF 1 -> 5 -> 6; ramie trzyma zmierzona poze"
+        return "sent FF 1 -> 5 -> 6; the arm holds the measured pose"
 
     def _wait(self, secs: float) -> None:
         """Time between the codes: the IO thread streams on its own; without it, the ticks run here."""

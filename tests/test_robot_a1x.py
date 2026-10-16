@@ -257,7 +257,7 @@ def test_connect_refuses_frozen_telemetry_arriving_one_frame_at_a_time():
     rig = make_rig(bus=TrickleBus())
     rig.bus.frozen = True
 
-    with pytest.raises(RuntimeError, match="zamrozona"):
+    with pytest.raises(RuntimeError, match="frozen"):
         rig.arm.connect()
 
     assert not rig.arm.is_connected
@@ -297,7 +297,7 @@ def test_stale_feedback_sets_link_silent_stops_transmit_and_reports_a_fault():
     assert set(rig.arm._stale) == set(ARM)
     faults = rig.arm.faults()
     assert len(faults) == 1
-    assert faults[0].startswith("brak odpowiedzi ramienia od")
+    assert faults[0].startswith("no response from the arm for")
     n = len(rig.bus.tx)
     rig.run(0.3)
     assert len(rig.bus.tx) == n
@@ -326,7 +326,7 @@ def test_frozen_payloads_are_reported_and_stop_transmit():
     rig.bus.frozen = True
     rig.run(0.4)                                                               # 80 identical frames
 
-    assert any("telemetria zamrozona" in f for f in rig.arm.faults())
+    assert any("telemetry frozen" in f for f in rig.arm.faults())
     assert rig.arm._link_silent
     n = len(rig.bus.tx)
     rig.run(0.2)
@@ -344,8 +344,8 @@ def test_a_deaf_arm_is_reported_from_the_command_measured_gap():
     rig.run(1.0)
     faults = rig.arm.faults()
     assert len(faults) == 1
-    assert "gluche" in faults[0]
-    assert "zablokowane" in faults[0]
+    assert "deaf" in faults[0]
+    assert "blocked" in faults[0]
     assert fault_joint(faults[0]) == "arm_joint2"                              # an arm joint fault: the twin stops
 
     rig.bus.deaf = False                                                       # FF 1-5-6 helped: the arm moves
@@ -361,10 +361,10 @@ def test_stale_and_frozen_faults_are_arm_faults_for_the_twin():
 
     faults = rig.arm.faults()
     assert len(faults) == 1
-    assert "brak odpowiedzi" in faults[0]
+    assert "no response" in faults[0]
     assert fault_joint(faults[0]) is None
     rig.bus.state = "bus-off"
-    assert "magistrala CAN: bus-off" in rig.arm.faults()
+    assert "CAN bus: bus-off" in rig.arm.faults()
 
 
 def test_limits_are_urdf_widened_to_the_start_pose():
@@ -754,7 +754,7 @@ def test_link_lost_during_enable_leaves_no_target_to_resume_to():
         sleep(secs)
 
     rig.arm._sleep = sleep_then_go_silent
-    with pytest.raises(RuntimeError, match="zamilklo"):
+    with pytest.raises(RuntimeError, match="went silent"):
         rig.arm.enable()
     rig.arm._sleep = sleep
 
@@ -784,7 +784,7 @@ def test_send_joints_is_refused_while_enabling_and_enable_refuses_a_silent_link(
     assert rig.arm.send_joints({"arm_joint1": 11.0}) == {"arm_joint1": 11.0}
     rig.bus.silent = True
     rig.run(0.3)
-    with pytest.raises(RuntimeError, match="brak swiezych"):
+    with pytest.raises(RuntimeError, match="no fresh"):
         rig.arm.enable()
 
 
@@ -886,8 +886,8 @@ def test_info_names_the_link_and_is_never_simulated():
     unconnected = A1XArm(context(), bus=FakeA1XBus(), threaded=False)
     on_can0 = A1XArm(context("can0"), bus=FakeA1XBus(), threaded=False)
 
-    assert unconnected.info == BackendInfo(name="Galaxea A1X (CAN)", description="lacze CAN", simulated=False)
-    assert on_can0.info.description == "lacze can0"
+    assert unconnected.info == BackendInfo(name="Galaxea A1X (CAN)", description="link CAN", simulated=False)
+    assert on_can0.info.description == "link can0"
 
 
 def test_a_missing_transport_module_names_the_galaxeo_extra(monkeypatch):
@@ -960,7 +960,7 @@ def test_settings_that_are_not_a_mapping_are_refused():
 
 
 def test_the_config_checks_still_run_after_loading():
-    with pytest.raises(ValueError, match="podaj oba albo zadne"):
+    with pytest.raises(ValueError, match="set both or neither"):
         load_settings(A1XConfig, {"gripper_fb_closed": None}, "a1x")
 
 
