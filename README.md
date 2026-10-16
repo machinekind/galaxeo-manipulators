@@ -170,6 +170,10 @@ point between the finger plates). Joints are radians, as on the wire.
   from the URDF; joint limits come from it.
 * **Kinematics** - FK and IK of the tool frame in MuJoCo. IK reports its
   residual, keeps to the limits, and puts the point before the orientation.
+  `ik_step` solves from the caller's seed alone, with no restarts, so a
+  target that moves every tick keeps one joint branch. `joint_box` turns
+  the caller's limits in degrees into its `lo`/`hi`. `link_pose` gives the
+  pose of any body, and `fingertips` the lowest corner of each fingertip.
 * **Collision** - self, table and caller boxes/spheres; poses and whole paths.
   A box can be turned about z (`Box.yaw`). The fingers stand at the home
   opening unless the check gives one (`opening=`, metres per finger).

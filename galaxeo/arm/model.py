@@ -28,6 +28,7 @@ MJCF = os.path.join(ASSETS, "a1x.xml")
 
 JOINTS = tuple(f"arm_joint{i}" for i in range(1, 7))
 FINGERS = ("gripper_finger_joint1", "gripper_finger_joint2")
+FINGER_BODIES = ("gripper_finger_link1", "gripper_finger_link2")
 LAST_LINK = "arm_link6"
 BASE = "base_link"
 TOOL_SITE = "tool"
@@ -135,6 +136,7 @@ class Indices:
     finger_qadr: np.ndarray
     site: int
     base: int
+    tips: np.ndarray             # geoms of the curled fingertip boxes: finger 1, finger 2
     finger_open: float           # widest finger slide [m], the upper limit of gripper_finger_joint1
     home: np.ndarray = field(default_factory=lambda: np.zeros(6))
     finger_home: np.ndarray = field(default_factory=lambda: np.zeros(2))
@@ -155,10 +157,23 @@ def indices(model: mujoco.MjModel) -> Indices:
         finger_qadr=fadr,
         site=model.site(TOOL_SITE).id,
         base=model.body(BASE).id,
+        tips=np.array([_fingertip(model, b) for b in FINGER_BODIES]),
         finger_open=float(model.jnt_range[fids[0], 1]),
         home=kq[qadr].copy(),
         finger_home=kq[fadr].copy(),
     )
+
+
+def _fingertip(model: mujoco.MjModel, body: str) -> int:
+    """The curled tip of one finger: its collision box furthest out along the approach axis (x).
+
+    The generator (sim/urdf2mjcf.py) leaves the finger boxes unnamed, so the tip is found by its layout.
+    """
+    b = model.body(body).id
+    first = int(model.body_geomadr[b])
+    geoms = range(first, first + int(model.body_geomnum[b]))
+    boxes = [g for g in geoms if model.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX]
+    return max(boxes, key=lambda g: model.geom_pos[g, 0])
 
 
 def finger_qpos(ix: Indices, opening: Optional[float]) -> np.ndarray:
