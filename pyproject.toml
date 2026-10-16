@@ -34,7 +34,7 @@ packages = ["galaxeo", "galaxeo.arm", "galaxeo.robot"]
 [tool.setuptools.package-data]
 "galaxeo.arm" = ["assets/*.xml", "assets/*.json", "assets/meshes/*.STL"]
 # The twin's robot folder; its model takes the meshes from galaxeo.arm.
-"galaxeo.robot" = ["a1x/robot.yaml", "a1x/a1x.xml", "a1x/demo.json", "a1x/README.md"]
+"galaxeo.robot" = ["README.md", "a1x/robot.yaml", "a1x/a1x.xml", "a1x/demo.json", "a1x/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

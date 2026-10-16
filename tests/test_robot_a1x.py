@@ -988,8 +988,10 @@ def test_package_data_ships_every_file_of_the_robot_folder():
     setuptools = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["setuptools"]
     package = REPO / "galaxeo" / "robot"
 
-    listed = sorted(setuptools["package-data"]["galaxeo.robot"])
+    data = setuptools["package-data"]["galaxeo.robot"]
+    listed = sorted(p for p in data if p.startswith("a1x/"))
     present = sorted(str(p.relative_to(package)) for p in (package / "a1x").iterdir())
 
     assert "galaxeo.robot" in setuptools["packages"]
     assert listed == present
+    assert "README.md" in data, "the package README ships with the robot folder"

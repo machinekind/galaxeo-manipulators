@@ -44,3 +44,16 @@ What the twin's model has that `sim/urdf2mjcf.py` does not make:
     python import_twin_model.py --urdf <newer a1x.urdf>  # from a newer vendor URDF
 
 A newer URDF with new meshes needs them in `galaxeo/arm/assets/meshes/` too.
+
+## Checked in the twin's simulation
+
+Measured in the twin with this model:
+
+| Check | Result |
+|---|---|
+| camera calibration, `lerobot-twin calib-sim --robot a1x --n 3 --cameras 2` | 6/6 trusted. Median 0.24 mm / 0.017°, worst 0.82 mm / 0.041°, residual 0.21 px |
+| calibration session, seed 0, 1 camera | 16 poses, 0.20 mm, 0.017° |
+| camera from the side (about 180° to the base), seed 1, 2 cameras | 2/2 trusted. It was 0/2 before the twin's rotation-median fix in `calib/handeye.py` |
+| IK to reach goals at A1X scale | 20/20, worst 0.33 mm |
+| calibration wave: poses with the card over the table | 85 % (170/200) |
+| physics at a 5 ms step, random actions near the cube (2400 ticks) | no NaN. The cube moves at most 2.0 m/s and rises at most 23 mm above the table |
