@@ -85,6 +85,8 @@ XCAN dongle through `xcan_usb.py`.
 | `which_arm.py` | read-only: which bus has which arm, and can you move it |
 | `jog_a1x.py` | on-screen jog, one joint per key. Runs on macOS |
 | `move_to_point_a1x.py` | tool to a point in the base frame (`--point x y z`), planned and guarded by `galaxeo.arm` |
+| `gripper_a1x.py` | measures the jaw's stroke time and effort through the `a1x` backend, free and on a 3 cm cube, and suggests `a1x.gripper_force`. `--i-know` on the real arm, `--sim` for a rehearsal |
+| `bench_a1x.py` | the harness of `gripper_a1x.py`. `galaxeo.arm` and the `a1x` backend share one CAN link, one owner at a time. Enter and Ctrl-C are STOP |
 | `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package--galaxeo) |
 | `galaxeo/arm/` | the installed arm: model, IK, collisions, reach box, guarded moves. See [Installed arm](#installed-arm--galaxeoarm) |
