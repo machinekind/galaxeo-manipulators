@@ -241,3 +241,17 @@ One gotcha that costs an afternoon: `bus.sync_read("Present_Position")` returns
 **bare motor names**, while lerobot's `get_action()` returns `<name>.pos`.
 Mixing the two yields a silent 0.0 everywhere through `dict.get` defaults
 rather than an error.
+
+## Open measurements
+
+These facts are still to be measured on the arm.
+Most of them tune a key of the backend's `a1x:` section, see
+[galaxeo/robot/README.md](../galaxeo/robot/README.md#the-a1x-configuration-section).
+
+| What to measure | Why in doubt | How to check | Backend key |
+| --- | --- | --- | --- |
+| whether the gripper endpoints close the empty jaws with 0.04 rad of pressure and stay clear of the open stop | they come from the measured stops, but nobody tried them on the table | close empty: group 7 reads about +0.039, \|effort\| stays near rest and the jaws touch. Open: group 7 reads about −1.95, with the effort near rest | `gripper_closed_pdes`, `gripper_open_pdes` |
+| the unit of the gripper effort, and the contact threshold of 1.2 | the `/600` scale has no known unit. The threshold is empirical, and crushing was seen from about 6 | grip a 3 cm cube: the target must freeze on contact. Check that the gripper effort is not stuck at 0.00. That means a deaf gripper, and the backend does not detect it | `gripper_force` |
+| whether the arm keeps up with a 90 deg/s `p_des` stream at kp 20 | kp is ignored, but that was measured on small steps. Fast moves were not checked | drive large moves at full speed: the measurement follows the command, with no lag of 25 deg for 0.5 s | `kp`, `max_step_deg_s` |
+| the "deaf or blocked" threshold | it is 3 deg for 1 s on a standing joint. A joint resting on an obstacle trips it too | watch whether it fires during calm work | `deaf_err_deg`, `deaf_s` |
+| the J3 zero and the closed gripper zero | +1.49 deg comes from the arm this repo was developed against. The closed jaw stop is at +0.039 rad (2026-09-27), but nobody checked that the plates touch there | measure the joint zero as in [Joint zero](../galaxeo/robot/README.md#joint-zero-joint_offsets_deg). At gripper 0 the jaws must touch | `joint_offsets_deg`, `gripper_fb_closed` |

@@ -49,7 +49,7 @@ no LeRobot needed).
 | [**PROTOCOL.md**](docs/PROTOCOL.md) | the CAN-FD protocol, every field, and how it was recovered |
 | [**HARDWARE.md**](docs/HARDWARE.md) | wiring, bus timings, joint limits, telling two adapters apart |
 | [**VENDOR_SDK.md**](docs/VENDOR_SDK.md) | which Galaxea SDK is which, and where the useful one lives |
-| [galaxeo/robot/README.md](galaxeo/robot/README.md) | the A1X in the digital twin: install next to the twin, the `a1x:` section, first session |
+| [galaxeo/robot/README.md](galaxeo/robot/README.md) | the A1X as a plugin for machinekind's digital twin |
 | [docs/notes/](docs/notes/) | working notes, kept for provenance |
 
 ## What's in here
@@ -88,7 +88,7 @@ XCAN dongle through `xcan_usb.py`.
 | `wrist_cam.py` | live wrist-camera view in a browser with a focus score; runs on macOS |
 | `galaxeo/` | the Python package: protocol, CAN transports, the XCAN driver. See [Python package](#python-package--galaxeo) |
 | `galaxeo/arm/` | the installed arm: model, IK, collisions, reach box, guarded moves. See [Installed arm](#installed-arm--galaxeoarm) |
-| `galaxeo/robot/` | the A1X as a robot package for the digital twin: robot folder and `a1x` backend. See [galaxeo/robot/README.md](galaxeo/robot/README.md) |
+| `galaxeo/robot/` | the A1X as a plugin for machinekind's digital twin: robot folder and `a1x` backend. See [galaxeo/robot/README.md](galaxeo/robot/README.md) |
 | `import_twin_model.py` | regenerates the twin's model `galaxeo/robot/a1x/a1x.xml` from the URDF |
 | `galaxeo/xcan_usb.py` | userspace libusb driver for the XCAN / PCAN-USB FD dongle: macOS without SocketCAN |
 | `teleop2.py` | arm-to-arm teleop over raw CAN, two A1X arms |
