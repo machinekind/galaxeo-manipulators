@@ -177,6 +177,10 @@ point between the finger plates). Joints are radians, as on the wire.
 * **Collision** - self, table and caller boxes/spheres; poses and whole paths.
   A box can be turned about z (`Box.yaw`). The fingers stand at the home
   opening unless the check gives one (`opening=`, metres per finger).
+* **Stages** - `stage_plan` moves the elbow, then the wrist, then shoulder
+  and base, as the twin's staged home does. Each segment must pass the
+  caller's collision check. A refused plan tries the reverse order, then
+  one straight move.
 * **Reach box** - `arm.reach`, x 0.20..0.50, y ±0.30, z 0.05..0.30 m for the
   gripper: every corner of a 4x4x3 grid solves within 3 mm and is clear.
   Cached in `assets/reach.json`, recomputed when the model or tool changes.

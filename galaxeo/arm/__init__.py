@@ -11,6 +11,7 @@
 model      the A1X MJCF + table plane z = 0 + tool frame (Tool, Box, Sphere)
 kinematics FK and IK of the tool frame, a warm single-start IK step, body poses, fingertips
 collision  self, table and obstacle checks, pose and path
+stages     staged joint-space plan: elbow, wrist, then shoulder and base
 reach      the safe reach box, cached in assets/reach.json
 guard      impact guard: lag and effort rules, backoff pose
 motion     the guarded joint-space move, and the enable sequence
@@ -24,12 +25,13 @@ from .kinematics import IKResult, IKStep, JointBox, Kinematics, down_rotation, j
 from .model import GRIPPER, JOINTS, Box, Sphere, Tool
 from .motion import Motion, MoveResult, enable
 from .reach import ReachBox
+from .stages import StagePlan, stage_plan
 from .transport import BusTransport, Reading, SimTransport
 
 __all__ = [
     "Arm", "Plan", "MoveResult", "Motion", "enable",
     "Kinematics", "IKResult", "IKStep", "JointBox", "joint_box", "down_rotation",
-    "CollisionChecker", "ReachBox",
+    "CollisionChecker", "ReachBox", "StagePlan", "stage_plan",
     "Tool", "GRIPPER", "JOINTS", "Box", "Sphere",
     "BusTransport", "SimTransport", "Reading",
 ]
