@@ -9,14 +9,16 @@ of the installation is fixed, not a scene:
   * one end effector, whose tool frame is a fixed transform from arm_link6.
 
 Joint angles everywhere in this package are radians as the model and the wire
-use them (0x050 p_des, 0x052 position): no offsets, no degrees.
+use them (0x050 p_des, 0x052 position): no offsets, no degrees. A finger opening
+is the model's finger slide in metres (`finger_qpos`).
 """
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence, Tuple, Union
+from typing import Iterable, Optional, Sequence, Tuple, Union
 
 import mujoco
 import numpy as np
@@ -26,6 +28,7 @@ MJCF = os.path.join(ASSETS, "a1x.xml")
 
 JOINTS = tuple(f"arm_joint{i}" for i in range(1, 7))
 FINGERS = ("gripper_finger_joint1", "gripper_finger_joint2")
+FINGER_BODIES = ("gripper_finger_link1", "gripper_finger_link2")
 LAST_LINK = "arm_link6"
 BASE = "base_link"
 TOOL_SITE = "tool"
@@ -59,11 +62,12 @@ GRIPPER = Tool()
 
 @dataclass(frozen=True)
 class Box:
-    """Obstacle: axis-aligned box in the base frame, centre and half-sizes [m]."""
+    """Obstacle: box in the base frame, centre and half-sizes [m], turned by `yaw` [rad] about base z."""
 
     center: Tuple[float, float, float]
     half: Tuple[float, float, float]
     name: str = ""
+    yaw: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -82,7 +86,8 @@ def _as_obstacles(obstacles: Iterable[Obstacle]) -> Tuple[Obstacle, ...]:
     out = []
     for o in obstacles or ():
         if isinstance(o, Box):
-            out.append(Box(tuple(float(v) for v in o.center), tuple(float(v) for v in o.half), o.name))
+            out.append(Box(tuple(float(v) for v in o.center), tuple(float(v) for v in o.half), o.name,
+                           float(o.yaw)))
         elif isinstance(o, Sphere):
             out.append(Sphere(tuple(float(v) for v in o.center), float(o.radius), o.name))
         else:
@@ -113,6 +118,7 @@ def build(tool: Tool = GRIPPER, obstacles: Sequence[Obstacle] = ()) -> mujoco.Mj
         if isinstance(o, Box):
             g.type = mujoco.mjtGeom.mjGEOM_BOX
             g.size = list(o.half)
+            g.quat = [math.cos(o.yaw / 2.0), 0.0, 0.0, math.sin(o.yaw / 2.0)]
         else:
             g.type = mujoco.mjtGeom.mjGEOM_SPHERE
             g.size = [o.radius, 0.0, 0.0]
@@ -130,6 +136,8 @@ class Indices:
     finger_qadr: np.ndarray
     site: int
     base: int
+    tips: np.ndarray             # geoms of the curled fingertip boxes: finger 1, finger 2
+    finger_open: float           # widest finger slide [m], the upper limit of gripper_finger_joint1
     home: np.ndarray = field(default_factory=lambda: np.zeros(6))
     finger_home: np.ndarray = field(default_factory=lambda: np.zeros(2))
 
@@ -149,9 +157,36 @@ def indices(model: mujoco.MjModel) -> Indices:
         finger_qadr=fadr,
         site=model.site(TOOL_SITE).id,
         base=model.body(BASE).id,
+        tips=np.array([_fingertip(model, b) for b in FINGER_BODIES]),
+        finger_open=float(model.jnt_range[fids[0], 1]),
         home=kq[qadr].copy(),
         finger_home=kq[fadr].copy(),
     )
+
+
+def _fingertip(model: mujoco.MjModel, body: str) -> int:
+    """The curled tip of one finger: its collision box furthest out along the approach axis (x).
+
+    The generator (sim/urdf2mjcf.py) leaves the finger boxes unnamed, so the tip is found by its layout.
+    """
+    b = model.body(body).id
+    first = int(model.body_geomadr[b])
+    geoms = range(first, first + int(model.body_geomnum[b]))
+    boxes = [g for g in geoms if model.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX]
+    return max(boxes, key=lambda g: model.geom_pos[g, 0])
+
+
+def finger_qpos(ix: Indices, opening: Optional[float]) -> np.ndarray:
+    """qpos of the two finger joints: the home keyframe's, or `opening` [m].
+
+    `opening` is each finger's slide out from closed, gripper_finger_joint1 (0 closed, 0.05 open);
+    finger 2 mirrors it, as the model's equality does.
+    """
+    if opening is None:
+        return ix.finger_home
+    if not 0.0 <= opening <= ix.finger_open:
+        raise ValueError(f"finger opening {opening} m outside 0..{ix.finger_open} m")
+    return np.array([opening, -opening])
 
 
 def limits() -> Tuple[np.ndarray, np.ndarray]:

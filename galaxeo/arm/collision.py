@@ -7,6 +7,8 @@ MuJoCo checks the installation model on its own MjData. Two rules:
     joint move; ten samples per two-second move let a finger pass through a bottle.
   * Contacts present in the model's home pose are mounting contacts and allowed;
     every other pair touching the arm is a collision. No hand-kept exception list.
+
+The fingers stand at the home opening unless the caller gives one (`model.finger_qpos`).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from typing import Iterable, Optional, Sequence, Set, Tuple
 import mujoco
 import numpy as np
 
-from .model import BASE, GRIPPER, Obstacle, Tool, _as_obstacles, build, indices
+from .model import BASE, GRIPPER, Obstacle, Tool, _as_obstacles, build, finger_qpos, indices
 
 PATH_STEP_RAD = 0.04
 
@@ -40,10 +42,10 @@ class _Scene:
         self.key = [(model.body(b).name, g - int(model.body_geomadr[b]))
                     for g, b in enumerate(model.geom_bodyid)]
 
-    def contacts(self, q: np.ndarray) -> Set[Tuple[tuple, tuple]]:
+    def contacts(self, q: np.ndarray, opening: Optional[float] = None) -> Set[Tuple[tuple, tuple]]:
         d = self.data
         d.qpos[self.ix.qadr] = q
-        d.qpos[self.ix.finger_qadr] = self.ix.finger_home
+        d.qpos[self.ix.finger_qadr] = finger_qpos(self.ix, opening)
         mujoco.mj_fwdPosition(self.model, d)
         out = set()
         for c in d.contact[: d.ncon]:
@@ -82,20 +84,25 @@ class CollisionChecker:
             self._cache.move_to_end(obstacles)
         return s
 
-    def config_clear(self, q: Sequence[float], obstacles: Iterable[Obstacle] = ()) -> Optional[str]:
-        """None when the pose is clear, else a description of the first collision."""
+    def config_clear(self, q: Sequence[float], obstacles: Iterable[Obstacle] = (), *,
+                     opening: Optional[float] = None) -> Optional[str]:
+        """None when the pose is clear, else a description of the first collision.
+
+        `opening` [m] per finger; while the jaw may still be opening, check at the widest it can
+        be: open fingers reach further sideways than the home opening.
+        """
         s = self._scene(_as_obstacles(obstacles))
-        bad = s.contacts(np.asarray(q, float)) - self.allowed
+        bad = s.contacts(np.asarray(q, float), opening) - self.allowed
         return f"{s.describe(min(bad))}" if bad else None
 
     def path_clear(self, start: Sequence[float], goal: Sequence[float], obstacles: Iterable[Obstacle] = (),
-                   step_rad: float = PATH_STEP_RAD) -> Optional[str]:
+                   step_rad: float = PATH_STEP_RAD, *, opening: Optional[float] = None) -> Optional[str]:
         """None when the straight joint-space move is clear all the way, else where it collides."""
         obstacles = _as_obstacles(obstacles)
         q0, q1 = np.asarray(start, float), np.asarray(goal, float)
         n = max(1, int(np.ceil(float(np.max(np.abs(q1 - q0))) / step_rad)))
         for s in np.linspace(0.0, 1.0, n + 1)[1:]:
-            why = self.config_clear(q0 + s * (q1 - q0), obstacles)
+            why = self.config_clear(q0 + s * (q1 - q0), obstacles, opening=opening)
             if why:
                 return f"{why} at {s:.0%} of the way"
         return None

@@ -125,7 +125,8 @@ b.send(protocol.CMD_ID, protocol.encode_arm(fb.pos[:6], kp=20.0, kd=1.0))
   `0x051`); the 1-byte `0x053` goes as classic CAN with `fd=False`.
 * `galaxeo.a1x` - the A1X as a driven arm: connect, stream `p_des` from the
   measured pose, limits, link loss, enable, the gripper with its contact
-  stop. Standard library only.
+  stop and a read-only `gripper_state()`. A command frame it did not send
+  is a fault in `faults()`. Standard library only.
 * `python -m galaxeo.xcan_usb` - read-only check of the XCAN dongle;
   `--grip-test` streams `0x051` to open and close the gripper and reports
   whether it reacted.
@@ -169,7 +170,17 @@ point between the finger plates). Joints are radians, as on the wire.
   from the URDF; joint limits come from it.
 * **Kinematics** - FK and IK of the tool frame in MuJoCo. IK reports its
   residual, keeps to the limits, and puts the point before the orientation.
+  `ik_step` solves from the caller's seed alone, with no restarts, so a
+  target that moves every tick keeps one joint branch. `joint_box` turns
+  the caller's limits in degrees into its `lo`/`hi`. `link_pose` gives the
+  pose of any body, and `fingertips` the lowest corner of each fingertip.
 * **Collision** - self, table and caller boxes/spheres; poses and whole paths.
+  A box can be turned about z (`Box.yaw`). The fingers stand at the home
+  opening unless the check gives one (`opening=`, metres per finger).
+* **Stages** - `stage_plan` moves the elbow, then the wrist, then shoulder
+  and base, as the twin's staged home does. Each segment must pass the
+  caller's collision check. A refused plan tries the reverse order, then
+  one straight move.
 * **Reach box** - `arm.reach`, x 0.20..0.50, y ±0.30, z 0.05..0.30 m for the
   gripper: every corner of a 4x4x3 grid solves within 3 mm and is clear.
   Cached in `assets/reach.json`, recomputed when the model or tool changes.

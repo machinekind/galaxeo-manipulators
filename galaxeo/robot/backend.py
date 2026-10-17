@@ -13,11 +13,15 @@ What the adapter adds is the twin's view of the arm:
 * the twin's limits (`set_joint_limits`), kept in degrees and handed to the driver in radians;
 * the twin's own numbers back, exactly: `send_joints` returns the command it clamped in degrees and 0..100,
   `goal_positions` the latest of them, and an unmeasured gripper reads back the last command the driver
-  took. Degrees -> radians and 0..100 -> p_des do not round-trip exactly in floating point.
+  took. Degrees -> radians and 0..100 -> p_des do not round-trip exactly in floating point;
+* `gripper_state()`, the driver's `GripperState` in 0..100, and `foreign_frames()`, the command frames of
+  another sender on the link. While another sender is seen, `faults()` reports it with no joint name, so the
+  twin stops.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -28,7 +32,10 @@ from typing import Any, Protocol
 from ..a1x import A1X, CONNECT_TIMEOUT_S, A1XConfig, Reading, load_settings, open_bus
 from ..protocol import N_JOINTS
 
-__all__ = ["A1XArm", "A1XConfig", "BackendContext", "BackendInfo", "create", "load_settings", "open_bus"]
+__all__ = ["A1XArm", "A1XConfig", "BackendContext", "BackendInfo", "GripperState", "create", "load_settings",
+           "open_bus"]
+
+logger = logging.getLogger(__name__)
 
 
 class BackendContext(Protocol):
@@ -57,6 +64,26 @@ class BackendInfo:
     name: str
     description: str
     simulated: bool
+
+
+@dataclass(frozen=True)
+class GripperState:
+    """Read-only snapshot of the gripper as the driver drives and measures it (`A1XArm.gripper_state()`).
+
+    Openings in app units: 0 = closed, 100 = open.
+    """
+
+    commanded: float | None        # last command the backend let through, or `assume_gripper`; None before the first
+    target: float | None           # where the stream goes (differs from `commanded` once frozen)
+    streamed: float | None         # opening really sent last; the best guess of the jaw without a measurement
+    position: float | None         # measured opening; None while the driver does not measure it
+    frozen: bool                   # contact while closing: the target stands where the stream was
+    effort: float | None           # raw A1X scale; None without fresh feedback
+    t: float                       # driver clock when the reading arrived (the queue drain)
+    age_s: float | None            # driver clock now minus `t`; None before any reading
+    rate: float                    # stream speed [units/s]
+    force_threshold: float         # effort above rest at which a closing jaw stops
+    measured: bool                 # whether `position` is a measurement
 
 
 def create(ctx: BackendContext) -> A1XArm:
@@ -88,6 +115,7 @@ class A1XArm:
         self._lock = threading.RLock()
         self._goal: dict[str, float] = {}            # latest commands [app units]
         self._grip_cmd: float | None = None          # the last gripper command [0..100] the driver took, or assumed
+        self._gripper_state_failed = False
         self._limits_to_driver()
 
     @property
@@ -99,6 +127,7 @@ class A1XArm:
             if not self.a1x.is_connected:
                 self._goal = {}
                 self._grip_cmd = None
+                self._gripper_state_failed = False
         self.a1x.connect()
 
     def disconnect(self) -> None:
@@ -139,6 +168,10 @@ class A1XArm:
         if r.gripper_measured:
             return 100.0 * self.a1x.gripper_opening(r.gripper)
         return self.a1x.cfg.gripper_start if self._grip_cmd is None else self._grip_cmd
+
+    def _pdes_app(self, p: float | None) -> float | None:
+        """Gripper p_des -> 0..100, the inverse of `A1X.gripper_pdes`; None stays None."""
+        return None if p is None else 100.0 * self.a1x.gripper_opening(p)
 
     def send_joints(self, targets: dict[str, float]) -> dict[str, float]:
         """Arm and gripper target. Returns the clamped COMMAND in app units.
@@ -194,6 +227,42 @@ class A1XArm:
         """deg/s from frame 0x052; arm joints only, no gripper."""
         vel = self.a1x.velocities()
         return None if vel is None else {name: math.degrees(v) for name, v in zip(self.arm, vel)}
+
+    def gripper_state(self) -> GripperState | None:
+        """The driver's `A1X.gripper_state()` with openings in 0..100; `commanded` is the twin's own number.
+
+        Changes nothing and sends nothing. None without a connection and on any error (logged
+        once): a control loop asks every tick and must not crash on it.
+        """
+        try:
+            with self._lock:
+                gs = self.a1x.gripper_state()
+                if gs is None:
+                    return None
+
+                a = self.a1x.cfg
+                return GripperState(
+                    commanded=self._grip_cmd,
+                    target=self._pdes_app(gs.target),
+                    streamed=self._pdes_app(gs.streamed),
+                    position=self._pdes_app(gs.position),
+                    frozen=gs.frozen,
+                    effort=gs.effort,
+                    t=gs.t,
+                    age_s=gs.age_s,
+                    rate=gs.rate * 100.0 / abs(a.gripper_open_pdes - a.gripper_closed_pdes),
+                    force_threshold=gs.force_threshold,
+                    measured=gs.measured,
+                )
+        except Exception:
+            if not self._gripper_state_failed:
+                self._gripper_state_failed = True
+                logger.exception("A1X: could not read the gripper state")
+            return None
+
+    def foreign_frames(self) -> int:
+        """Command frames (0x050, 0x051, FF) of another sender received since connecting (`A1X.foreign_frames`)."""
+        return self.a1x.foreign_frames()
 
     def goal_positions(self) -> dict[str, float]:
         """Latest targets [app units]; `{}` before the first command (p_des cannot be read back)."""
