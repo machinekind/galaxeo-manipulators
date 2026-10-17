@@ -1,8 +1,8 @@
 # galaxeo.robot
 
-The Galaxea A1X as a plugin for the digital twin (package `lerobot_mp`).
+The Galaxea A1X as a plugin for the digital twin (package `machinekind_twin`).
 It holds the robot folder `a1x/` and the hardware backend `a1x`, which implement the twin's plugin contracts.
-The twin finds them through the entry points `lerobot_mp.robots` and `lerobot_mp.backends`. galaxeo never imports the twin.
+The twin finds them through the entry points `machinekind_twin.robots` and `machinekind_twin.backends`. galaxeo never imports the twin.
 
 The digital twin is machinekind's tool that measures a robot station, its cameras and its dynamics.
 It runs any control strategy on the station through a safety supervisor, in simulation and on hardware.
@@ -27,10 +27,10 @@ Read [docs/SAFETY.md](../../docs/SAFETY.md) before the first power-on.
 ## Entry points
 
 ```toml
-[project.entry-points."lerobot_mp.robots"]
+[project.entry-points."machinekind_twin.robots"]
 a1x = "galaxeo.robot:ROBOT_DIR"
 
-[project.entry-points."lerobot_mp.backends"]
+[project.entry-points."machinekind_twin.backends"]
 a1x = "galaxeo.robot.backend:create"
 ```
 
@@ -50,7 +50,7 @@ Or straight from git:
 pip install "galaxeo[xcan] @ git+https://github.com/machinekind/galaxeo-manipulators.git@main"
 ```
 
-The twin then offers the A1X. `lerobot-twin demo --robot a1x` copies `a1x/demo.json`.
+The twin then offers the A1X. `twin demo --robot a1x` copies `a1x/demo.json`.
 When an adapter's module is missing, `connect()` names the extra to install.
 
 ## Port

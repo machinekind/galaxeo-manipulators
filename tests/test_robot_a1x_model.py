@@ -20,7 +20,7 @@ from galaxeo.robot import ROBOT_DIR  # noqa: E402
 
 SPEC = yaml.safe_load((ROBOT_DIR / "robot.yaml").read_text(encoding="utf-8"))
 MODEL_PATH = ROBOT_DIR / SPEC["mjcf"]
-#: The options the twin's scene copies from the arm model before it attaches it (`twin/scene.py`).
+#: The options the twin's scene copies from the arm model before it attaches it (`machinekind_twin/scene.py`).
 SCENE_OPTIONS = ("timestep", "integrator", "cone", "impratio", "iterations", "ls_iterations")
 
 
