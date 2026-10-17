@@ -2,7 +2,7 @@
 
 The driver is `galaxeo.a1x.A1X`: connect, the p_des stream, limits, link loss, enable and the gripper,
 in wire units and without the twin. This module is a plugin of the twin's backend contract
-(`BackendPlugin`): a plain class built by `create(ctx)`, registered under the `lerobot_mp.backends`
+(`BackendPlugin`): a plain class built by `create(ctx)`, registered under the `machinekind_twin.backends`
 entry point. It never imports the twin.
 
 What the adapter adds is the twin's view of the arm:
@@ -87,7 +87,7 @@ class GripperState:
 
 
 def create(ctx: BackendContext) -> A1XArm:
-    """Entry point of the `a1x` backend plugin (`lerobot_mp.backends`)."""
+    """Entry point of the `a1x` backend plugin (`machinekind_twin.backends`)."""
     return A1XArm(ctx)
 
 

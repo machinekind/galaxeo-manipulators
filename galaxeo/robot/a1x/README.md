@@ -1,8 +1,8 @@
 # Galaxea A1X for the digital twin
 
-The A1X as a robot folder for the digital twin (`lerobot_mp`): `robot.yaml`, the MuJoCo model
-`a1x.xml` it names, and `demo.json`, the example workspace `lerobot-twin demo --robot a1x` copies.
-The twin finds this folder through the `lerobot_mp.robots` entry point of the galaxeo package.
+The A1X as a robot folder for the digital twin (`machinekind_twin`): `robot.yaml`, the MuJoCo model
+`a1x.xml` it names, and `demo.json`, the example workspace `twin demo --robot a1x` copies.
+The twin finds this folder through the `machinekind_twin.robots` entry point of the galaxeo package.
 
 ## Source
 
@@ -51,7 +51,7 @@ Measured in the twin with this model:
 
 | Check | Result |
 |---|---|
-| camera calibration, `lerobot-twin calib-sim --robot a1x --n 3 --cameras 2` | 6/6 trusted. Median 0.24 mm / 0.017°, worst 0.82 mm / 0.041°, residual 0.21 px |
+| camera calibration, `twin calib-sim --robot a1x --n 3 --cameras 2` | 6/6 trusted. Median 0.24 mm / 0.017°, worst 0.82 mm / 0.041°, residual 0.21 px |
 | calibration session, seed 0, 1 camera | 16 poses, 0.20 mm, 0.017° |
 | camera from the side (about 180° to the base), seed 1, 2 cameras | 2/2 trusted. It was 0/2 before the twin's rotation-median fix in `calib/handeye.py` |
 | IK to reach goals at A1X scale | 20/20, worst 0.33 mm |

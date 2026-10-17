@@ -20,11 +20,11 @@ arm = ["numpy>=1.24", "mujoco>=3.2"]
 # PyYAML: the tests read galaxeo/robot/a1x/robot.yaml (the twin reads it at run time).
 test = ["pytest>=7", "PyYAML>=6"]
 
-# The digital twin (lerobot_mp) finds the A1X through these; galaxeo never imports the twin.
-[project.entry-points."lerobot_mp.robots"]
+# The digital twin (machinekind_twin) finds the A1X through these; galaxeo never imports the twin.
+[project.entry-points."machinekind_twin.robots"]
 a1x = "galaxeo.robot:ROBOT_DIR"
 
-[project.entry-points."lerobot_mp.backends"]
+[project.entry-points."machinekind_twin.backends"]
 a1x = "galaxeo.robot.backend:create"
 
 [tool.setuptools]

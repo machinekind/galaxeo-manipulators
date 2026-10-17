@@ -564,8 +564,8 @@ def test_the_entry_points_name_the_robot_folder_and_the_backend_factory():
     tomllib = pytest.importorskip("tomllib")
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]
 
-    folder = Path(_load(project["entry-points"]["lerobot_mp.robots"]["a1x"]))
-    factory = _load(project["entry-points"]["lerobot_mp.backends"]["a1x"])
+    folder = Path(_load(project["entry-points"]["machinekind_twin.robots"]["a1x"]))
+    factory = _load(project["entry-points"]["machinekind_twin.backends"]["a1x"])
 
     assert (folder / "robot.yaml").is_file()
     assert (folder / "a1x.xml").is_file()
