@@ -7,7 +7,7 @@ The twin finds them through the entry points `machinekind_twin.robots` and `mach
 The digital twin is machinekind's tool that measures a robot station, its cameras and its dynamics.
 It runs any control strategy on the station through a safety supervisor, in simulation and on hardware.
 This package plugs the A1X into it.
-The twin lives in [digital_twin_training](https://github.com/machinekind/digital_twin_training), a private repository at the moment.
+The twin lives in [machinekind/twin](https://github.com/machinekind/twin), a private repository at the moment.
 
 Read [docs/SAFETY.md](../../docs/SAFETY.md) before the first power-on.
 
